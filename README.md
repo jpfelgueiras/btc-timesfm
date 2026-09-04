@@ -56,6 +56,28 @@ Experimental - not financial advice.
 
 The posting step uses X API v2 through Tweepy with OAuth 1.0a user credentials.
 
+### X API billing and credits
+
+The standard X API uses prepaid, pay-per-use credits. A valid OAuth setup can still return:
+
+```text
+402 Payment Required
+credits depleted
+```
+
+when the developer account has no API credit balance.
+
+Purchase credits in the X Developer Console before expecting automated posts to succeed. X currently lists a normal **Content: Create** request at `$0.015` per request; check the Developer Console for the current rate because pricing can change.
+
+At this repository's default every-2-hours schedule, that is about 12 posts/day or roughly 360 posts in a 30-day month, which would be about `$5.40/month` at `$0.015` per post, excluding any other X API usage.
+
+The workflow treats the specific `402 / credits depleted` condition as a warning so the BTC forecast itself is not marked failed. `x_post_status.json` records whether the post was published or skipped because credits were unavailable.
+
+X API pricing and billing documentation:
+
+- <https://docs.x.com/x-api/getting-started/pricing>
+- <https://docs.x.com/x-api/fundamentals/post-cap>
+
 ### 1. Create an X developer app
 
 1. Open the X Developer Console at <https://console.x.com/> and sign in with the X account that should publish the forecasts.
