@@ -54,16 +54,61 @@ Prev +2h: 0.31% error | direction OK | in range
 Experimental - not financial advice.
 ```
 
-Add these repository secrets before enabling scheduled posting:
+The posting step uses X API v2 through Tweepy with OAuth 1.0a user credentials.
+
+### 1. Create an X developer app
+
+1. Open the X Developer Console at <https://console.x.com/> and sign in with the X account that should publish the forecasts.
+2. Create an app, or open an existing app.
+3. Configure OAuth 1.0a permissions as **Read and write**. Read-only credentials cannot create posts.
+4. Open the app's **Keys and tokens** section.
+5. Generate or copy the following credentials:
+   - **API Key** -> `X_API_KEY`
+   - **API Key Secret** -> `X_API_SECRET`
+   - **Access Token** -> `X_ACCESS_TOKEN`
+   - **Access Token Secret** -> `X_ACCESS_TOKEN_SECRET`
+6. If you changed the app from read-only to read/write after generating user access tokens, regenerate/re-authorize the Access Token and Access Token Secret so they inherit the new permissions.
+
+X's OAuth 1.0a documentation:
+
+- <https://docs.x.com/fundamentals/authentication/oauth-1-0a/overview>
+- <https://docs.x.com/fundamentals/authentication/oauth-1-0a/api-key-and-secret>
+- <https://docs.x.com/fundamentals/developer-apps>
+
+Treat all four values as passwords. Do not commit them to this repository, paste them into workflow YAML, or store them in forecast artifacts.
+
+### 2. Add the credentials as GitHub Actions secrets
+
+Create these repository secrets:
 
 - `X_API_KEY`
 - `X_API_SECRET`
 - `X_ACCESS_TOKEN`
 - `X_ACCESS_TOKEN_SECRET`
 
-The X application/user credentials must have permission to create posts.
+Using the GitHub UI:
 
-The posting step uses X API v2 through Tweepy with OAuth 1.0a user credentials. Credentials are only read from GitHub Secrets and are never written to the forecast artifacts.
+1. Open this repository on GitHub.
+2. Go to **Settings -> Secrets and variables -> Actions**.
+3. Select **New repository secret**.
+4. Add each of the four names above with the corresponding value from the X Developer Console.
+
+Or, with GitHub CLI authenticated for this repository:
+
+```bash
+gh secret set X_API_KEY --repo jpfelgueiras/btc-timesfm
+gh secret set X_API_SECRET --repo jpfelgueiras/btc-timesfm
+gh secret set X_ACCESS_TOKEN --repo jpfelgueiras/btc-timesfm
+gh secret set X_ACCESS_TOKEN_SECRET --repo jpfelgueiras/btc-timesfm
+```
+
+`gh` prompts securely for each value, so the token does not need to appear in your shell history.
+
+### 3. Test before enabling scheduled posting
+
+Run **BTC TimesFM 3 Forecast** manually from GitHub Actions on this branch. Leave `post_to_x` disabled first to verify the forecast and generated `tweet.txt`. Then run it again with `post_to_x` enabled to verify that the app can create a post.
+
+Credentials are only read from GitHub Actions secrets and are never written to `forecast.json`, `tweet.txt`, artifacts, or the repository.
 
 ## Forecast state
 
