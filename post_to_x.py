@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import tweepy
 
 
 TWEET_PATH = Path("tweet.txt")
+STATUS_PATH = Path("x_post_status.json")
 REQUIRED_ENV = (
     "X_API_KEY",
     "X_API_SECRET",
@@ -23,6 +25,11 @@ def require_env(name: str) -> str:
     if not value:
         raise RuntimeError(f"Required environment variable {name} is not set")
     return value
+
+
+def write_status(status: str, **extra: object) -> None:
+    payload = {"status": status, **extra}
+    STATUS_PATH.write_text(json.dumps(payload, indent=2) + "\n")
 
 
 def main() -> None:
@@ -43,11 +50,40 @@ def main() -> None:
         access_token_secret=credentials["X_ACCESS_TOKEN_SECRET"],
     )
 
-    response = client.create_tweet(text=text)
+    try:
+        response = client.create_tweet(text=text)
+    except tweepy.HTTPException as exc:
+        status_code = getattr(exc.response, "status_code", None)
+        response_text = getattr(exc.response, "text", "") or ""
+
+        if status_code == 402 and "credits depleted" in response_text.lower():
+            message = (
+                "X API credits are depleted. The forecast was generated successfully, "
+                "but X refused the post with HTTP 402. Add API credits in the X Developer "
+                "Console, then re-run the workflow."
+            )
+            write_status(
+                "not_posted_no_credits",
+                http_status=402,
+                reason="credits depleted",
+            )
+            print(f"::warning::{message}")
+            print(message)
+            return
+
+        write_status(
+            "failed",
+            http_status=status_code,
+            error=str(exc),
+        )
+        raise
+
     tweet_id = response.data.get("id") if response.data else None
     if not tweet_id:
+        write_status("failed", error="X API returned no post ID")
         raise RuntimeError("X API returned no post ID")
 
+    write_status("posted", post_id=tweet_id)
     print(f"Posted forecast to X successfully. Post ID: {tweet_id}")
 
 
