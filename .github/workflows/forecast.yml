@@ -88,11 +88,23 @@ jobs:
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
         run: python post_to_x.py
 
+      - name: Add X posting status to job summary
+        if: always() && hashFiles('x_post_status.json') != ''
+        run: |
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo '### X API result' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat x_post_status.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload forecast
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: btc-forecast-${{ github.run_id }}
           path: |
             forecast.json
             tweet.txt
+            x_post_status.json
+          if-no-files-found: warn
           retention-days: 7
