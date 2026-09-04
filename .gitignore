@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 .DS_Store
 forecast.json
+tweet.txt
+.state/
