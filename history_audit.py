@@ -159,9 +159,7 @@ def load_actuals(path: Path | str | None) -> dict[int, float]:
             if not isinstance(item, dict):
                 raise ValueError("Actuals list entries must be JSON objects")
             if "target_at" not in item or "actual_target_price_usd" not in item:
-                raise ValueError(
-                    "Actuals entries require target_at and actual_target_price_usd"
-                )
+                raise ValueError("Actuals entries require target_at and actual_target_price_usd")
             add(item["target_at"], item["actual_target_price_usd"])
         return result
     raise ValueError("Actuals JSON must be an object or list")
@@ -187,9 +185,7 @@ def _required_structure(
 
     tables = {
         str(row[0])
-        for row in connection.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table'"
-        )
+        for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
     }
     report["tables"] = sorted(tables)
     required = {
@@ -243,8 +239,7 @@ def _required_structure(
     missing_columns: list[dict[str, Any]] = []
     for table_name, expected in required_columns.items():
         existing = {
-            str(row["name"])
-            for row in connection.execute(f"PRAGMA table_info({table_name})")
+            str(row["name"]) for row in connection.execute(f"PRAGMA table_info({table_name})")
         }
         missing = sorted(expected - existing)
         if missing:
@@ -455,9 +450,7 @@ def _outcome_metrics(
         "absolute_error_pct": abs(error) / actual * 100.0,
         "signed_error_pct": error / actual * 100.0,
         "actual_change_pct": (actual / source - 1.0) * 100.0,
-        "direction_correct": int(
-            _direction(predicted - source) == _direction(actual - source)
-        ),
+        "direction_correct": int(_direction(predicted - source) == _direction(actual - source)),
         "within_q10_q90": within,
     }
 
@@ -751,11 +744,7 @@ def _apply_repairs(path: Path, report: dict[str, Any], now: datetime) -> None:
         "recompute_outcome_metrics",
         "fill_matured_outcome",
     }
-    actions = [
-        action
-        for action in report["repairs"]["proposed"]
-        if action["action"] in writable
-    ]
+    actions = [action for action in report["repairs"]["proposed"] if action["action"] in writable]
     if not actions:
         return
 
@@ -903,13 +892,10 @@ def audit_database(
         "invalid_origin_fields",
         "invalid_prediction_fields",
     }
-    blockers = sorted(
-        issue["code"] for issue in report["issues"] if issue["code"] in unsafe
-    )
+    blockers = sorted(issue["code"] for issue in report["issues"] if issue["code"] in unsafe)
     if blockers:
         report["repairs"]["blocked_reason"] = (
-            "Automatic repair blocked by structural or ambiguous errors: "
-            + ", ".join(blockers)
+            "Automatic repair blocked by structural or ambiguous errors: " + ", ".join(blockers)
         )
         return _finish(report)
 
