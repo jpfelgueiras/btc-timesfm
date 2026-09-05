@@ -1,6 +1,6 @@
 # BTC TimesFM — Project State and Roadmap
 
-_Last updated: 2026-09-05_
+_Last updated: 2026-09-06_
 
 This document is the operational roadmap for `btc-timesfm`: what is already implemented, what the system currently does in production, the main limitations, and the recommended order for the next improvements.
 
@@ -41,6 +41,9 @@ The project has moved beyond a TimesFM experiment into a small forecasting platf
 - **Emoji-rich tweet formatting** with compact 280-character fallbacks.
 - **PR CI quality gates** for unit tests, coverage, Ruff lint/format, and mypy checks.
 - **Automated dependency/security scanning** with vulnerability and credential-leak checks.
+- **Durable X publication idempotency and session-health preflight** with two-phase reservations, duplicate suppression, and persisted post metadata.
+- **Persistent pipeline health and circuit breakers** with fail-closed publication gates, consecutive-failure tracking, deterministic recovery, and optional notifications.
+- **Machine-readable optimizer promotion policy** with statistical, horizon, regime, persistence, and production-health guardrails; decisions remain review-only.
 
 Relevant completed roadmap/foundation issues:
 
@@ -61,7 +64,10 @@ Relevant completed roadmap/foundation issues:
 - [#27 Purged walk-forward cross-validation](https://github.com/jpfelgueiras/btc-timesfm/issues/27)
 - [#28 Statistical significance and uncertainty testing](https://github.com/jpfelgueiras/btc-timesfm/issues/28)
 - [#33 Model and feature drift detection](https://github.com/jpfelgueiras/btc-timesfm/issues/33)
+- [#38 X posting idempotency and session-health checks](https://github.com/jpfelgueiras/btc-timesfm/issues/38)
+- [#39 Pipeline alerts, health checks and circuit breakers](https://github.com/jpfelgueiras/btc-timesfm/issues/39)
 - [#40 Automated dependency and security scanning](https://github.com/jpfelgueiras/btc-timesfm/issues/40)
+- [#41 Optimizer promotion policy and safety guardrails](https://github.com/jpfelgueiras/btc-timesfm/issues/41)
 
 ---
 
@@ -200,11 +206,11 @@ Current intervals use empirical calibration, but conformal calibration has not y
 
 ### Social publishing
 
-Twikit is an unofficial X client. Session cookies can expire and frontend changes can break posting. Duplicate-post protection and explicit session-health checks are still needed.
+Twikit is an unofficial X client, so session cookies can still expire and frontend changes can still break posting. The production workflow now preflights session health, durably reserves each publication by forecast origin/content, suppresses duplicates, persists successful post IDs, and fails closed on ambiguous attempts.
 
 ### Operational controls
 
-Structured observability, history auditing, bounded backup/recovery, and model/feature drift detection are implemented. Pipeline health alerts and circuit breakers remain incomplete.
+Structured observability, history auditing, bounded backup/recovery, model/feature drift detection, persistent stage-health counters, publication gates, and circuit breakers are implemented. Optional webhook alerts expose actionable failures without making core safety controls depend on an external notifier.
 
 ### Merge enforcement
 
@@ -216,9 +222,9 @@ CI checks run on every pull request. Enforcing every check as a mandatory merge 
 
 The roadmap is split into five phases. Dependencies are intentional: later work should not be started when it depends on an unfinished foundation unless the work can safely proceed in parallel.
 
-**Completed roadmap items:** #17, #18, #19, #20, #21, #22, #23, #24, #25, #26, #27, #28, #33, and #40.
+**Completed roadmap items:** #17, #18, #19, #20, #21, #22, #23, #24, #25, #26, #27, #28, #33, #38, #39, #40, and #41.
 
-**Highest-value currently unblocked work:** #38 (X idempotency/session health), #39 (pipeline health/circuit breakers), and #41 (optimizer promotion policy). #31 remains the next high-value uncertainty-calibration improvement, while #29/#30/#32 can proceed in parallel.
+**Highest-value currently unblocked work:** #31 (conformal interval calibration), #30 (correlation-aware weighting), #29 (improved regimes), and #32 (diversified model). #42 (champion-vs-challenger reporting) is now also unblocked by completion of #41.
 
 ## Phase 1 — Foundation & Data
 
@@ -305,17 +311,17 @@ Goal: make the scheduled forecast/publishing pipeline safe to leave running unat
 
 | Issue | Improvement | Depends on | Priority |
 |---|---|---|---|
-| [#38](https://github.com/jpfelgueiras/btc-timesfm/issues/38) | X posting idempotency and session-health checks | #9, #22 | P0 |
-| [#39](https://github.com/jpfelgueiras/btc-timesfm/issues/39) | Pipeline alerts, health checks and circuit breakers | #17, #18, #22, #33 | P0 |
+| [#38](https://github.com/jpfelgueiras/btc-timesfm/issues/38) | ✅ X posting idempotency and session-health checks | #9, #22 | P0 |
+| [#39](https://github.com/jpfelgueiras/btc-timesfm/issues/39) | ✅ Pipeline alerts, health checks and circuit breakers | #17, #18, #22, #33 | P0 |
 | [#40](https://github.com/jpfelgueiras/btc-timesfm/issues/40) | ✅ Automated dependency and security scanning | #25 | P1 |
 | [#44](https://github.com/jpfelgueiras/btc-timesfm/issues/44) | Statistically grounded confidence explanations in posts | #23, #30, #31, #33 | P1 |
 
 ### Phase 4 definition of done
 
-- Re-running a forecast cannot publish the same X post twice.
-- Expired X sessions are detected clearly and safely.
-- Severe data/model health conditions stop publication instead of emitting misleading forecasts.
-- Repeated failures and recovery states are visible.
+- ✅ Re-running a forecast cannot publish the same X post twice.
+- ✅ Expired X sessions are detected clearly and safely.
+- ✅ Severe data/model health conditions stop publication instead of emitting misleading forecasts.
+- ✅ Repeated failures and recovery states are visible.
 - ✅ Dependency vulnerabilities are surfaced automatically.
 - Public confidence language is based on measured evidence, sample size, drift state, and calibration rather than raw model agreement alone.
 
@@ -327,13 +333,13 @@ Goal: automate repetitive model-selection work without allowing the research sys
 
 | Issue | Improvement | Depends on | Priority |
 |---|---|---|---|
-| [#41](https://github.com/jpfelgueiras/btc-timesfm/issues/41) | Optimizer promotion policy and safety guardrails | #7, #28, #33 | P0 |
+| [#41](https://github.com/jpfelgueiras/btc-timesfm/issues/41) | ✅ Optimizer promotion policy and safety guardrails | #7, #28, #33 | P0 |
 | [#42](https://github.com/jpfelgueiras/btc-timesfm/issues/42) | Champion-vs-challenger evaluation reports | #7, #26, #28, #41 | P1 |
 | [#43](https://github.com/jpfelgueiras/btc-timesfm/issues/43) | Automatically open safe parameter-change PRs | #21, #41, #42 | P2 |
 
 ### Phase 5 definition of done
 
-- A machine-readable promotion policy determines whether research evidence is sufficient.
+- ✅ A machine-readable promotion policy determines whether research evidence is sufficient.
 - Production and challenger configurations are evaluated on identical samples/folds.
 - Research reports explain why a candidate is accepted, rejected, or inconclusive.
 - The optimizer can open a reviewable configuration PR only after all safety criteria pass.
@@ -380,15 +386,15 @@ Goal: automate repetitive model-selection work without allowing the research sys
    │          ├──► #35 order-book signals ─┼──► #37 feature ablation
    │          └──► #36 cross-asset signals ─┘
    │
-   └──► #22 ✅ ──► #38
-                 └──► #39 (also needs #33 ✅)
+   └──► #22 ✅ ──► #38 ✅
+                 └──► #39 ✅ (also needs #33 ✅)
 ```
 
 ```text
 #7 + #28 ✅ + #33 ✅
        │
        ▼
-      #41
+      #41 ✅
        │
        ▼
       #42
@@ -401,34 +407,28 @@ Goal: automate repetitive model-selection work without allowing the research sys
 
 # Recommended next execution order
 
-The evaluation critical path **#26 → #27 → #28** is complete, and #33 now supplies production drift awareness. The next work should turn those signals into safer unattended operation and controlled automation.
+The evaluation critical path **#26 → #27 → #28** is complete, #33 supplies production drift awareness, and the P0 production/research-safety work **#38, #39, and #41** is complete. The next work should improve uncertainty calibration, ensemble diversity, and reviewable research automation.
 
 The highest-value sequence is:
 
-1. **#38 — X posting idempotency and session-health checks (P0)**  
-   Fully unblocked by #9 + #22. This removes the immediate publishing risks of duplicate posts and silent session expiry.
-
-2. **#39 — Pipeline alerts, health checks and circuit breakers (P0)**  
-   Now fully unblocked by #17 + #18 + #22 + #33. Convert validated data, structured observability, and drift state into fail-closed production controls.
-
-3. **#41 — Optimizer promotion policy and safety guardrails (P0)**  
-   Now fully unblocked by #7 + #28 + #33. Define the machine-readable evidence and safety policy before any optimizer-generated production change is allowed.
-
-4. **#31 — Conformal calibration for forecast intervals (P1)**  
+1. **#31 — Conformal calibration for forecast intervals (P1)**  
    Improve uncertainty quality directly using the completed leakage-safe evaluation foundation.
 
-5. **#30 — Correlation-aware ensemble weighting (P1)**  
+2. **#30 — Correlation-aware ensemble weighting (P1)**  
    Prevent highly correlated TimesFM contexts from receiving misleadingly independent weight.
 
-6. **#29 — Improved market regime detection (P1)**  
+3. **#29 — Improved market regime detection (P1)**  
    Replace the heuristic classifier with an out-of-sample validated approach.
 
-7. **#32 — Diversified non-TimesFM forecasting model (P1)**  
+4. **#32 — Diversified non-TimesFM forecasting model (P1)**  
    Evaluate a genuinely different model family through the completed benchmark/CV/significance pipeline.
 
-8. **#34/#35/#36 — richer market signals** can proceed in parallel where useful, but promotion should continue to use the completed #26/#27/#28 evaluation path. After all three signal families exist, #37 can automate ablation/selection.
+5. **#42 — Champion-vs-challenger evaluation reports (P1)**  
+   Build the human-review layer now that #41 defines the machine-readable promotion contract; completion of #42 will unblock #43.
 
-Once #30, #31, and #33 are complete, #44 can replace raw model-agreement language in public posts with evidence-grounded confidence explanations.
+6. **#34/#35/#36 — richer market signals** can proceed in parallel where useful, but promotion should continue to use the completed #26/#27/#28 evaluation path. After all three signal families exist, #37 can automate ablation/selection.
+
+Once #30 and #31 are complete, #44 can replace raw model-agreement language in public posts with evidence-grounded confidence explanations.
 
 ---
 
@@ -464,13 +464,14 @@ Outcome: crypto-native and cross-market features are added only where ablation p
 ## Stage E — Production hardening
 
 Target issues: **#22, #23, #38, #39, #40, #44**  
-Completed: **#22, #23, #40**. Remaining: **#38, #39, #44**.
+Completed: **#22, #23, #38, #39, #40**. Remaining: **#44**.
 
 Outcome: production can run unattended with usable monitoring, safer X publishing, circuit breakers, and better public confidence communication.
 
 ## Stage F — Controlled research automation
 
-Target issues: **#41, #42, #43**
+Target issues: **#41, #42, #43**  
+Completed: **#41**. Remaining: **#42, #43**.
 
 Outcome: the research loop can recommend and prepare improvements automatically while preserving human review and CI gates.
 

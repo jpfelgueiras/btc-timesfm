@@ -20,6 +20,9 @@ on:
 permissions:
   contents: read
 
+env:
+  HISTORY_RELEASE_TAG: forecast-history-v1
+
 concurrency:
   group: btc-timesfm-weekly-optimizer
   cancel-in-progress: false
@@ -32,6 +35,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Restore production health snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p .state
+          if gh release view "$HISTORY_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release download "$HISTORY_RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern 'pipeline_health.json' \
+              --dir .state >/dev/null 2>&1 || true
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -58,6 +74,10 @@ jobs:
             --days "${{ inputs.days || '120' }}" \
             --samples "${{ inputs.samples || '48' }}"
 
+      - name: Evaluate formal promotion policy
+        if: hashFiles('optimizer_report.json') != ''
+        run: python promotion_policy.py
+
       - name: Add market data validation summary
         if: always() && hashFiles('market_data_validation.json') != ''
         run: |
@@ -70,6 +90,10 @@ jobs:
         if: always() && hashFiles('optimizer_summary.md') != ''
         run: cat optimizer_summary.md >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Add promotion policy decision
+        if: always() && hashFiles('promotion_summary.md') != ''
+        run: cat promotion_summary.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload optimizer report
         if: always()
         uses: actions/upload-artifact@v7
@@ -78,6 +102,9 @@ jobs:
           path: |
             optimizer_report.json
             optimizer_summary.md
+            promotion_decision.json
+            promotion_summary.md
             market_data_validation.json
+            .state/pipeline_health.json
           if-no-files-found: warn
           retention-days: 90
