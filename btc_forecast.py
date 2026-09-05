@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Forecast BTC/USD with TimesFM 3 and score the previous +2h prediction."""
+"""Forecast BTC/USD with TimesFM 3 and score matured multi-horizon predictions."""
 
 from __future__ import annotations
 
@@ -21,11 +21,12 @@ INTERVAL_MINUTES = 60
 CONTEXT_POINTS = 512
 FORECAST_HOURS = 16
 TARGET_HOURS = (2, 4, 8, 16)
+HISTORY_LIMIT = 48
 
 MODEL_ID = "google/timesfm-3.0-pytorch"
 OUTPUT_PATH = Path("forecast.json")
 TWEET_PATH = Path("tweet.txt")
-PREVIOUS_FORECAST_PATH = Path(".state/previous_forecast.json")
+STATE_PATH = Path(".state/previous_forecast.json")
 
 
 def get_completed_hourly_candles() -> tuple[np.ndarray, list[int]]:
@@ -70,47 +71,50 @@ def load_model() -> TimesFM3Evaluator:
     return TimesFM3Evaluator(config)
 
 
-def load_previous_forecast() -> dict[str, Any] | None:
-    if not PREVIOUS_FORECAST_PATH.exists():
-        return None
+def load_forecast_history() -> list[dict[str, Any]]:
+    """Load forecast history, including the legacy single-forecast state format."""
+    if not STATE_PATH.exists():
+        return []
 
     try:
-        return json.loads(PREVIOUS_FORECAST_PATH.read_text())
+        state = json.loads(STATE_PATH.read_text())
     except (json.JSONDecodeError, OSError) as exc:
-        print(f"Ignoring unreadable previous forecast state: {exc}")
-        return None
+        print(f"Ignoring unreadable forecast state: {exc}")
+        return []
+
+    if isinstance(state, dict) and isinstance(state.get("forecasts"), list):
+        return [item for item in state["forecasts"] if isinstance(item, dict)]
+
+    # Backwards compatibility with the old cache, which stored one forecast directly.
+    if isinstance(state, dict) and "predictions" in state:
+        return [state]
+
+    print("Ignoring incompatible forecast state format")
+    return []
 
 
-def score_previous_forecast(
-    previous: dict[str, Any] | None,
-    closes: np.ndarray,
-    close_timestamps: list[int],
+def score_prediction(
+    forecast_snapshot: dict[str, Any],
+    hour: int,
+    actual_by_timestamp: dict[int, float],
 ) -> dict[str, Any] | None:
-    """Score the previous run's +2h forecast against the matching actual close."""
-    if not previous:
-        return None
-
     try:
-        previous_close = float(previous["latest_close_usd"])
-        previous_close_at = datetime.fromisoformat(previous["latest_close_at"])
-        prediction = previous["predictions"]["2h"]
+        previous_close = float(forecast_snapshot["latest_close_usd"])
+        previous_close_at = datetime.fromisoformat(forecast_snapshot["latest_close_at"])
+        prediction = forecast_snapshot["predictions"][f"{hour}h"]
         predicted_price = float(prediction["price_usd"])
         q10 = float(prediction["q10_usd"])
         q90 = float(prediction["q90_usd"])
-    except (KeyError, TypeError, ValueError) as exc:
-        print(f"Previous forecast has an incompatible format: {exc}")
+    except (KeyError, TypeError, ValueError):
         return None
 
     if previous_close_at.tzinfo is None:
         previous_close_at = previous_close_at.replace(tzinfo=timezone.utc)
 
-    target_at = previous_close_at.astimezone(timezone.utc) + timedelta(hours=2)
-    target_timestamp = int(target_at.timestamp())
-    actual_by_timestamp = dict(zip(close_timestamps, map(float, closes), strict=True))
-    actual_price = actual_by_timestamp.get(target_timestamp)
-
+    origin_at = previous_close_at.astimezone(timezone.utc)
+    target_at = origin_at + timedelta(hours=hour)
+    actual_price = actual_by_timestamp.get(int(target_at.timestamp()))
     if actual_price is None:
-        print(f"No completed candle found for previous +2h target {target_at.isoformat()}")
         return None
 
     absolute_error_usd = abs(predicted_price - actual_price)
@@ -125,13 +129,9 @@ def score_previous_forecast(
             return -1
         return 0
 
-    direction_correct = direction(predicted_price - previous_close) == direction(
-        actual_price - previous_close
-    )
-    within_interval = q10 <= actual_price <= q90
-
     return {
-        "horizon": "2h",
+        "horizon": f"{hour}h",
+        "forecast_origin_at": origin_at.isoformat(),
         "target_at": target_at.isoformat(),
         "predicted_price_usd": round(predicted_price, 2),
         "actual_price_usd": round(actual_price, 2),
@@ -139,9 +139,53 @@ def score_previous_forecast(
         "absolute_error_pct": round(absolute_error_pct, 4),
         "predicted_change_pct": round(predicted_change_pct, 4),
         "actual_change_pct": round(actual_change_pct, 4),
-        "direction_correct": direction_correct,
-        "within_q10_q90": within_interval,
+        "direction_correct": direction(predicted_price - previous_close)
+        == direction(actual_price - previous_close),
+        "within_q10_q90": q10 <= actual_price <= q90,
     }
+
+
+def score_forecast_history(
+    history: list[dict[str, Any]],
+    closes: np.ndarray,
+    close_timestamps: list[int],
+) -> dict[str, dict[str, Any]]:
+    """Score the most recent matured forecast for each configured horizon."""
+    actual_by_timestamp = dict(zip(close_timestamps, map(float, closes), strict=True))
+    reliability: dict[str, dict[str, Any]] = {}
+
+    for hour in TARGET_HOURS:
+        for snapshot in reversed(history):
+            score = score_prediction(snapshot, hour, actual_by_timestamp)
+            if score is not None:
+                reliability[f"{hour}h"] = score
+                break
+
+    return reliability
+
+
+def save_forecast_history(history: list[dict[str, Any]], output: dict[str, Any]) -> None:
+    """Persist compact forecast snapshots for future 2h/4h/8h/16h scoring."""
+    snapshot = {
+        "generated_at": output["generated_at"],
+        "latest_close_at": output["latest_close_at"],
+        "latest_close_usd": output["latest_close_usd"],
+        "predictions": output["predictions"],
+    }
+
+    # Replace any forecast for the same source candle, which can happen with manual reruns.
+    deduplicated = [
+        item
+        for item in history
+        if item.get("latest_close_at") != snapshot["latest_close_at"]
+    ]
+    deduplicated.append(snapshot)
+    deduplicated = deduplicated[-HISTORY_LIMIT:]
+
+    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    STATE_PATH.write_text(
+        json.dumps({"version": 2, "forecasts": deduplicated}, indent=2) + "\n"
+    )
 
 
 def format_price(value: float) -> str:
@@ -150,6 +194,8 @@ def format_price(value: float) -> str:
 
 def build_tweet(output: dict[str, Any]) -> str:
     predictions = output["predictions"]
+    reliability = output.get("forecast_reliability", {})
+
     lines = [
         "BTC/USD - TimesFM 3",
         f"Now {format_price(output['latest_close_usd'])}",
@@ -163,32 +209,47 @@ def build_tweet(output: dict[str, Any]) -> str:
         ),
     ]
 
-    reliability = output.get("previous_forecast_reliability")
-    if reliability:
-        direction_mark = "OK" if reliability["direction_correct"] else "MISS"
-        range_mark = "in range" if reliability["within_q10_q90"] else "out of range"
-        lines.append(
-            f"Prev +2h: {reliability['absolute_error_pct']:.2f}% error | "
-            f"direction {direction_mark} | {range_mark}"
+    error_parts = []
+    for horizon in ("2h", "4h", "8h", "16h"):
+        score = reliability.get(horizon)
+        error_parts.append(
+            f"{horizon} {score['absolute_error_pct']:.2f}%" if score else f"{horizon} --"
         )
-    else:
-        lines.append("Prev +2h: no comparable prior forecast yet")
-
+    lines.append("Prev err: " + " | ".join(error_parts))
     lines.append("Experimental - not financial advice.")
+
     tweet = "\n".join(lines)
-
-    # Keep a little buffer below X's 280-character limit.
-    if len(tweet) > 270 and reliability:
-        lines[-2] = (
-            f"Prev +2h: {reliability['absolute_error_pct']:.2f}% err | "
-            f"dir {'OK' if reliability['direction_correct'] else 'MISS'}"
-        )
-        tweet = "\n".join(lines)
-
     if len(tweet) > 280:
         raise RuntimeError(f"Generated X post is too long: {len(tweet)} characters")
-
     return tweet
+
+
+def print_reliability(reliability: dict[str, dict[str, Any]]) -> None:
+    print("\nPrevious forecast comparison")
+    print("-" * 96)
+    print(
+        f"{'Horizon':<9}{'Predicted':>14}{'Actual':>14}{'Error':>11}"
+        f"{'Direction':>13}{'Q10-Q90':>12}{'Forecast origin':>23}"
+    )
+    print("-" * 96)
+
+    for hour in TARGET_HOURS:
+        horizon = f"{hour}h"
+        score = reliability.get(horizon)
+        if not score:
+            print(f"+{horizon:<8}{'not enough history yet':>34}")
+            continue
+
+        origin = datetime.fromisoformat(score["forecast_origin_at"]).strftime("%Y-%m-%d %H:%M")
+        print(
+            f"+{horizon:<8}"
+            f"${score['predicted_price_usd']:>12,.2f}"
+            f"${score['actual_price_usd']:>12,.2f}"
+            f"{score['absolute_error_pct']:>10.3f}%"
+            f"{'correct' if score['direction_correct'] else 'wrong':>13}"
+            f"{'inside' if score['within_q10_q90'] else 'outside':>12}"
+            f"{origin:>23}"
+        )
 
 
 def main() -> None:
@@ -199,8 +260,8 @@ def main() -> None:
     print(f"Loaded {len(closes)} completed hourly candles")
     print(f"Latest BTC/USD close: ${current_price:,.2f} at {latest_close_at.isoformat()}")
 
-    previous = load_previous_forecast()
-    previous_reliability = score_previous_forecast(previous, closes, close_timestamps)
+    history = load_forecast_history()
+    reliability = score_forecast_history(history, closes, close_timestamps)
 
     model = load_model()
     outputs = list(
@@ -241,10 +302,14 @@ def main() -> None:
         "latest_close_at": latest_close_at.isoformat(),
         "latest_close_usd": round(current_price, 2),
         "predictions": predictions,
-        "previous_forecast_reliability": previous_reliability,
+        "forecast_reliability": reliability,
+        # Preserve the old field for consumers that still expect the +2h score.
+        "previous_forecast_reliability": reliability.get("2h"),
     }
 
     OUTPUT_PATH.write_text(json.dumps(output, indent=2) + "\n")
+    save_forecast_history(history, output)
+
     tweet = build_tweet(output)
     TWEET_PATH.write_text(tweet + "\n")
 
@@ -262,17 +327,10 @@ def main() -> None:
             f"${prediction['q90_usd']:>14,.2f}"
         )
 
-    if previous_reliability:
-        print(
-            "\nPrevious +2h forecast: "
-            f"{previous_reliability['absolute_error_pct']:.3f}% absolute error; "
-            f"direction {'correct' if previous_reliability['direction_correct'] else 'wrong'}; "
-            f"actual {'inside' if previous_reliability['within_q10_q90'] else 'outside'} Q10-Q90"
-        )
-    else:
-        print("\nNo previous +2h forecast available to score yet.")
+    print_reliability(reliability)
 
     print(f"\nSaved forecast to {OUTPUT_PATH}")
+    print(f"Saved forecast history to {STATE_PATH} ({min(len(history) + 1, HISTORY_LIMIT)} snapshots max)")
     print(f"Saved X post to {TWEET_PATH}:\n\n{tweet}")
 
 
