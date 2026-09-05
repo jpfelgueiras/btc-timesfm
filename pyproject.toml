@@ -22,6 +22,7 @@ source = [
     "adaptive_weighting",
     "history_migrations",
     "history_store",
+    "market_data_sources",
     "market_data_validation",
     "schedule_guard",
     "format_tweet",
