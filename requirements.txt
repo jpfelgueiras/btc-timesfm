@@ -1,4 +1,4 @@
 timesfm[torch]==3.0.1
-requests>=2.32,<3
-numpy>=1.26.4,<3
+requests>=2.34.2,<3
+numpy>=2.4.6,<2.5
 twikit==2.3.3
