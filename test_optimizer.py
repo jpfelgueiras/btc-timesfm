@@ -96,6 +96,14 @@ class OptimizerTests(unittest.TestCase):
     ) -> dict:
         horizons = horizon_maes or {h: mae for h in ("2h", "4h", "8h", "16h")}
         folds = fold_maes or (mae, mae, mae)
+        origins = [f"2026-01-{index + 1:02d}T00:00:00+00:00" for index in range(samples)]
+        paired_metrics = {
+            "origins": origins,
+            "mae_pct": [mae] * samples,
+            "direction_accuracy": [direction] * samples,
+            "by_horizon": {h: [value] * samples for h, value in horizons.items()},
+            "persistence_mae_pct": [1.2] * samples,
+        }
         return {
             "name": name,
             "samples": samples,
@@ -103,6 +111,7 @@ class OptimizerTests(unittest.TestCase):
             "mean_direction_accuracy": direction,
             "by_horizon": {h: {"mae_pct": value} for h, value in horizons.items()},
             "folds": [{"fold": i + 1, "mae_pct": value} for i, value in enumerate(folds)],
+            "paired_metrics": paired_metrics,
         }
 
     def test_recommendation_accepts_material_stable_improvement(self) -> None:
@@ -111,6 +120,9 @@ class OptimizerTests(unittest.TestCase):
         decision, details = optimizer.recommendation(candidate, current)
         self.assertEqual(decision, "candidate_worth_review")
         self.assertTrue(all(details["checks"].values()))
+        evidence = details["significance"]["candidate_vs_production"]["mae_pct"]
+        self.assertEqual(evidence["conclusion"], "candidate_better")
+        self.assertGreater(evidence["improvement_ci"]["lower"], 0.0)
 
     def test_recommendation_rejects_horizon_regression(self) -> None:
         current = self._result("production", 1.0)

@@ -26,6 +26,12 @@ import numpy as np
 
 import adaptive_weighting as aw
 from backtest import fetch_binance_history, slice_market
+from statistical_significance import (
+    DEFAULT_BOOTSTRAP_ITERATIONS,
+    DEFAULT_CONFIDENCE,
+    DEFAULT_MIN_PAIRED_SAMPLES,
+    paired_bootstrap_comparison,
+)
 from forecast_engine import (
     TARGET_HOURS,
     baseline_forecasts,
@@ -46,6 +52,7 @@ MAX_HORIZON_RELATIVE_DEGRADATION = 0.05
 MAX_DIRECTION_ACCURACY_DROP = 0.02
 MAX_WORST_FOLD_RELATIVE_DEGRADATION = 0.02
 MIN_IMPROVED_FOLDS = 2
+HORIZONS = ("2h", "4h", "8h", "16h")
 
 ALL_MODELS = (
     "timesfm_168h",
@@ -358,6 +365,25 @@ def summarize_candidate(config: CandidateConfig, scored: list[dict[str, Any]]) -
     ]
     objective_mae = float(np.mean(horizon_maes)) if horizon_maes else float("inf")
     direction_accuracy = float(np.mean(horizon_dirs)) if horizon_dirs else 0.0
+    paired_metrics = {
+        "origins": [item["origin_at"] for item in scored],
+        "mae_pct": [
+            float(np.mean([item["horizons"][h]["absolute_error_pct"] for h in HORIZONS]))
+            for item in scored
+        ],
+        "direction_accuracy": [
+            float(np.mean([item["horizons"][h]["direction_correct"] for h in HORIZONS]))
+            for item in scored
+        ],
+        "by_horizon": {
+            horizon: [float(item["horizons"][horizon]["absolute_error_pct"]) for item in scored]
+            for horizon in HORIZONS
+        },
+        "persistence_mae_pct": [
+            float(np.mean([item["persistence"][h]["absolute_error_pct"] for h in HORIZONS]))
+            for item in scored
+        ],
+    }
 
     return {
         "name": config.name,
@@ -369,6 +395,55 @@ def summarize_candidate(config: CandidateConfig, scored: list[dict[str, Any]]) -
         "by_regime": by_regime,
         "persistence_by_horizon": persistence_by_horizon,
         "folds": folds,
+        "paired_metrics": paired_metrics,
+    }
+
+
+def _significance_comparison(candidate: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    candidate_metrics = candidate["paired_metrics"]
+    current_metrics = current["paired_metrics"]
+    if candidate_metrics["origins"] != current_metrics["origins"]:
+        raise ValueError("statistical comparisons require identical forecast origins")
+
+    candidate_vs_production = {
+        "mae_pct": paired_bootstrap_comparison(
+            candidate_metrics["mae_pct"],
+            current_metrics["mae_pct"],
+            metric="mae_pct",
+            lower_is_better=True,
+        ),
+        "direction_accuracy": paired_bootstrap_comparison(
+            candidate_metrics["direction_accuracy"],
+            current_metrics["direction_accuracy"],
+            metric="direction_accuracy",
+            lower_is_better=False,
+        ),
+        "by_horizon_mae_pct": {
+            horizon: paired_bootstrap_comparison(
+                candidate_metrics["by_horizon"][horizon],
+                current_metrics["by_horizon"][horizon],
+                metric=f"{horizon}_mae_pct",
+                lower_is_better=True,
+            )
+            for horizon in HORIZONS
+        },
+    }
+    candidate_vs_persistence = {
+        "mae_pct": paired_bootstrap_comparison(
+            candidate_metrics["mae_pct"],
+            candidate_metrics["persistence_mae_pct"],
+            metric="mae_pct",
+            lower_is_better=True,
+        )
+    }
+    return {
+        "method": "paired_bootstrap",
+        "confidence": DEFAULT_CONFIDENCE,
+        "iterations": DEFAULT_BOOTSTRAP_ITERATIONS,
+        "minimum_paired_samples": DEFAULT_MIN_PAIRED_SAMPLES,
+        "pairing_key": "forecast_origin",
+        "candidate_vs_production": candidate_vs_production,
+        "candidate_vs_persistence": candidate_vs_persistence,
     }
 
 
@@ -392,6 +467,7 @@ def compare_to_current(candidate: dict[str, Any], current: dict[str, Any]) -> di
     direction_delta = float(candidate["mean_direction_accuracy"]) - float(
         current["mean_direction_accuracy"]
     )
+    significance = _significance_comparison(candidate, current)
     return {
         "relative_mae_improvement": round(relative_improvement, 6),
         "direction_accuracy_delta": round(direction_delta, 6),
@@ -401,6 +477,7 @@ def compare_to_current(candidate: dict[str, Any], current: dict[str, Any]) -> di
         "fold_relative_improvement": [round(value, 6) for value in fold_changes],
         "improved_folds": sum(value > 0 for value in fold_changes),
         "worst_fold_relative_improvement": round(min(fold_changes), 6) if fold_changes else 0.0,
+        "significance": significance,
     }
 
 
@@ -419,12 +496,18 @@ def recommendation(
         comparison["improved_folds"] >= MIN_IMPROVED_FOLDS
         and comparison["worst_fold_relative_improvement"] >= -MAX_WORST_FOLD_RELATIVE_DEGRADATION
     )
+    production_evidence = comparison["significance"]["candidate_vs_production"]["mae_pct"]
+    persistence_evidence = comparison["significance"]["candidate_vs_persistence"]["mae_pct"]
+    statistically_supported = production_evidence["conclusion"] == "candidate_better"
+    persistence_safe = persistence_evidence["conclusion"] != "baseline_better"
     checks = {
         "enough_samples": enough_samples,
         "material_mae_improvement": material_improvement,
         "no_material_horizon_regression": horizon_safe,
         "direction_accuracy_not_materially_worse": direction_safe,
         "stable_across_folds": fold_safe,
+        "statistically_supported_mae_improvement": statistically_supported,
+        "not_significantly_worse_than_persistence": persistence_safe,
     }
     decision = "candidate_worth_review" if all(checks.values()) else "keep_current"
     return decision, {**comparison, "checks": checks}
@@ -503,7 +586,7 @@ def main() -> None:
 
     selected, decision, comparison = choose_candidate(results)
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "data_source": "Binance BTCUSDT 1h historical proxy; production uses Kraken BTC/USD",
         "tested_period": {"days": args.days, "samples": len(base_samples)},
@@ -519,6 +602,14 @@ def main() -> None:
             "maximum_direction_accuracy_drop": MAX_DIRECTION_ACCURACY_DROP,
             "minimum_improved_folds": MIN_IMPROVED_FOLDS,
             "maximum_worst_fold_relative_degradation": MAX_WORST_FOLD_RELATIVE_DEGRADATION,
+            "statistical_evidence": {
+                "method": "paired_bootstrap",
+                "confidence": DEFAULT_CONFIDENCE,
+                "iterations": DEFAULT_BOOTSTRAP_ITERATIONS,
+                "minimum_paired_samples": DEFAULT_MIN_PAIRED_SAMPLES,
+                "promotion_requires_candidate_better_than_production": True,
+                "promotion_rejects_evidence_persistence_is_better": True,
+            },
         },
         "recommendation": decision,
         "selected": selected,

@@ -26,6 +26,7 @@ source = [
     "market_data_sources",
     "market_data_validation",
     "schedule_guard",
+    "statistical_significance",
     "format_tweet",
     "post_to_x",
     "twikit_compat",

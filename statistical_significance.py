@@ -86,9 +86,7 @@ def paired_bootstrap_comparison(
     lower, upper = np.quantile(bootstrap_means, [alpha, 1.0 - alpha])
     probability_better = float(np.mean(bootstrap_means > 0.0))
 
-    relative_effect = (
-        mean_improvement / abs(baseline_mean) if abs(baseline_mean) > 1e-12 else None
-    )
+    relative_effect = mean_improvement / abs(baseline_mean) if abs(baseline_mean) > 1e-12 else None
     standardized_effect: float | None = None
     if samples > 1:
         paired_std = float(np.std(improvement, ddof=1))
