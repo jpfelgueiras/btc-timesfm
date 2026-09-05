@@ -22,6 +22,17 @@ import requests
 import forecast_engine
 from adaptive_weighting import DEFAULT_HISTORY_LIMIT, adaptive_model_weights
 from benchmarks import BENCHMARK_NAMES, benchmark_forecasts, benchmark_metadata
+from cross_validation import (
+    DEFAULT_CV_FOLDS,
+    DEFAULT_EMBARGO_HOURS,
+    DEFAULT_MIN_TRAIN_SAMPLES,
+    DEFAULT_PURGE_HOURS,
+    DEFAULT_ROLLING_TRAIN_SAMPLES,
+    WalkForwardFold,
+    assert_no_fold_leakage,
+    build_purged_walk_forward_folds,
+    fold_definition,
+)
 from experiment_manifest import build_experiment_manifest, seed_everything
 from forecast_engine import (
     MarketData,
@@ -34,6 +45,7 @@ from forecast_engine import (
 
 BINANCE_KLINES = "https://api.binance.com/api/v3/klines"
 REPORT_PATH = Path("backtest_report.json")
+HORIZONS = ("2h", "4h", "8h", "16h")
 
 # Use the same issue #6 adaptive policy as production. During walk-forward tests
 # there is no durable DB; only target candles already visible at each simulated
@@ -111,6 +123,13 @@ def score_one(current: float, predicted: float, actual: float) -> dict[str, Any]
 
 
 def _aggregate_scores(scores: list[dict[str, Any]]) -> dict[str, Any]:
+    if not scores:
+        return {
+            "samples": 0,
+            "mae_pct": None,
+            "mean_signed_error_pct": None,
+            "direction_accuracy": None,
+        }
     return {
         "samples": len(scores),
         "mae_pct": round(float(np.mean([s["absolute_error_pct"] for s in scores])), 4),
@@ -119,20 +138,50 @@ def _aggregate_scores(scores: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _dispersion(values: list[float]) -> dict[str, float | int | None]:
+    if not values:
+        return {"folds": 0, "mean": None, "std": None, "min": None, "max": None}
+    array = np.asarray(values, dtype=np.float64)
+    return {
+        "folds": len(values),
+        "mean": round(float(np.mean(array)), 6),
+        "std": round(float(np.std(array, ddof=0)), 6),
+        "min": round(float(np.min(array)), 6),
+        "max": round(float(np.max(array)), 6),
+    }
+
+
+def weighted_ensemble_price(
+    current: float,
+    model_predictions: dict[str, Any],
+    horizon: str,
+    weights: dict[str, float],
+) -> float:
+    active = [
+        (name, weight)
+        for name, weight in weights.items()
+        if weight > 0 and name in model_predictions
+    ]
+    if not active:
+        return current
+    total = sum(weight for _, weight in active)
+    log_change = 0.0
+    for name, weight in active:
+        price = float(model_predictions[name][horizon]["price_usd"])
+        log_change += weight / total * math.log(price / current)
+    return current * math.exp(log_change)
+
+
 def static_ensemble_price(forecast: dict[str, Any], horizon: str) -> float:
     current = float(forecast["latest_close_usd"])
     model_predictions = forecast["model_predictions"]
     weights = static_model_weights(list(model_predictions), forecast["regime"])
-    log_change = 0.0
-    for name, weight in weights.items():
-        price = float(model_predictions[name][horizon]["price_usd"])
-        log_change += weight * math.log(price / current)
-    return current * math.exp(log_change)
+    return weighted_ensemble_price(current, model_predictions, horizon, weights)
 
 
 def summarize(samples: list[dict[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
-    for horizon in ("2h", "4h", "8h", "16h"):
+    for horizon in HORIZONS:
         per_model: dict[str, list[dict[str, Any]]] = {}
         benchmark_scores: dict[str, list[dict[str, Any]]] = {}
         ensemble_coverage: list[bool] = []
@@ -218,8 +267,150 @@ def history_snapshot(forecast: dict[str, Any]) -> dict[str, Any]:
         "latest_close_usd": forecast["latest_close_usd"],
         "regime": forecast["regime"],
         "model_predictions": forecast["model_predictions"],
-        "predictions": forecast["predictions"],
-        "model_weights": forecast["model_weights"],
+        "predictions": forecast.get("predictions", {}),
+        "model_weights": forecast.get("model_weights", {}),
+    }
+
+
+def evaluate_cross_validation(
+    samples: list[dict[str, Any]],
+    actual_by_timestamp: dict[int, float],
+    folds: list[WalkForwardFold],
+) -> dict[str, Any]:
+    """Replay adaptive weighting inside purged chronological validation folds.
+
+    Frozen per-model predictions are reused, but adaptive weights are recomputed
+    from each fold's permitted history. At every validation origin, the actual
+    lookup is truncated to timestamps already observable at that moment.
+    """
+    origin_timestamps = [int(sample["origin_timestamp"]) for sample in samples]
+    aggregate_adaptive: dict[str, list[dict[str, Any]]] = {horizon: [] for horizon in HORIZONS}
+    aggregate_benchmarks: dict[str, dict[str, list[dict[str, Any]]]] = {
+        horizon: {name: [] for name in BENCHMARK_NAMES} for horizon in HORIZONS
+    }
+    fold_reports: list[dict[str, Any]] = []
+
+    for fold in folds:
+        assert_no_fold_leakage(
+            fold,
+            origin_timestamps,
+            max_target_hours=max(TARGET_HOURS),
+        )
+        history = [history_snapshot(samples[index]["forecast"]) for index in fold.train_indices]
+        history = history[-DEFAULT_HISTORY_LIMIT:]
+        fold_adaptive: dict[str, list[dict[str, Any]]] = {horizon: [] for horizon in HORIZONS}
+        fold_benchmarks: dict[str, dict[str, list[dict[str, Any]]]] = {
+            horizon: {name: [] for name in BENCHMARK_NAMES} for horizon in HORIZONS
+        }
+
+        for index in fold.validation_indices:
+            sample = samples[index]
+            current = float(sample["current_price"])
+            current_timestamp = int(sample["origin_timestamp"])
+            regime = str(sample["forecast"]["regime"])
+            model_predictions = sample["forecast"]["model_predictions"]
+            model_names = list(model_predictions)
+            visible_actuals = {
+                timestamp: price
+                for timestamp, price in actual_by_timestamp.items()
+                if timestamp <= current_timestamp
+            }
+
+            for hour in TARGET_HOURS:
+                horizon = f"{hour}h"
+                weights, diagnostics = adaptive_model_weights(
+                    model_names,
+                    regime,
+                    hour,
+                    history,
+                    visible_actuals,
+                    history_limit=DEFAULT_HISTORY_LIMIT,
+                )
+                predicted = weighted_ensemble_price(
+                    current,
+                    model_predictions,
+                    horizon,
+                    weights,
+                )
+                score = score_one(current, predicted, float(sample["actuals"][horizon]))
+                score["weighting_mode"] = diagnostics["mode"]
+                fold_adaptive[horizon].append(score)
+                aggregate_adaptive[horizon].append(score)
+
+                for name, horizons in sample["benchmarks"].items():
+                    benchmark_score = score_one(
+                        current,
+                        float(horizons[horizon]["price_usd"]),
+                        float(sample["actuals"][horizon]),
+                    )
+                    fold_benchmarks[horizon][name].append(benchmark_score)
+                    aggregate_benchmarks[horizon][name].append(benchmark_score)
+
+            history.append(history_snapshot(sample["forecast"]))
+            history = history[-DEFAULT_HISTORY_LIMIT:]
+
+        by_horizon: dict[str, Any] = {}
+        fold_maes: list[float] = []
+        fold_directions: list[float] = []
+        for horizon in HORIZONS:
+            adaptive = _aggregate_scores(fold_adaptive[horizon])
+            benchmarks = {
+                name: _aggregate_scores(scores)
+                for name, scores in sorted(fold_benchmarks[horizon].items())
+            }
+            best_benchmark = min(benchmarks, key=lambda name: benchmarks[name]["mae_pct"])
+            by_horizon[horizon] = {
+                "adaptive_ensemble": adaptive,
+                "benchmarks": benchmarks,
+                "best_benchmark": best_benchmark,
+            }
+            fold_maes.append(float(adaptive["mae_pct"]))
+            fold_directions.append(float(adaptive["direction_accuracy"]))
+
+        fold_reports.append(
+            {
+                "definition": fold_definition(fold, origin_timestamps),
+                "objective_mae_pct": round(float(np.mean(fold_maes)), 6),
+                "mean_direction_accuracy": round(float(np.mean(fold_directions)), 6),
+                "by_horizon": by_horizon,
+            }
+        )
+
+    aggregate_by_horizon: dict[str, Any] = {}
+    dispersion_by_horizon: dict[str, Any] = {}
+    for horizon in HORIZONS:
+        benchmarks = {
+            name: _aggregate_scores(scores)
+            for name, scores in sorted(aggregate_benchmarks[horizon].items())
+        }
+        aggregate_by_horizon[horizon] = {
+            "adaptive_ensemble": _aggregate_scores(aggregate_adaptive[horizon]),
+            "benchmarks": benchmarks,
+            "best_benchmark": min(benchmarks, key=lambda name: benchmarks[name]["mae_pct"]),
+        }
+        horizon_fold_maes = [
+            float(fold["by_horizon"][horizon]["adaptive_ensemble"]["mae_pct"])
+            for fold in fold_reports
+        ]
+        horizon_fold_directions = [
+            float(fold["by_horizon"][horizon]["adaptive_ensemble"]["direction_accuracy"])
+            for fold in fold_reports
+        ]
+        dispersion_by_horizon[horizon] = {
+            "mae_pct": _dispersion(horizon_fold_maes),
+            "direction_accuracy": _dispersion(horizon_fold_directions),
+        }
+
+    return {
+        "folds": fold_reports,
+        "aggregate_by_horizon": aggregate_by_horizon,
+        "dispersion_by_horizon": dispersion_by_horizon,
+        "objective_mae_pct_across_folds": _dispersion(
+            [float(fold["objective_mae_pct"]) for fold in fold_reports]
+        ),
+        "direction_accuracy_across_folds": _dispersion(
+            [float(fold["mean_direction_accuracy"]) for fold in fold_reports]
+        ),
     }
 
 
@@ -227,6 +418,16 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, default=90)
     parser.add_argument("--samples", type=int, default=60)
+    parser.add_argument("--cv-folds", type=int, default=DEFAULT_CV_FOLDS)
+    parser.add_argument("--cv-mode", choices=("expanding", "rolling"), default="expanding")
+    parser.add_argument("--cv-min-train-samples", type=int, default=DEFAULT_MIN_TRAIN_SAMPLES)
+    parser.add_argument("--cv-purge-hours", type=int, default=DEFAULT_PURGE_HOURS)
+    parser.add_argument("--cv-embargo-hours", type=int, default=DEFAULT_EMBARGO_HOURS)
+    parser.add_argument(
+        "--cv-rolling-train-samples",
+        type=int,
+        default=DEFAULT_ROLLING_TRAIN_SAMPLES,
+    )
     args = parser.parse_args()
 
     seed_everything()
@@ -247,11 +448,11 @@ def main() -> None:
         forecast = build_forecast(model, context, history=history)
         benchmarks = benchmark_forecasts(context)
         actuals = {f"{hour}h": float(data.closes[index + hour]) for hour in TARGET_HOURS}
+        origin_timestamp = int(data.timestamps[index])
         samples.append(
             {
-                "origin_at": datetime.fromtimestamp(
-                    data.timestamps[index], tz=timezone.utc
-                ).isoformat(),
+                "origin_at": datetime.fromtimestamp(origin_timestamp, tz=timezone.utc).isoformat(),
+                "origin_timestamp": origin_timestamp,
                 "current_price": float(data.closes[index]),
                 "actuals": actuals,
                 "forecast": forecast,
@@ -266,8 +467,33 @@ def main() -> None:
             f"({forecast['regime']}; {','.join(modes)})"
         )
 
+    origin_timestamps = [int(sample["origin_timestamp"]) for sample in samples]
+    cv_folds = build_purged_walk_forward_folds(
+        origin_timestamps,
+        folds=args.cv_folds,
+        min_train_samples=args.cv_min_train_samples,
+        purge_hours=args.cv_purge_hours,
+        embargo_hours=args.cv_embargo_hours,
+        mode=args.cv_mode,
+        rolling_train_samples=args.cv_rolling_train_samples,
+        max_target_hours=max(TARGET_HOURS),
+    )
+    cv_definitions = [fold_definition(fold, origin_timestamps) for fold in cv_folds]
+    actual_by_timestamp = dict(zip(data.timestamps, map(float, data.closes), strict=True))
+    cross_validation = evaluate_cross_validation(samples, actual_by_timestamp, cv_folds)
+
     generated_at = datetime.now(timezone.utc)
     data_source = "Binance BTCUSDT 1h (historical proxy for BTC/USD)"
+    cv_parameters = {
+        "mode": args.cv_mode,
+        "folds_requested": args.cv_folds,
+        "min_train_samples": args.cv_min_train_samples,
+        "purge_hours": args.cv_purge_hours,
+        "embargo_hours": args.cv_embargo_hours,
+        "rolling_train_samples": args.cv_rolling_train_samples,
+        "max_target_hours": max(TARGET_HOURS),
+        "fold_definitions": cv_definitions,
+    }
     experiment_manifest = build_experiment_manifest(
         run_type="backtest",
         data=data,
@@ -278,6 +504,7 @@ def main() -> None:
             "samples_requested": args.samples,
             "adaptive_history_limit": DEFAULT_HISTORY_LIMIT,
             "benchmark_models": list(BENCHMARK_NAMES),
+            "cross_validation": cv_parameters,
         },
         model_names=sorted(samples[-1]["forecast"]["model_predictions"]) if samples else [],
         created_at=generated_at,
@@ -291,6 +518,10 @@ def main() -> None:
         "days_requested": args.days,
         "samples": len(samples),
         "summary": summarize(samples),
+        "cross_validation": {
+            "configuration": cv_parameters,
+            **cross_validation,
+        },
     }
     REPORT_PATH.write_text(json.dumps(report, indent=2) + "\n")
 
@@ -305,6 +536,15 @@ def main() -> None:
             f"{horizon}: adaptive MAE {adaptive['mae_pct']:.3f}% / "
             f"persistence {persistence['mae_pct']:.3f}% / "
             f"best benchmark {best_name} {best['mae_pct']:.3f}%"
+        )
+
+    print("\nPurged walk-forward cross-validation")
+    for horizon, info in report["cross_validation"]["aggregate_by_horizon"].items():
+        adaptive = info["adaptive_ensemble"]
+        dispersion = report["cross_validation"]["dispersion_by_horizon"][horizon]["mae_pct"]
+        print(
+            f"{horizon}: adaptive MAE {adaptive['mae_pct']:.3f}% / "
+            f"fold mean {dispersion['mean']:.3f}% / fold std {dispersion['std']:.3f}%"
         )
     print(f"\nSaved {REPORT_PATH}")
 
