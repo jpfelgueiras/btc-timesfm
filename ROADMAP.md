@@ -27,10 +27,12 @@ The project has moved beyond a TimesFM experiment into a small forecasting platf
 - **Durable SQLite forecast history** stored outside the repository in GitHub Release assets.
 - **Versioned forecast-history schema migrations** with transactional rollback and compatibility checks.
 - **Forecast-history integrity auditing and conservative repair tooling** with machine-readable reports, backups, and structural-corruption safeguards.
+- **Bounded forecast-history backup and recovery policy** with verified versioned generations, retention limits, and tested restoration.
 - **Exact-target outcome maturation** for all supported horizons.
 - **Versioned reproducibility manifests** for production forecasts and backtests, recording Git/model/configuration identity, deterministic seeds, exact data-window fingerprints, and stable configuration/data IDs.
 - **Purged walk-forward cross-validation** with deterministic expanding/rolling folds, purge/embargo protection, fold-level metrics, and manifest persistence.
 - **Paired statistical comparison** with bootstrap confidence intervals, effect sizes, sample counts, and explicit inconclusive outcomes.
+- **Leakage-safe production drift detection** across matured forecast errors and observed market features, with warning/severe states that reduce adaptive-weight confidence.
 - **Weekly recommendation-only optimizer** that evaluates bounded candidate ensemble parameters and consumes statistical evidence.
 - **Structured production observability** with JSON snapshots, JSONL events, timings, counters, run identifiers, and GitHub Actions summaries.
 - **Daily forecast performance dashboard** generated from durable history in JSON, Markdown, and standalone HTML.
@@ -53,10 +55,12 @@ Relevant completed roadmap/foundation issues:
 - [#21 Reproducible experiment manifests](https://github.com/jpfelgueiras/btc-timesfm/issues/21)
 - [#22 Structured observability and pipeline metrics](https://github.com/jpfelgueiras/btc-timesfm/issues/22)
 - [#23 Forecast performance dashboard/reporting](https://github.com/jpfelgueiras/btc-timesfm/issues/23)
+- [#24 Forecast-history retention, backup and recovery policy](https://github.com/jpfelgueiras/btc-timesfm/issues/24)
 - [#25 CI quality gates](https://github.com/jpfelgueiras/btc-timesfm/issues/25)
 - [#26 Expanded benchmark suite](https://github.com/jpfelgueiras/btc-timesfm/issues/26)
 - [#27 Purged walk-forward cross-validation](https://github.com/jpfelgueiras/btc-timesfm/issues/27)
 - [#28 Statistical significance and uncertainty testing](https://github.com/jpfelgueiras/btc-timesfm/issues/28)
+- [#33 Model and feature drift detection](https://github.com/jpfelgueiras/btc-timesfm/issues/33)
 - [#40 Automated dependency and security scanning](https://github.com/jpfelgueiras/btc-timesfm/issues/40)
 
 ---
@@ -120,7 +124,7 @@ The canonical production history is a SQLite database stored through the dedicat
 forecast-history-v1
 ```
 
-The production workflow stores the compressed SQLite database, analysis exports, and a previous known-good generation. The rolling `.state/previous_forecast.json` cache remains useful for fast scheduling but is not the historical source of truth.
+The production workflow stores the compressed SQLite database, analysis exports, a previous known-good generation, and bounded verified versioned backup generations. Retention limits cap both generation count and total backup bytes. The rolling `.state/previous_forecast.json` cache remains useful for fast scheduling but is not the historical source of truth.
 
 The history layer now includes versioned schema migrations plus integrity auditing. Audit tooling checks SQLite integrity, foreign keys, uniqueness, required fields, orphan model rows, missing matured outcomes, and inconsistent derived values. Repair mode is intentionally conservative: it creates a backup first, is idempotent, and blocks automatic mutation when corruption is structural or ambiguous.
 
@@ -132,7 +136,7 @@ The ensemble predicts hourly log returns and reconstructs future BTC prices. Tim
 
 > Is the complex forecast actually beating a robust simple benchmark?
 
-Weights adapt separately for 2h, 4h, 8h, and 16h according to matured historical performance. Current weighting considers MAE, direction accuracy, bias, interval behavior, and performance relative to persistence while retaining strict floors/caps and sparse-history fallbacks.
+Weights adapt separately for 2h, 4h, 8h, and 16h according to matured historical performance. Current weighting considers MAE, direction accuracy, bias, interval behavior, and performance relative to persistence while retaining strict floors/caps and sparse-history fallbacks. Production drift detection monitors matured model errors and observed feature distributions; warning drift reduces the learned-weight blend and severe drift falls back to the static regime prior.
 
 ### Research and evaluation workflow
 
@@ -200,7 +204,7 @@ Twikit is an unofficial X client. Session cookies can expire and frontend change
 
 ### Operational controls
 
-Structured observability and history auditing are implemented, but formal retention/backup policy, model/feature drift detection, and pipeline circuit breakers remain incomplete.
+Structured observability, history auditing, bounded backup/recovery, and model/feature drift detection are implemented. Pipeline health alerts and circuit breakers remain incomplete.
 
 ### Merge enforcement
 
@@ -212,9 +216,9 @@ CI checks run on every pull request. Enforcing every check as a mandatory merge 
 
 The roadmap is split into five phases. Dependencies are intentional: later work should not be started when it depends on an unfinished foundation unless the work can safely proceed in parallel.
 
-**Completed roadmap items:** #17, #18, #19, #20, #21, #22, #23, #25, #26, #27, #28, and #40.
+**Completed roadmap items:** #17, #18, #19, #20, #21, #22, #23, #24, #25, #26, #27, #28, #33, and #40.
 
-**Highest-value currently unblocked work:** #38 (X idempotency/session health), #24 (backup/recovery), and the Phase 2 intelligence work #29/#30/#31/#32/#33. Of those, #33 has the most downstream leverage because it unlocks #39 and #41.
+**Highest-value currently unblocked work:** #38 (X idempotency/session health), #39 (pipeline health/circuit breakers), and #41 (optimizer promotion policy). #31 remains the next high-value uncertainty-calibration improvement, while #29/#30/#32 can proceed in parallel.
 
 ## Phase 1 — Foundation & Data
 
@@ -229,7 +233,7 @@ Goal: make inputs, historical data, observability, and CI trustworthy enough tha
 | [#21](https://github.com/jpfelgueiras/btc-timesfm/issues/21) | ✅ Reproducible experiment manifests | #5, #9, #19 | P1 |
 | [#22](https://github.com/jpfelgueiras/btc-timesfm/issues/22) | ✅ Structured observability and pipeline metrics | #17, #21 | P1 |
 | [#23](https://github.com/jpfelgueiras/btc-timesfm/issues/23) | ✅ Forecast performance dashboard/reporting | #5, #22 | P1 |
-| [#24](https://github.com/jpfelgueiras/btc-timesfm/issues/24) | Retention, backup and recovery policy | #19, #20 | P1 |
+| [#24](https://github.com/jpfelgueiras/btc-timesfm/issues/24) | ✅ Retention, backup and recovery policy | #19, #20 | P1 |
 | [#25](https://github.com/jpfelgueiras/btc-timesfm/issues/25) | ✅ CI quality gates: linting, typing and coverage | #9 | P0 |
 
 ### Phase 1 definition of done
@@ -242,7 +246,7 @@ Goal: make inputs, historical data, observability, and CI trustworthy enough tha
 - ✅ Pipeline stages expose structured status, counters, and timing information.
 - ✅ Forecast quality can be reviewed without manually inspecting raw JSON.
 - ✅ CI catches style/type/test regressions on every PR.
-- Formal retention, restore testing, and recovery policy are documented and automated where practical.
+- ✅ Formal retention, restore testing, and recovery policy are documented and automated where practical.
 
 ---
 
@@ -259,7 +263,7 @@ Goal: make model improvements statistically defensible and increase ensemble div
 | [#30](https://github.com/jpfelgueiras/btc-timesfm/issues/30) | Correlation-aware ensemble weighting | #6, #26, #28 | P1 |
 | [#31](https://github.com/jpfelgueiras/btc-timesfm/issues/31) | Conformal calibration for forecast intervals | #5, #27 | P1 |
 | [#32](https://github.com/jpfelgueiras/btc-timesfm/issues/32) | Diversified non-TimesFM forecasting model | #26, #27, #28 | P1 |
-| [#33](https://github.com/jpfelgueiras/btc-timesfm/issues/33) | Model and feature drift detection | #5, #26, #28 | P1 |
+| [#33](https://github.com/jpfelgueiras/btc-timesfm/issues/33) | ✅ Model and feature drift detection | #5, #26, #28 | P1 |
 
 ### Phase 2 definition of done
 
@@ -270,7 +274,7 @@ Goal: make model improvements statistically defensible and increase ensemble div
 - Ensemble weighting accounts for correlated model errors.
 - Prediction intervals have empirically defensible conformal coverage.
 - At least one genuinely different model family is evaluated.
-- Production can identify when recent market/error behavior has drifted materially.
+- ✅ Production can identify when recent market/error behavior has drifted materially.
 
 ---
 
@@ -346,7 +350,7 @@ Goal: automate repetitive model-selection work without allowing the research sys
 ```
 
 ```text
-#5 ──► #19 ✅ ──► #20 ✅ ──► #24
+#5 ──► #19 ✅ ──► #20 ✅ ──► #24 ✅
                 │
                 └──► #21 ✅ ──► #22 ✅ ──► #23 ✅
 ```
@@ -366,7 +370,7 @@ Goal: automate repetitive model-selection work without allowing the research sys
           ├──► #29   improved regimes
           ├──► #30   correlation-aware ensemble
           ├──► #32   diversified model
-          └──► #33   drift detection
+          └──► #33 ✅ drift detection
 ```
 
 ```text
@@ -377,11 +381,11 @@ Goal: automate repetitive model-selection work without allowing the research sys
    │          └──► #36 cross-asset signals ─┘
    │
    └──► #22 ✅ ──► #38
-                 └──► #39 (also needs #33)
+                 └──► #39 (also needs #33 ✅)
 ```
 
 ```text
-#7 + #28 ✅ + #33
+#7 + #28 ✅ + #33 ✅
        │
        ▼
       #41
@@ -397,38 +401,32 @@ Goal: automate repetitive model-selection work without allowing the research sys
 
 # Recommended next execution order
 
-The previous evaluation critical path **#26 → #27 → #28** is now complete. The next work should exploit that foundation rather than adding more evaluation infrastructure first.
+The evaluation critical path **#26 → #27 → #28** is complete, and #33 now supplies production drift awareness. The next work should turn those signals into safer unattended operation and controlled automation.
 
 The highest-value sequence is:
 
 1. **#38 — X posting idempotency and session-health checks (P0)**  
-   Fully unblocked by #9 + #22. This removes a practical production risk immediately: duplicate publishing and silent session expiry.
+   Fully unblocked by #9 + #22. This removes the immediate publishing risks of duplicate posts and silent session expiry.
 
-2. **#33 — Model and feature drift detection (P1)**  
-   High leverage because it unlocks both the P0 circuit-breaker work in #39 and the P0 optimizer-promotion policy in #41.
+2. **#39 — Pipeline alerts, health checks and circuit breakers (P0)**  
+   Now fully unblocked by #17 + #18 + #22 + #33. Convert validated data, structured observability, and drift state into fail-closed production controls.
 
-3. **#24 — Retention, backup and recovery policy (P1)**  
-   #19 + #20 are complete, so the history durability track can now be finished with explicit retention and tested recovery procedures.
+3. **#41 — Optimizer promotion policy and safety guardrails (P0)**  
+   Now fully unblocked by #7 + #28 + #33. Define the machine-readable evidence and safety policy before any optimizer-generated production change is allowed.
 
 4. **#31 — Conformal calibration for forecast intervals (P1)**  
-   Improves uncertainty quality directly and is already unblocked by #5 + #27.
+   Improve uncertainty quality directly using the completed leakage-safe evaluation foundation.
 
 5. **#30 — Correlation-aware ensemble weighting (P1)**  
-   Uses the completed benchmark/statistical foundation to stop highly correlated TimesFM contexts from receiving misleadingly independent weight.
+   Prevent highly correlated TimesFM contexts from receiving misleadingly independent weight.
 
 6. **#29 — Improved market regime detection (P1)**  
-   Replace the heuristic classifier with an out-of-sample validated approach before richer regime-dependent logic is added.
+   Replace the heuristic classifier with an out-of-sample validated approach.
 
 7. **#32 — Diversified non-TimesFM forecasting model (P1)**  
-   Evaluate a genuinely different model family through the now-complete benchmark/CV/significance pipeline.
+   Evaluate a genuinely different model family through the completed benchmark/CV/significance pipeline.
 
-8. **#39 — Pipeline alerts, health checks and circuit breakers (P0)** after #33.  
-   Combine observability, validated market data, and drift state into fail-closed production controls.
-
-9. **#41 — Optimizer promotion policy and safety guardrails (P0)** after #33.  
-   Statistical significance is already available; drift awareness is the remaining major dependency.
-
-10. **#34/#35/#36 — richer market signals** can proceed in parallel where useful, but promotion should continue to use the completed #26/#27/#28 evaluation path. After all three signal families exist, #37 can automate ablation/selection.
+8. **#34/#35/#36 — richer market signals** can proceed in parallel where useful, but promotion should continue to use the completed #26/#27/#28 evaluation path. After all three signal families exist, #37 can automate ablation/selection.
 
 Once #30, #31, and #33 are complete, #44 can replace raw model-agreement language in public posts with evidence-grounded confidence explanations.
 
@@ -439,7 +437,7 @@ Once #30, #31, and #33 are complete, #44 can replace raw model-agreement languag
 ## Stage A — Trusted inputs and history
 
 Target issues: **#17, #18, #19, #20, #21, #24, #25**  
-Completed: **#17, #18, #19, #20, #21, #25**. Remaining: **#24**.
+Completed: **#17, #18, #19, #20, #21, #24, #25**. Remaining: **none**.
 
 Outcome: production data, durable history, integrity controls, reproducibility, and CI are trustworthy and recoverable.
 
@@ -452,7 +450,8 @@ Outcome: improvements are evaluated with leakage-safe folds, stronger baselines,
 
 ## Stage C — Better ensemble intelligence
 
-Target issues: **#29, #30, #32, #33**
+Target issues: **#29, #30, #32, #33**  
+Completed: **#33**. Remaining: **#29, #30, #32**.
 
 Outcome: better regime awareness, less correlated ensemble behavior, a genuinely different model family, and drift awareness.
 
@@ -496,7 +495,7 @@ The project should avoid optimizing for a single headline number. Track at least
 - data fallback rate
 - model inference duration
 - history-audit health
-- drift state once implemented
+- drift state and drift-event frequency
 - X publication success/duplicate-prevention rate
 
 A change should generally not be promoted simply because average MAE improves if it materially worsens another protected horizon, becomes unstable across folds, loses badly to persistence in an important regime, has confidence intervals consistent with no improvement, or relies on too few observations.
