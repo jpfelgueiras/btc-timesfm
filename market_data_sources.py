@@ -35,8 +35,11 @@ SOURCE_REPORT_PATH = Path("market_data_source.json")
 
 
 class HourlyMarketDataProvider(Protocol):
-    name: str
-    pair: str
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def pair(self) -> str: ...
 
     def fetch(self, limit: int) -> MarketData: ...
 
