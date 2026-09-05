@@ -1,0 +1,137 @@
+name: Apply significance code patch
+
+on:
+  push:
+    branches:
+      - feature/statistical-significance
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Patch optimizer and tests
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected exactly one match for {label}, got {count}")
+              return text.replace(old, new, 1)
+
+          path = Path("optimizer.py")
+          text = path.read_text()
+          text = replace_once(
+              text,
+              "import adaptive_weighting as aw\nfrom backtest import fetch_binance_history, slice_market\n",
+              "import adaptive_weighting as aw\nfrom backtest import fetch_binance_history, slice_market\nfrom statistical_significance import (\n    DEFAULT_BOOTSTRAP_ITERATIONS,\n    DEFAULT_CONFIDENCE,\n    DEFAULT_MIN_PAIRED_SAMPLES,\n    paired_bootstrap_comparison,\n)\n",
+              "significance import",
+          )
+          text = replace_once(
+              text,
+              "MIN_IMPROVED_FOLDS = 2\n\nALL_MODELS = (\n",
+              "MIN_IMPROVED_FOLDS = 2\nHORIZONS = (\"2h\", \"4h\", \"8h\", \"16h\")\n\nALL_MODELS = (\n",
+              "horizon constant",
+          )
+          old = '''    horizon_maes = [\n        float(value["mae_pct"]) for value in by_horizon.values() if value["mae_pct"] is not None\n    ]\n    horizon_dirs = [\n        float(value["direction_accuracy"])\n        for value in by_horizon.values()\n        if value["direction_accuracy"] is not None\n    ]\n    objective_mae = float(np.mean(horizon_maes)) if horizon_maes else float("inf")\n    direction_accuracy = float(np.mean(horizon_dirs)) if horizon_dirs else 0.0\n\n    return {\n'''
+          new = '''    horizon_maes = [\n        float(value["mae_pct"]) for value in by_horizon.values() if value["mae_pct"] is not None\n    ]\n    horizon_dirs = [\n        float(value["direction_accuracy"])\n        for value in by_horizon.values()\n        if value["direction_accuracy"] is not None\n    ]\n    objective_mae = float(np.mean(horizon_maes)) if horizon_maes else float("inf")\n    direction_accuracy = float(np.mean(horizon_dirs)) if horizon_dirs else 0.0\n    paired_metrics = {\n        "origins": [item["origin_at"] for item in scored],\n        "mae_pct": [\n            float(np.mean([item["horizons"][h]["absolute_error_pct"] for h in HORIZONS]))\n            for item in scored\n        ],\n        "direction_accuracy": [\n            float(np.mean([item["horizons"][h]["direction_correct"] for h in HORIZONS]))\n            for item in scored\n        ],\n        "by_horizon": {\n            horizon: [float(item["horizons"][horizon]["absolute_error_pct"]) for item in scored]\n            for horizon in HORIZONS\n        },\n        "persistence_mae_pct": [\n            float(np.mean([item["persistence"][h]["absolute_error_pct"] for h in HORIZONS]))\n            for item in scored\n        ],\n    }\n\n    return {\n'''
+          text = replace_once(text, old, new, "paired metrics construction")
+          text = replace_once(
+              text,
+              '        "persistence_by_horizon": persistence_by_horizon,\n        "folds": folds,\n    }\n\n\ndef compare_to_current',
+              '        "persistence_by_horizon": persistence_by_horizon,\n        "folds": folds,\n        "paired_metrics": paired_metrics,\n    }\n\n\ndef _significance_comparison(candidate: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:\n    candidate_metrics = candidate["paired_metrics"]\n    current_metrics = current["paired_metrics"]\n    if candidate_metrics["origins"] != current_metrics["origins"]:\n        raise ValueError("statistical comparisons require identical forecast origins")\n\n    candidate_vs_production = {\n        "mae_pct": paired_bootstrap_comparison(\n            candidate_metrics["mae_pct"],\n            current_metrics["mae_pct"],\n            metric="mae_pct",\n            lower_is_better=True,\n        ),\n        "direction_accuracy": paired_bootstrap_comparison(\n            candidate_metrics["direction_accuracy"],\n            current_metrics["direction_accuracy"],\n            metric="direction_accuracy",\n            lower_is_better=False,\n        ),\n        "by_horizon_mae_pct": {\n            horizon: paired_bootstrap_comparison(\n                candidate_metrics["by_horizon"][horizon],\n                current_metrics["by_horizon"][horizon],\n                metric=f"{horizon}_mae_pct",\n                lower_is_better=True,\n            )\n            for horizon in HORIZONS\n        },\n    }\n    candidate_vs_persistence = {\n        "mae_pct": paired_bootstrap_comparison(\n            candidate_metrics["mae_pct"],\n            candidate_metrics["persistence_mae_pct"],\n            metric="mae_pct",\n            lower_is_better=True,\n        )\n    }\n    return {\n        "method": "paired_bootstrap",\n        "confidence": DEFAULT_CONFIDENCE,\n        "iterations": DEFAULT_BOOTSTRAP_ITERATIONS,\n        "minimum_paired_samples": DEFAULT_MIN_PAIRED_SAMPLES,\n        "pairing_key": "forecast_origin",\n        "candidate_vs_production": candidate_vs_production,\n        "candidate_vs_persistence": candidate_vs_persistence,\n    }\n\n\ndef compare_to_current',
+              "significance comparison helper",
+          )
+          text = replace_once(
+              text,
+              '    direction_delta = float(candidate["mean_direction_accuracy"]) - float(\n        current["mean_direction_accuracy"]\n    )\n    return {\n',
+              '    direction_delta = float(candidate["mean_direction_accuracy"]) - float(\n        current["mean_direction_accuracy"]\n    )\n    significance = _significance_comparison(candidate, current)\n    return {\n',
+              "significance call",
+          )
+          text = replace_once(
+              text,
+              '        "worst_fold_relative_improvement": round(min(fold_changes), 6) if fold_changes else 0.0,\n    }\n',
+              '        "worst_fold_relative_improvement": round(min(fold_changes), 6) if fold_changes else 0.0,\n        "significance": significance,\n    }\n',
+              "significance result",
+          )
+          text = replace_once(
+              text,
+              '    fold_safe = (\n        comparison["improved_folds"] >= MIN_IMPROVED_FOLDS\n        and comparison["worst_fold_relative_improvement"] >= -MAX_WORST_FOLD_RELATIVE_DEGRADATION\n    )\n    checks = {\n',
+              '    fold_safe = (\n        comparison["improved_folds"] >= MIN_IMPROVED_FOLDS\n        and comparison["worst_fold_relative_improvement"] >= -MAX_WORST_FOLD_RELATIVE_DEGRADATION\n    )\n    production_evidence = comparison["significance"]["candidate_vs_production"]["mae_pct"]\n    persistence_evidence = comparison["significance"]["candidate_vs_persistence"]["mae_pct"]\n    statistically_supported = production_evidence["conclusion"] == "candidate_better"\n    persistence_safe = persistence_evidence["conclusion"] != "baseline_better"\n    checks = {\n',
+              "significance promotion checks setup",
+          )
+          text = replace_once(
+              text,
+              '        "stable_across_folds": fold_safe,\n    }\n',
+              '        "stable_across_folds": fold_safe,\n        "statistically_supported_mae_improvement": statistically_supported,\n        "not_significantly_worse_than_persistence": persistence_safe,\n    }\n',
+              "significance promotion checks",
+          )
+          text = replace_once(
+              text,
+              '        "schema_version": 1,\n',
+              '        "schema_version": 2,\n',
+              "optimizer schema version",
+          )
+          text = replace_once(
+              text,
+              '            "maximum_worst_fold_relative_degradation": MAX_WORST_FOLD_RELATIVE_DEGRADATION,\n        },\n',
+              '            "maximum_worst_fold_relative_degradation": MAX_WORST_FOLD_RELATIVE_DEGRADATION,\n            "statistical_evidence": {\n                "method": "paired_bootstrap",\n                "confidence": DEFAULT_CONFIDENCE,\n                "iterations": DEFAULT_BOOTSTRAP_ITERATIONS,\n                "minimum_paired_samples": DEFAULT_MIN_PAIRED_SAMPLES,\n                "promotion_requires_candidate_better_than_production": True,\n                "promotion_rejects_evidence_persistence_is_better": True,\n            },\n        },\n',
+              "statistical guardrail metadata",
+          )
+          path.write_text(text)
+
+          test_path = Path("test_optimizer.py")
+          test_text = test_path.read_text()
+          test_text = replace_once(
+              test_text,
+              '        folds = fold_maes or (mae, mae, mae)\n        return {\n',
+              '        folds = fold_maes or (mae, mae, mae)\n        origins = [f"2026-01-{index + 1:02d}T00:00:00+00:00" for index in range(samples)]\n        paired_metrics = {\n            "origins": origins,\n            "mae_pct": [mae] * samples,\n            "direction_accuracy": [direction] * samples,\n            "by_horizon": {h: [value] * samples for h, value in horizons.items()},\n            "persistence_mae_pct": [1.2] * samples,\n        }\n        return {\n',
+              "optimizer test paired metrics setup",
+          )
+          test_text = replace_once(
+              test_text,
+              '            "folds": [{"fold": i + 1, "mae_pct": value} for i, value in enumerate(folds)],\n        }\n',
+              '            "folds": [{"fold": i + 1, "mae_pct": value} for i, value in enumerate(folds)],\n            "paired_metrics": paired_metrics,\n        }\n',
+              "optimizer test paired metrics return",
+          )
+          test_text = replace_once(
+              test_text,
+              '        self.assertTrue(all(details["checks"].values()))\n',
+              '        self.assertTrue(all(details["checks"].values()))\n        evidence = details["significance"]["candidate_vs_production"]["mae_pct"]\n        self.assertEqual(evidence["conclusion"], "candidate_better")\n        self.assertGreater(evidence["improvement_ci"]["lower"], 0.0)\n',
+              "optimizer significance assertion",
+          )
+          test_path.write_text(test_text)
+
+          pyproject = Path("pyproject.toml")
+          config = pyproject.read_text()
+          config = replace_once(
+              config,
+              '    "schedule_guard",\n',
+              '    "schedule_guard",\n    "statistical_significance",\n',
+              "coverage source",
+          )
+          pyproject.write_text(config)
+          PY
+      - name: Format and lint changed Python
+        run: |
+          pip install 'ruff>=0.16.5,<1'
+          ruff format optimizer.py test_optimizer.py statistical_significance.py test_statistical_significance.py
+          ruff check optimizer.py test_optimizer.py statistical_significance.py test_statistical_significance.py
+      - name: Commit integration
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add optimizer.py test_optimizer.py statistical_significance.py test_statistical_significance.py pyproject.toml
+          git commit -m 'Integrate statistical evidence into optimizer'
+          git push
