@@ -1,120 +1,130 @@
-# BTC TimesFM 3 Forecast
+# BTC Forecast Ensemble
 
-A small experiment using Google's **TimesFM 3** to forecast BTC/USD from completed hourly candles.
+A BTC/USD forecasting experiment built around **TimesFM 3**, Kraken hourly candles, multiple baselines, regime detection, calibrated uncertainty and walk-forward backtesting.
+
+## What changed
+
+The production forecast no longer feeds raw BTC prices into one TimesFM context. It now:
+
+- forecasts **hourly log returns** and reconstructs future prices
+- runs TimesFM with **168h, 336h and 512h** context windows
+- compares/ensembles TimesFM with **persistence, 7-day drift and AR(1)** baselines
+- changes ensemble weights for **range, trending and high-volatility** regimes
+- derives market context from volatility, volume, high-low range, RSI, momentum and time-of-day/day-of-week
+- reports **model agreement** as an additional confidence signal
+- calibrates the Q10-Q90 interval from recent empirical coverage once enough samples exist
+- evaluates 2h, 4h, 8h and 16h forecasts against the exact matching Kraken close
+- tracks MAE, signed bias, direction accuracy and interval coverage
+- stores per-model predictions so TimesFM can be compared directly with the simple baselines
+- includes a separate walk-forward backtesting workflow
+
+A second foundation model is intentionally not part of the scheduled ensemble yet: loading another large checkpoint every run would substantially increase GitHub Actions runtime. The architecture now makes it straightforward to add one later if backtests show it is worth the extra compute.
 
 ## Forecast horizons
 
-Every forecast produces:
+Every production run forecasts +2h, +4h, +8h and +16h. The main `predictions` block is the ensemble result. `model_predictions` contains each underlying model/context separately.
 
-- +2 hours
-- +4 hours
-- +8 hours
-- +16 hours
+## Why forecast returns instead of raw price?
 
-The output also includes TimesFM's 10th, 50th and 90th percentile estimates.
+The model receives hourly log returns:
+
+```text
+log(close[t] / close[t-1])
+```
+
+The predicted return path is accumulated and converted back into a BTC price. Returns are generally more stable than the raw BTC price level and make forecasts across different market-price regimes more comparable.
+
+## Multi-context TimesFM
+
+Each forecast uses three views of the market:
+
+```text
+168 hours   = 7 days
+336 hours   = 14 days
+512 hours   = ~21 days
+```
+
+The contexts are forecast independently and then combined. This reduces dependence on one arbitrary context length.
+
+## Baselines
+
+The ensemble also contains:
+
+- `persistence`: future BTC = current BTC
+- `drift_7d`: extrapolates the mean 7-day log return, with volatility clipping
+- `ar1`: a simple autoregressive forecast of hourly log returns
+
+These are deliberately simple. If TimesFM cannot consistently beat persistence in the backtest, the more complex forecast is not adding much useful signal.
+
+## Market features and regime detection
+
+Each run records 6h/24h/7d realized volatility, average high-low range, volume z-score, RSI(14), 6h/24h/7d momentum and cyclic hour/day features.
+
+Those features classify the market as `range`, `trending` or `high_volatility`. The regime changes the relative weights of TimesFM, persistence, drift and AR(1), and the features are saved for later analysis.
+
+## Confidence and uncertainty
+
+For each horizon the output includes the ensemble price, change from current price, Q10/Q50/Q90 interval, model agreement, interval calibration multiplier and empirical Q10-Q90 coverage once enough history exists.
+
+The TimesFM quantile paths provide the starting uncertainty band. The band is widened when the models disagree and, after at least 10 matured samples, adjusted toward approximately 80% empirical Q10-Q90 coverage.
+
+## Reliability metrics
+
+The rolling history stores up to 72 snapshots. Matured predictions are matched to the exact Kraken hourly close at their target timestamp.
+
+For each horizon the project tracks absolute USD error, MAE %, signed error/bias, predicted vs actual change, direction accuracy, Q10-Q90 coverage and per-model performance. `forecast.json` also includes an aggregate `performance_summary` from the history currently available.
 
 ## Schedule
 
-GitHub Actions wakes up every hour at minute `37` UTC:
+GitHub Actions wakes up hourly at minute `37` UTC:
 
-```text
-00:37
-01:37
-02:37
-...
-23:37
+```yaml
+schedule:
+  - cron: "37 * * * *"
 ```
 
-The hourly trigger is intentional. GitHub's scheduled workflows are best-effort and can be delayed or occasionally dropped, so the workflow restores the latest forecast history first and runs the expensive TimesFM forecast only when at least **two completed hourly candles** have elapsed since the last saved forecast.
+A lightweight guard restores forecast state first. The expensive forecast only runs after at least two completed candle-hours have elapsed since the previous saved forecast. This gives GitHub another opportunity every hour if a scheduled event is delayed or dropped while still producing roughly one forecast every two hours.
 
-In the normal case this still produces one forecast roughly every 2 hours. If GitHub misses one cron event, the next hourly trigger can recover instead of waiting for the next fixed 2-hour slot.
+Scheduled forecasts post to X automatically. Manual runs only post when `post_to_x=true`.
 
-Skipped hourly checks do not install the model dependencies, restore the large Hugging Face model cache, post to X, or create a forecast artifact. Manual `workflow_dispatch` runs always execute and can optionally post by enabling the `post_to_x` input.
+## X posting
 
-## Multi-horizon forecast reliability
-
-The workflow keeps a rolling history of recent forecasts and scores the most recent matured prediction for each horizon: **2h, 4h, 8h and 16h**.
-
-For example, at a 12:00 run:
-
-- the 2h comparison comes from the forecast issued around 10:00
-- the 4h comparison comes from the forecast issued around 08:00
-- the 8h comparison comes from the forecast issued around 04:00
-- the 16h comparison comes from the forecast issued around 20:00 the previous day
-
-Each score is matched to the exact completed Kraken hourly candle at that prediction's target timestamp. The reliability block records:
-
-- predicted and actual price
-- absolute price error in USD
-- absolute percentage error
-- predicted vs actual percentage change
-- whether the predicted direction was correct
-- whether the actual price landed inside the forecast Q10-Q90 interval
-
-The forecast history keeps up to 48 snapshots and is persisted through the GitHub Actions cache. The old single-forecast cache format is migrated automatically on the first run.
-
-A fresh history needs time to mature: 2h accuracy appears first, then 4h, 8h and finally 16h after enough scheduled runs have accumulated.
-
-## X / Twitter posting with Twikit
-
-The workflow generates a `tweet.txt` file with current forecasts plus the latest available error for each horizon, for example:
+Posting uses Twikit with the `X_COOKIES_JSON` repository secret. Example:
 
 ```text
-BTC/USD - TimesFM 3
-Now $100,000
+BTC/USD ensemble forecast
+Now $100,000 | trending
 2h $100,200 (+0.20%) | 4h $100,450 (+0.45%)
 8h $100,800 (+0.80%) | 16h $101,100 (+1.10%)
 Prev err: 2h 0.31% | 4h 0.42% | 8h 0.75% | 16h 1.10%
 Experimental - not financial advice.
 ```
 
-Posting uses **Twikit 2.3.3** and an authenticated X web-session cookie. It does **not** use X's paid developer API.
+Twikit is an unofficial X client and can break when X changes its internal frontend/API behavior.
 
-Twikit is an unofficial X/Twitter client. It can break when X changes its internal endpoints, and X may reject activity that looks automated. Reuse the same session, keep the posting rate modest, and refresh the browser session cookie if X invalidates it.
+## Backtesting
 
-### X session cookies
+`backtest.py` performs walk-forward historical forecasts and compares the ensemble against every underlying model.
 
-Open `https://x.com` in a desktop browser where you are logged in and copy the `auth_token` and `ct0` cookies from the browser developer tools.
+The manual **BTC Forecast Backtest** GitHub workflow defaults to 90 days of history and 60 walk-forward samples.
 
-Create a temporary local file:
+Historical backtesting uses Binance BTCUSDT hourly candles because Kraken's public OHLC endpoint does not expose enough older hourly candles for a multi-month walk-forward test. Production forecasting still uses Kraken BTC/USD.
 
-```json
-{
-  "auth_token": "YOUR_AUTH_TOKEN",
-  "ct0": "YOUR_CT0"
-}
-```
-
-Store it as the repository secret:
+Run locally:
 
 ```bash
-gh secret set X_COOKIES_JSON --repo jpfelgueiras/btc-timesfm < x_cookies.json
-rm x_cookies.json
+python backtest.py --days 90 --samples 60
 ```
 
-Treat these cookies like a password and never commit them.
+The result is written to `backtest_report.json` with MAE %, mean signed error, direction accuracy, ensemble interval coverage and ensemble performance by regime.
 
-## Forecast state
+The most important comparison is whether the ensemble and the individual TimesFM contexts beat `persistence` consistently.
 
-`.state/previous_forecast.json` stores a versioned rolling forecast history. The scheduler guard reads the most recent `latest_close_at` from this state before deciding whether a scheduled forecast is due.
+## Production output
 
-The state is saved with `actions/cache/save`, so generated forecast history is not committed to the repository.
+`forecast.json` contains the latest BTC/USD close, market features, regime, model weights, per-model forecasts, ensemble 2h/4h/8h/16h forecasts, model agreement, calibrated uncertainty, latest matured reliability and rolling performance summary.
 
-## Data source
-
-Kraken's public BTC/USD hourly OHLC endpoint is used, so no exchange API key is required.
-
-Only completed candles are passed to the model.
-
-## Model
-
-```text
-google/timesfm-3.0-pytorch
-```
-
-The project uses `timesfm[torch]==3.0.1` and runs inference on CPU so it works on a standard GitHub-hosted Ubuntu runner.
-
-The Hugging Face model directory is cached between forecast runs.
+Forecast history lives in `.state/previous_forecast.json` and is persisted with the GitHub Actions cache rather than committed to the repository.
 
 ## Run locally
 
@@ -127,27 +137,15 @@ pip install -r requirements.txt
 python btc_forecast.py
 ```
 
-The first run downloads the TimesFM 3 checkpoint.
-
-To post the generated `tweet.txt` locally with a temporary cookie file:
+To post the generated `tweet.txt` locally:
 
 ```bash
 export X_COOKIES_JSON="$(cat x_cookies.json)"
 python post_to_x.py
 ```
 
-## Output
-
-`forecast.json` contains:
-
-- the current 2h/4h/8h/16h forecasts
-- `forecast_reliability` with the latest matured score for each available horizon
-- `previous_forecast_reliability` as a backwards-compatible alias for the 2h score
-
-The JSON, generated X post and `x_post_status.json` are shown or uploaded by GitHub Actions as appropriate, with artifacts retained for 7 days.
-
 ## Important
 
-This is a forecasting experiment, not a trading signal.
+This is an experiment, not a trading signal or financial advice. Backtesting is required before interpreting direction accuracy or forecast errors as useful predictive skill.
 
-TimesFM 3 pretrained weights currently have a separate non-commercial/non-production license. Check the model license before using it for real-money or production trading.
+TimesFM 3 pretrained weights have their own license terms; verify the model license before production or commercial use.
