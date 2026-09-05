@@ -18,7 +18,7 @@ The production forecast no longer feeds raw BTC prices into one TimesFM context.
 - tracks MAE, signed bias, direction accuracy and interval coverage
 - stores per-model predictions so TimesFM can be compared directly with the simple baselines
 - persists every logical production forecast in a durable SQLite history database
-- includes a separate walk-forward backtesting workflow
+- includes walk-forward backtesting plus a scheduled weekly recommendation-only optimizer
 
 A second foundation model is intentionally not part of the scheduled ensemble yet: loading another large checkpoint every run would substantially increase GitHub Actions runtime. The architecture now makes it straightforward to add one later if backtests show it is worth the extra compute.
 
@@ -299,6 +299,56 @@ The result is written to `backtest_report.json` with MAE %, mean signed error, d
 
 The most important comparisons are whether the adaptive ensemble beats the static ensemble and whether either consistently beats `persistence`.
 
+## Weekly walk-forward optimization
+
+`optimizer.py` is a bounded research optimizer that runs automatically every Sunday at **04:17 UTC** through the **Weekly Forecast Optimizer** workflow. It is deliberately recommendation-only: it cannot change production parameters, commit configuration changes or open a promotion PR.
+
+The default weekly experiment downloads 120 days of Binance BTCUSDT hourly history and evaluates 48 walk-forward origins. TimesFM forecasts are generated **once per origin**. The optimizer then replays a small deterministic catalog of candidate weighting configurations over those frozen per-model forecasts, avoiding a separate TimesFM inference pass for every candidate and keeping Actions runtime predictable.
+
+The bounded catalog currently explores conservative variations of:
+
+- TimesFM context combinations, including long-context-only variants
+- adaptive minimum/full sample thresholds
+- rolling history length
+- MAE sensitivity
+- direction-accuracy reward
+- adaptation blend strength
+- model weight floors/caps
+- persistence fallback strength
+- interval-coverage penalty
+
+At each simulated origin the weighting policy only receives candle outcomes whose timestamp is **less than or equal to that origin**. Future target prices are used only after the forecast has been produced to score that origin. This keeps the candidate replay strictly walk-forward and prevents look-ahead leakage.
+
+Every candidate is compared against both the **currently deployed production configuration** and **persistence**. Reports include metrics by horizon, metrics by detected regime, chronological fold stability, selected parameters and relative improvement.
+
+A candidate is only marked `candidate_worth_review` when all current promotion guardrails pass:
+
+- at least 32 walk-forward origins
+- at least 3% mean relative MAE improvement over production
+- no horizon degrades by more than 5% relative MAE
+- mean direction accuracy does not fall by more than 2 percentage points
+- at least 2 of 3 chronological folds improve
+- the worst fold does not degrade by more than 2%
+
+Otherwise the recommendation is `keep_current`, even when a candidate has the numerically lowest aggregate MAE. This intentionally penalizes improvements that are concentrated in one horizon or one unusually favorable time segment.
+
+The workflow writes:
+
+```text
+optimizer_report.json   complete machine-readable inputs, candidates and metrics
+optimizer_summary.md    concise human-readable Actions summary
+```
+
+Both files are uploaded as a GitHub Actions artifact for 90 days. Because the report records the tested period, candidate catalog, selected parameters and guardrails, a run can be reproduced from the same code revision and CLI inputs.
+
+Run the same optimizer manually:
+
+```bash
+python optimizer.py --days 120 --samples 48
+```
+
+The promotion policy is intentionally manual for now. A `candidate_worth_review` result is evidence to inspect and rerun with a larger sample, not authorization to deploy it. Automatic parameter PR creation should only be considered after the weekly optimizer has shown stable recommendations over multiple independent runs.
+
 ## Tests
 
 Run the complete unit-test suite:
@@ -308,7 +358,7 @@ pip install -r requirements-test.txt
 python -m unittest discover -s . -p 'test_*.py' -v
 ```
 
-The adaptive tests cover sparse-history fallback, current-regime/all-regime selection, durable outcomes beyond the recent candle window, configurable rolling limits, interval-coverage scoring, persistence fallback and strict weight floors/caps. The history-store tests cover schema verification, idempotent manual reruns, first-write-wins predictions, exact-target maturation, write-once outcomes, rolling-cache migration, adaptive-history reconstruction and CSV/JSONL export.
+The adaptive tests cover sparse-history fallback, current-regime/all-regime selection, durable outcomes beyond the recent candle window, configurable rolling limits, interval-coverage scoring, persistence fallback and strict weight floors/caps. The history-store tests cover schema verification, idempotent manual reruns, first-write-wins predictions, exact-target maturation, write-once outcomes, rolling-cache migration, adaptive-history reconstruction and CSV/JSONL export. Optimizer tests cover bounded/reproducible candidate generation, temporary parameter isolation, chronological folds, strict origin-time outcome visibility and promotion guardrails.
 
 ## Production output
 
