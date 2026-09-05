@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 .DS_Store
 forecast.json
+tweet.txt
+x_post_status.json
+x_cookies.json
+.state/

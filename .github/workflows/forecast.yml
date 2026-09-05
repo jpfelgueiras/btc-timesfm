@@ -2,6 +2,12 @@ name: BTC TimesFM 3 Forecast
 
 on:
   workflow_dispatch:
+    inputs:
+      post_to_x:
+        description: "Post this manual run to X"
+        required: false
+        default: false
+        type: boolean
   schedule:
     # Every 2 hours at minute 17 (UTC)
     - cron: "17 */2 * * *"
@@ -36,12 +42,20 @@ jobs:
           restore-keys: |
             timesfm-3-${{ runner.os }}-
 
+      - name: Restore previous forecast state
+        uses: actions/cache/restore@v4
+        with:
+          path: .state/previous_forecast.json
+          key: btc-forecast-state-${{ github.run_id }}
+          restore-keys: |
+            btc-forecast-state-
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Forecast BTC
+      - name: Forecast BTC and score previous prediction
         run: python btc_forecast.py
 
       - name: Add forecast to job summary
@@ -50,10 +64,44 @@ jobs:
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
           cat forecast.json >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo '## X post' >> "$GITHUB_STEP_SUMMARY"
+          cat tweet.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Prepare next forecast state
+        run: |
+          mkdir -p .state
+          cp forecast.json .state/previous_forecast.json
+
+      - name: Save forecast state
+        uses: actions/cache/save@v4
+        with:
+          path: .state/previous_forecast.json
+          key: btc-forecast-state-${{ github.run_id }}
+
+      - name: Post forecast to X with Twikit
+        if: github.event_name == 'schedule' || inputs.post_to_x
+        env:
+          X_COOKIES_JSON: ${{ secrets.X_COOKIES_JSON }}
+        run: python post_to_x.py
+
+      - name: Add X posting status to job summary
+        if: always() && hashFiles('x_post_status.json') != ''
+        run: |
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo '### X posting result' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat x_post_status.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload forecast
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: btc-forecast-${{ github.run_id }}
-          path: forecast.json
+          path: |
+            forecast.json
+            tweet.txt
+            x_post_status.json
+          if-no-files-found: warn
           retention-days: 7
