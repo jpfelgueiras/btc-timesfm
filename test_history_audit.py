@@ -276,9 +276,7 @@ class HistoryAuditTests(unittest.TestCase):
         self._insert_origin(second_origin)
         self._insert_prediction(second_origin, "timesfm_168h", 2)
         report = audit_database(self.db, now=self.now)
-        issue = next(
-            item for item in report["issues"] if item["code"] == "orphan_model_groups"
-        )
+        issue = next(item for item in report["issues"] if item["code"] == "orphan_model_groups")
         self.assertEqual(issue["severity"], "error")
         self.assertEqual(issue["count"], 1)
 
@@ -293,9 +291,7 @@ class HistoryAuditTests(unittest.TestCase):
                 (self.origin.isoformat(),),
             )
         report = audit_database(self.db, now=self.now)
-        issue = next(
-            item for item in report["issues"] if item["code"] == "invalid_origin_fields"
-        )
+        issue = next(item for item in report["issues"] if item["code"] == "invalid_origin_fields")
         self.assertEqual(issue["severity"], "error")
         self.assertIn("invalid_market_features_json", issue["examples"][0]["problems"])
 
