@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from history_audit import audit_database, load_actuals
+from history_migrations import CURRENT_SCHEMA_VERSION
 
 
 SCHEMA_SQL = """
@@ -78,9 +79,10 @@ class HistoryAuditTests(unittest.TestCase):
     def _create_database(self) -> None:
         with sqlite3.connect(self.db) as connection:
             connection.executescript(SCHEMA_SQL)
-            connection.execute("PRAGMA user_version = 2")
+            connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
             connection.execute(
-                "INSERT INTO metadata(key, value) VALUES('schema_version', '2')"
+                "INSERT INTO metadata(key, value) VALUES('schema_version', ?)",
+                (str(CURRENT_SCHEMA_VERSION),),
             )
             connection.executemany(
                 """
@@ -88,8 +90,8 @@ class HistoryAuditTests(unittest.TestCase):
                 VALUES (?, ?, ?)
                 """,
                 [
-                    (1, "initial_history_schema", self.origin.isoformat()),
-                    (2, "add_migration_audit", self.origin.isoformat()),
+                    (version, f"fixture_v{version}", self.origin.isoformat())
+                    for version in range(1, CURRENT_SCHEMA_VERSION + 1)
                 ],
             )
 
@@ -173,9 +175,7 @@ class HistoryAuditTests(unittest.TestCase):
             actual_by_timestamp=self._actuals(),
         )
         issue = next(
-            item
-            for item in report["issues"]
-            if item["code"] == "missing_matured_outcomes"
+            item for item in report["issues"] if item["code"] == "missing_matured_outcomes"
         )
         self.assertEqual(issue["severity"], "warning")
         self.assertTrue(issue["repairable"])
@@ -275,9 +275,7 @@ class HistoryAuditTests(unittest.TestCase):
         self._insert_origin(second_origin)
         self._insert_prediction(second_origin, "timesfm_168h", 2)
         report = audit_database(self.db, now=self.now)
-        issue = next(
-            item for item in report["issues"] if item["code"] == "orphan_model_groups"
-        )
+        issue = next(item for item in report["issues"] if item["code"] == "orphan_model_groups")
         self.assertEqual(issue["severity"], "error")
         self.assertEqual(issue["count"], 1)
 
@@ -292,9 +290,7 @@ class HistoryAuditTests(unittest.TestCase):
                 (self.origin.isoformat(),),
             )
         report = audit_database(self.db, now=self.now)
-        issue = next(
-            item for item in report["issues"] if item["code"] == "invalid_origin_fields"
-        )
+        issue = next(item for item in report["issues"] if item["code"] == "invalid_origin_fields")
         self.assertEqual(issue["severity"], "error")
         self.assertIn("invalid_market_features_json", issue["examples"][0]["problems"])
 
