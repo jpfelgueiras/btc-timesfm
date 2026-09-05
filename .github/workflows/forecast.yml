@@ -109,6 +109,14 @@ jobs:
           cat market_data_validation.json >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Add market data source to job summary
+        if: always() && steps.due.outputs.run_forecast == 'true' && hashFiles('market_data_source.json') != ''
+        run: |
+          echo '## Market data provider selection' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat market_data_source.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
       - name: Format visual X post
         if: steps.due.outputs.run_forecast == 'true'
         run: python format_tweet.py
@@ -204,5 +212,6 @@ jobs:
             tweet.txt
             x_post_status.json
             market_data_validation.json
+            market_data_source.json
           if-no-files-found: warn
           retention-days: 7

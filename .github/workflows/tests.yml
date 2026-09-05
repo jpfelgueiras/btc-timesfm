@@ -90,5 +90,6 @@ jobs:
           mypy --follow-imports=skip \
             history_migrations.py \
             history_store.py \
+            market_data_sources.py \
             market_data_validation.py \
             schedule_guard.py

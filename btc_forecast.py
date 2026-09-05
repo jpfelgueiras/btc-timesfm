@@ -12,7 +12,8 @@ import numpy as np
 
 import forecast_engine
 from adaptive_weighting import adaptive_model_weights, attach_persisted_outcomes
-from forecast_engine import TARGET_HOURS, build_forecast, fetch_kraken_hourly, load_timesfm
+from forecast_engine import TARGET_HOURS, build_forecast, load_timesfm
+from market_data_sources import fetch_redundant_hourly
 from history_store import DEFAULT_DB_PATH, ForecastHistoryStore
 
 
@@ -202,6 +203,8 @@ def save_forecast_history(history: list[dict[str, Any]], output: dict[str, Any])
         "latest_close_usd": output["latest_close_usd"],
         "source": output.get("source"),
         "pair": output.get("pair"),
+        "source_pair": output.get("source_pair"),
+        "market_data_provenance": output.get("market_data_provenance"),
         "regime": output["regime"],
         "market_features": output["market_features"],
         "model_weights": output["model_weights"],
@@ -278,7 +281,9 @@ def print_reliability(reliability: dict[str, dict[str, Any]]) -> None:
 
 
 def main() -> None:
-    data = fetch_kraken_hourly(512)
+    selection = fetch_redundant_hourly(512)
+    data = selection.data
+    print(f"Market data source: {selection.source} ({selection.source_pair})")
     print(f"Loaded {len(data.closes)} completed hourly candles")
     print(
         f"Latest BTC/USD close: ${float(data.closes[-1]):,.2f} at "
@@ -309,7 +314,14 @@ def main() -> None:
     output: dict[str, Any] = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "pair": "BTC/USD",
-        "source": "Kraken hourly OHLC",
+        "source": selection.source,
+        "source_pair": selection.source_pair,
+        "market_data_provenance": {
+            "provider": selection.provider,
+            "fallback_used": selection.fallback_used,
+            "source_pair": selection.source_pair,
+            "comparison": selection.comparison,
+        },
         **engine_output,
         "forecast_reliability": reliability,
         "performance_summary": summary,
