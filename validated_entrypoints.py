@@ -16,6 +16,7 @@ from market_data_validation import (
     ValidationConfig,
     persist_validation_report,
     print_validation_report,
+    trim_incomplete_trailing_candles,
     validate_market_data,
 )
 
@@ -25,7 +26,13 @@ def _validate_and_persist(
     *,
     source: str,
     check_staleness: bool,
+    trim_incomplete: bool = False,
 ) -> Any:
+    removed = (
+        trim_incomplete_trailing_candles(data, now=datetime.now(timezone.utc))
+        if trim_incomplete
+        else 0
+    )
     try:
         report = validate_market_data(
             data,
@@ -35,9 +42,13 @@ def _validate_and_persist(
             check_staleness=check_staleness,
         )
     except MarketDataValidationError as exc:
+        if removed:
+            exc.report.metrics["trimmed_incomplete_candles"] = removed
         persist_validation_report(exc.report)
         print_validation_report(exc.report)
         raise
+    if removed:
+        report.metrics["trimmed_incomplete_candles"] = removed
     persist_validation_report(report)
     print_validation_report(report)
     return data
@@ -71,6 +82,7 @@ def _patch_backtest_fetch() -> Any:
             original_fetch(days),
             source="Binance BTCUSDT hourly klines",
             check_staleness=False,
+            trim_incomplete=True,
         )
 
     backtest.fetch_binance_history = fetch_validated
