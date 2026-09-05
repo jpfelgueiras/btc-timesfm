@@ -104,9 +104,7 @@ def _window_rows(
         return rows
     cutoff = now - timedelta(days=days)
     return [
-        row
-        for row in rows
-        if row.get("origin_at") and _parse_timestamp(row["origin_at"]) >= cutoff
+        row for row in rows if row.get("origin_at") and _parse_timestamp(row["origin_at"]) >= cutoff
     ]
 
 
@@ -118,8 +116,7 @@ def _horizon_report(
 ) -> dict[str, Any]:
     horizon_rows = [row for row in rows if int(row["horizon_hours"]) == horizon]
     model_names = _sort_models(
-        [str(row["model_name"]) for row in horizon_rows]
-        + [ENSEMBLE_MODEL, PERSISTENCE_MODEL]
+        [str(row["model_name"]) for row in horizon_rows] + [ENSEMBLE_MODEL, PERSISTENCE_MODEL]
     )
     models = {
         name: _metric_summary(
@@ -139,9 +136,7 @@ def _horizon_report(
     )
     by_regime: dict[str, Any] = {}
     for regime in regimes:
-        regime_rows = [
-            row for row in horizon_rows if str(row.get("regime") or "unknown") == regime
-        ]
+        regime_rows = [row for row in horizon_rows if str(row.get("regime") or "unknown") == regime]
         by_regime[regime] = {
             name: _metric_summary(
                 [row for row in regime_rows if str(row["model_name"]) == name],
@@ -341,7 +336,7 @@ def render_html(report: dict[str, Any]) -> str:
                   <table>
                     <thead><tr><th>Regime</th><th>Model</th><th>Samples</th><th>MAE</th>
                     <th>Bias</th><th>Direction</th><th>Q10–Q90 coverage</th><th>Warning</th></tr></thead>
-                    <tbody>{''.join(regime_rows)}</tbody>
+                    <tbody>{"".join(regime_rows)}</tbody>
                   </table>
                 </details>
                 """
@@ -354,9 +349,9 @@ def render_html(report: dict[str, Any]) -> str:
               <table>
                 <thead><tr><th>Horizon</th><th>Model</th><th>Samples</th><th>MAE</th>
                 <th>Bias</th><th>Direction</th><th>Q10–Q90 coverage</th><th>Warning</th></tr></thead>
-                <tbody>{''.join(table_rows)}</tbody>
+                <tbody>{"".join(table_rows)}</tbody>
               </table>
-              {''.join(regime_blocks)}
+              {"".join(regime_blocks)}
             </section>
             """
         )
@@ -382,11 +377,11 @@ code {{ background: #f5f5f5; padding: .1rem .3rem; }}
 </head>
 <body>
 <h1>BTC forecast performance dashboard</h1>
-<p>Generated <code>{html.escape(report['generated_at'])}</code>. Matured rows:
-<strong>{report['matured_rows']}</strong>. Low-sample threshold:
-<strong>{report['low_sample_threshold']}</strong>.</p>
+<p>Generated <code>{html.escape(report["generated_at"])}</code>. Matured rows:
+<strong>{report["matured_rows"]}</strong>. Low-sample threshold:
+<strong>{report["low_sample_threshold"]}</strong>.</p>
 <p>Persistence is always shown as the baseline. Yellow rows indicate missing or low-sample segments.</p>
-{''.join(sections)}
+{"".join(sections)}
 </body>
 </html>
 """
@@ -403,7 +398,13 @@ def generate_dashboard(
 ) -> dict[str, Any]:
     store = ForecastHistoryStore(db_path)
     verification = store.verify()
-    if not verification.get("ok"):
+    verification_ok = (
+        verification.get("integrity") == "ok"
+        and int(verification.get("foreign_key_violations", 1)) == 0
+        and verification.get("schema_version") == verification.get("supported_schema_version")
+    )
+    verification = {**verification, "ok": verification_ok}
+    if not verification_ok:
         raise RuntimeError(f"forecast history failed verification: {verification}")
 
     report = build_report(
