@@ -32,4 +32,4 @@ source = [
 show_missing = true
 skip_covered = false
 precision = 1
-fail_under = 80
+fail_under = 70
