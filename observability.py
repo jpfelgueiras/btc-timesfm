@@ -74,6 +74,7 @@ class PipelineObserver:
         self.report_path = report_path
         self.event_log_path = event_log_path
         resolved_run_id = run_id or stable_run_id()
+        self.data: dict[str, Any]
         existing = self._load_existing()
         if existing and existing.get("run_id") == resolved_run_id:
             self.data = existing
