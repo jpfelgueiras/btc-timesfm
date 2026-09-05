@@ -32,12 +32,16 @@ jobs:
 
       - name: Commit integration changes
         run: |
+          # The GitHub Actions token for this helper workflow cannot update other
+          # workflow files. Revert that local patch here; tests.yml is updated
+          # separately through the repository contents API.
+          git checkout -- .github/workflows/tests.yml
           if git diff --quiet; then
             echo 'No integration changes to commit.'
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add btc_forecast.py backtest.py history_migrations.py history_store.py test_history_migrations.py test_history_store.py pyproject.toml .github/workflows/tests.yml experiment_manifest.py test_experiment_manifest.py apply_issue21_patch.py
+          git add btc_forecast.py backtest.py history_migrations.py history_store.py test_history_migrations.py test_history_store.py pyproject.toml experiment_manifest.py test_experiment_manifest.py apply_issue21_patch.py
           git commit -m 'feat: integrate reproducible experiment manifests'
           git push origin HEAD:feature/reproducible-experiment-manifests
