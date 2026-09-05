@@ -45,10 +45,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run walk-forward backtest
-        run: python backtest.py --days "${{ inputs.days }}" --samples "${{ inputs.samples }}"
+      - name: Validate historical data and run walk-forward backtest
+        run: python validated_entrypoints.py backtest --days "${{ inputs.days }}" --samples "${{ inputs.samples }}"
+
+      - name: Add validation to summary
+        if: always() && hashFiles('market_data_validation.json') != ''
+        run: |
+          echo '## Market data validation' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat market_data_validation.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Add report to summary
+        if: hashFiles('backtest_report.json') != ''
         run: |
           echo '## BTC forecast backtest' >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
@@ -56,8 +65,12 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: btc-backtest-${{ github.run_id }}
-          path: backtest_report.json
+          path: |
+            backtest_report.json
+            market_data_validation.json
+          if-no-files-found: warn
           retention-days: 30
