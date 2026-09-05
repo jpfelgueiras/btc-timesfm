@@ -12,6 +12,7 @@ import numpy as np
 
 import forecast_engine
 from adaptive_weighting import adaptive_model_weights, attach_persisted_outcomes
+from conformal_calibration import conformal_calibration_multiplier, evaluation_report
 from drift_detection import evaluate_drift, persist_drift_report
 from experiment_manifest import build_experiment_manifest, seed_everything
 from forecast_engine import TARGET_HOURS, build_forecast, load_timesfm
@@ -29,6 +30,7 @@ HISTORY_LIMIT = 72
 # Install the issue #6 policy once so production uses the durable-history-aware
 # weighting implementation while keeping the engine API stable.
 forecast_engine.adaptive_model_weights = adaptive_model_weights
+forecast_engine.empirical_calibration_multiplier = conformal_calibration_multiplier
 
 
 def load_forecast_history() -> list[dict[str, Any]]:
@@ -331,6 +333,9 @@ def main() -> None:
 
     model = load_timesfm()
     engine_output = build_forecast(model, data, history, adaptive_confidence=adaptive_confidence)
+    interval_calibration_evaluation = evaluation_report(
+        history, actuals, regime=str(engine_output["regime"])
+    )
     generated_at = datetime.now(timezone.utc)
     experiment_manifest = build_experiment_manifest(
         run_type="production_forecast",
@@ -365,6 +370,7 @@ def main() -> None:
         },
         "experiment_manifest": experiment_manifest,
         "drift_detection": drift_report,
+        "interval_calibration_evaluation": interval_calibration_evaluation,
         **engine_output,
         "forecast_reliability": reliability,
         "performance_summary": summary,

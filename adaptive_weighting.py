@@ -64,8 +64,6 @@ def attach_persisted_outcomes(
         if snapshot is None:
             continue
         model_name = str(row.get("model_name"))
-        if model_name == "ensemble":
-            continue
         try:
             hour = int(row["horizon_hours"])
         except (KeyError, TypeError, ValueError):
