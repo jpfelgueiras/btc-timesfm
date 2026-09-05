@@ -1,0 +1,35 @@
+name: Apply issue 33 source patches
+
+on:
+  push:
+    branches:
+      - feature/production-drift-detection
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Apply source patches
+        run: python apply_issue33_patch.py
+      - name: Commit patched sources
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            history_migrations.py \
+            history_store.py \
+            adaptive_weighting.py \
+            forecast_engine.py \
+            btc_forecast.py \
+            validated_entrypoints.py \
+            observability.py \
+            test_history_migrations.py
+          git commit -m 'Integrate production drift detection'
+          git push
