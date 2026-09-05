@@ -94,9 +94,7 @@ class ForecastScoringTests(unittest.TestCase):
                     "latest_close_at": current_origin.isoformat(),
                     "latest_close_usd": 100.0 + offset,
                     "predictions": {"2h": {"price_usd": predicted}},
-                    "model_predictions": {
-                        "persistence": {"2h": {"price_usd": 100.0 + offset}}
-                    },
+                    "model_predictions": {"persistence": {"2h": {"price_usd": 100.0 + offset}}},
                 }
             )
             timestamps.append(int((current_origin + timedelta(hours=2)).timestamp()))
