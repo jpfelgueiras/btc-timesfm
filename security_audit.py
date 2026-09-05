@@ -16,10 +16,10 @@ SECRET_PATTERNS = {
     "GitHub token": re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{30,}\b"),
     "AWS access key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     "literal X auth_token": re.compile(
-        r'''["']auth_token["']\s*:\s*["'](?!YOUR_|<|\$\{|\{\{)[A-Za-z0-9%._-]{20,}["']'''
+        r"""["']auth_token["']\s*:\s*["'](?!YOUR_|<|\$\{|\{\{)[A-Za-z0-9%._-]{20,}["']"""
     ),
     "literal X ct0": re.compile(
-        r'''["']ct0["']\s*:\s*["'](?!YOUR_|<|\$\{|\{\{)[A-Za-z0-9%._-]{20,}["']'''
+        r"""["']ct0["']\s*:\s*["'](?!YOUR_|<|\$\{|\{\{)[A-Za-z0-9%._-]{20,}["']"""
     ),
 }
 
