@@ -157,8 +157,9 @@ class HistoryAuditTests(unittest.TestCase):
             actual_by_timestamp=self._actuals(),
             now=self.now,
         )
-        self.assertEqual(result["summary"]["errors"], 0)
-        self.assertEqual(result["summary"]["warnings"], 0)
+        message = json.dumps(result, indent=2, sort_keys=True)
+        self.assertEqual(result["summary"]["errors"], 0, message)
+        self.assertEqual(result["summary"]["warnings"], 0, message)
 
     def test_healthy_database_has_no_issues_after_outcomes_mature(self) -> None:
         self._mature_all()
@@ -196,7 +197,7 @@ class HistoryAuditTests(unittest.TestCase):
             actual_by_timestamp=self._actuals(),
             now=self.now,
         )
-        self.assertIsNotNone(first["repairs"]["backup"])
+        self.assertIsNotNone(first["repairs"]["backup"], json.dumps(first, indent=2))
         self.assertEqual(first["summary"]["applied_actions"], 6)
         self.assertTrue(first["healthy"])
 
@@ -275,7 +276,9 @@ class HistoryAuditTests(unittest.TestCase):
         self._insert_origin(second_origin)
         self._insert_prediction(second_origin, "timesfm_168h", 2)
         report = audit_database(self.db, now=self.now)
-        issue = next(item for item in report["issues"] if item["code"] == "orphan_model_groups")
+        issue = next(
+            item for item in report["issues"] if item["code"] == "orphan_model_groups"
+        )
         self.assertEqual(issue["severity"], "error")
         self.assertEqual(issue["count"], 1)
 
@@ -290,7 +293,9 @@ class HistoryAuditTests(unittest.TestCase):
                 (self.origin.isoformat(),),
             )
         report = audit_database(self.db, now=self.now)
-        issue = next(item for item in report["issues"] if item["code"] == "invalid_origin_fields")
+        issue = next(
+            item for item in report["issues"] if item["code"] == "invalid_origin_fields"
+        )
         self.assertEqual(issue["severity"], "error")
         self.assertIn("invalid_market_features_json", issue["examples"][0]["problems"])
 
