@@ -10,7 +10,7 @@ The detailed issue tracker remains the source of truth for implementation work. 
 
 ## Current state snapshot
 
-The project has moved beyond a single TimesFM experiment into a small forecasting platform with production scheduling, durable history, adaptive ensembles, backtesting, weekly optimization, X publishing, and automated tests.
+The project has moved beyond a single TimesFM experiment into a small forecasting platform with production scheduling, validated/redundant market data, durable versioned history, reproducible experiment manifests, adaptive ensembles, backtesting, weekly optimization, X publishing, CI quality gates, and automated security scanning.
 
 ### Implemented foundations
 
@@ -22,14 +22,19 @@ The project has moved beyond a single TimesFM experiment into a small forecastin
 - **Adaptive performance-based ensemble weighting** per horizon, using matured out-of-sample forecast results.
 - **Weight safeguards:** sparse-history fallback, static-prior shrinkage, persistence fallback, minimum/maximum model weights.
 - **Prediction intervals** with empirical coverage adjustment.
+- **Strict OHLCV validation and anomaly detection** before production forecasting and research evaluation.
+- **Redundant production market data:** Kraken BTC/USD primary with validated Binance BTCUSDT fallback and cross-provider disagreement checks.
 - **Durable SQLite forecast history** stored outside the repository in GitHub Release assets.
+- **Versioned forecast-history schema migrations** with transactional rollback and compatibility checks.
 - **Exact-target outcome maturation** for all supported horizons.
+- **Versioned reproducibility manifests** for production forecasts and backtests, recording Git/model/configuration identity, deterministic seeds, exact data-window fingerprints and stable configuration/data IDs.
 - **Walk-forward backtesting** with Binance BTCUSDT historical candles as the research proxy.
 - **Weekly recommendation-only optimizer** that evaluates candidate ensemble parameters.
 - **Scheduled GitHub Actions production workflow** with a guard that targets roughly one forecast every two completed candle hours.
 - **Automatic X posting** for scheduled forecasts using Twikit and the `X_COOKIES_JSON` repository secret.
 - **Emoji-rich tweet formatting** with compact 280-character fallbacks.
-- **Unit-test suite and PR test workflow** covering forecasting, adaptive weighting, history handling, scheduling, X formatting/posting helpers, and compatibility logic.
+- **PR CI quality gates** for unit tests, coverage, Ruff lint/format and mypy checks.
+- **Automated dependency/security scanning** with vulnerability and credential-leak checks.
 
 Relevant completed/foundation issues:
 
@@ -37,42 +42,50 @@ Relevant completed/foundation issues:
 - [#6 Use adaptive performance-based ensemble weights](https://github.com/jpfelgueiras/btc-timesfm/issues/6)
 - [#7 Automate weekly walk-forward optimization](https://github.com/jpfelgueiras/btc-timesfm/issues/7)
 - [#9 Unit test](https://github.com/jpfelgueiras/btc-timesfm/issues/9)
+- [#17 Market data validation and anomaly detection](https://github.com/jpfelgueiras/btc-timesfm/issues/17)
+- [#18 Redundant market data source and automatic fallback](https://github.com/jpfelgueiras/btc-timesfm/issues/18)
+- [#19 Forecast-history schema migrations](https://github.com/jpfelgueiras/btc-timesfm/issues/19)
+- [#21 Reproducible experiment manifests](https://github.com/jpfelgueiras/btc-timesfm/issues/21)
+- [#25 CI quality gates](https://github.com/jpfelgueiras/btc-timesfm/issues/25)
+- [#40 Automated dependency and security scanning](https://github.com/jpfelgueiras/btc-timesfm/issues/40)
 
 ---
 
 ## Production architecture
 
 ```text
-Kraken BTC/USD hourly candles
-          │
-          ▼
- schedule_guard.py
-          │
-          ▼
- market validation / features / regime
-          │
-          ├───────────────┬───────────────┐
-          ▼               ▼               ▼
- TimesFM 168h        TimesFM 336h     TimesFM 512h
-          │               │               │
-          └───────────────┴───────────────┘
-                          │
-             persistence / drift / AR(1)
-                          │
-                          ▼
-                adaptive ensemble
-                          │
-             2h / 4h / 8h / 16h
-                          │
-          ┌───────────────┴────────────────┐
-          ▼                                ▼
- durable SQLite history              forecast.json
- GitHub Release assets                    │
-                                           ▼
-                                   formatted X post
-                                           │
-                                           ▼
-                                         Twikit
+Kraken BTC/USD hourly candles ──┐
+                               ├── validation / provider comparison
+Binance BTCUSDT fallback ──────┘
+                                         │
+                                         ▼
+                                  schedule_guard.py
+                                         │
+                                         ▼
+                              features / regime / manifest
+                                         │
+                    ┌────────────────────┼────────────────────┐
+                    ▼                    ▼                    ▼
+              TimesFM 168h        TimesFM 336h        TimesFM 512h
+                    │                    │                    │
+                    └────────────────────┴────────────────────┘
+                                         │
+                            persistence / drift / AR(1)
+                                         │
+                                         ▼
+                               adaptive ensemble
+                                         │
+                              2h / 4h / 8h / 16h
+                                         │
+                    ┌────────────────────┴────────────────────┐
+                    ▼                                         ▼
+          durable SQLite history                        forecast.json
+          + experiment manifest                              │
+          GitHub Release assets                              ▼
+                                                     formatted X post
+                                                            │
+                                                            ▼
+                                                          Twikit
 ```
 
 ### Production scheduling
@@ -83,7 +96,11 @@ This design is intentional: GitHub scheduled workflows are best-effort and can b
 
 Scheduled forecasts post to X automatically. Manual runs only post when explicitly requested.
 
-### Durable history
+### Market-data safety
+
+Kraken BTC/USD remains the production primary. Binance BTCUSDT is a validated fallback. Both providers are normalized into the same hourly `MarketData` representation and overlapping closes are compared when both datasets are available. Production fails closed when provider disagreement exceeds the configured tolerance instead of silently trusting a suspicious source.
+
+### Durable history and reproducibility
 
 The canonical production history is a SQLite database stored through the dedicated GitHub Release tag:
 
@@ -92,6 +109,8 @@ forecast-history-v1
 ```
 
 The production workflow stores the current compressed SQLite database, analysis exports and a previous known-good generation. The rolling `.state/previous_forecast.json` cache remains useful for fast scheduling but is not the historical source of truth.
+
+Each production forecast and walk-forward backtest now includes a versioned `experiment_manifest`. The manifest records the Git revision, TimesFM model/package version, effective model/ensemble configuration, deterministic seed, source/provider identity, exact candle window and a SHA-256 OHLCV fingerprint. Stable `configuration_id` and `data_id` values make equivalent runs directly comparable while `run_id` identifies one execution.
 
 ### Current modeling strategy
 
@@ -108,7 +127,7 @@ The project currently has two complementary research paths:
 1. **Walk-forward backtesting** for comparing models and ensemble behavior historically.
 2. **Weekly optimizer** for evaluating bounded parameter candidates against the deployed configuration and persistence.
 
-The optimizer is intentionally recommendation-only. It does not silently deploy parameter changes.
+Both now emit reproducibility metadata. The optimizer is intentionally recommendation-only. It does not silently deploy parameter changes.
 
 ---
 
@@ -119,9 +138,11 @@ The optimizer is intentionally recommendation-only. It does not silently deploy 
 3. **The ensemble can adapt without allowing one model to dominate suddenly.**
 4. **Historical forecasts survive GitHub Actions cache eviction.**
 5. **Production and research share the same major forecasting concepts.**
-6. **The project is cheap enough to operate on GitHub Actions.**
-7. **Public posts expose both direction and uncertainty rather than only a point estimate.**
-8. **Tests now cover the most failure-prone pure-Python logic.**
+6. **Input data is validated and the primary provider is no longer a single point of failure.**
+7. **Historical results can be tied to code, model/configuration and exact input-data fingerprints.**
+8. **The project is cheap enough to operate on GitHub Actions.**
+9. **Public posts expose both direction and uncertainty rather than only a point estimate.**
+10. **PR CI covers tests, coverage, lint/format and core-module typing; dependency/security audits run automatically.**
 
 ---
 
@@ -129,9 +150,9 @@ The optimizer is intentionally recommendation-only. It does not silently deploy 
 
 These are the main reasons the current forecast should still be considered experimental.
 
-### Data risk
+### Data breadth and provider basis
 
-Production currently depends heavily on one spot-market data source. Provider outages, stale candles or malformed market data need stronger validation and fallback behavior.
+Production now has validation and automatic Kraken → Binance failover, but both inputs are still spot-market price/volume sources and the fallback uses BTCUSDT as a USD proxy. Richer independent signals and longer-term provider-quality monitoring are still missing.
 
 ### Model concentration
 
@@ -155,11 +176,11 @@ Twikit is an unofficial X client. Session cookies can expire, and frontend chang
 
 ### Operational controls
 
-Observability, circuit breakers, dependency security scanning and formal backup/retention policy can all be improved.
+Structured observability, circuit breakers, history integrity repair tooling and formal backup/retention policy remain to be completed.
 
 ### Merge enforcement
 
-Unit tests can run on every pull request, but enforcing them as a mandatory merge gate depends on repository branch/ruleset capabilities and the GitHub plan used for this private repository.
+Unit tests and quality checks run on every pull request, but enforcing them as mandatory merge gates depends on repository branch/ruleset capabilities and the GitHub plan used for this private repository.
 
 ---
 
@@ -167,32 +188,36 @@ Unit tests can run on every pull request, but enforcing them as a mandatory merg
 
 The roadmap is split into five phases. Dependencies are intentional: later work should not be started when it depends on an unfinished foundation unless the work can safely proceed in parallel.
 
+**Completed roadmap items:** #17, #18, #19, #21, #25 and #40.
+
+**Immediately unblocked/high-value work after #21:** #20 (history integrity), #22 (observability) and #26 (expanded benchmarks). #34/#35/#36 are also dependency-unblocked, but the recommended modeling path is to establish #26 → #27 → #28 before expanding the feature surface aggressively.
+
 ## Phase 1 — Foundation & Data
 
 Goal: make inputs, historical data and CI trustworthy enough that later modeling work is based on reliable evidence.
 
 | Issue | Improvement | Depends on | Priority |
 |---|---|---|---|
-| [#17](https://github.com/jpfelgueiras/btc-timesfm/issues/17) | Market data validation and anomaly detection | #5, #9 | P0 |
-| [#18](https://github.com/jpfelgueiras/btc-timesfm/issues/18) | Redundant market data source and automatic fallback | #17 | P0 |
-| [#19](https://github.com/jpfelgueiras/btc-timesfm/issues/19) | Version forecast-history schema and add migrations | #5, #9 | P0 |
+| [#17](https://github.com/jpfelgueiras/btc-timesfm/issues/17) | ✅ Market data validation and anomaly detection | #5, #9 | P0 |
+| [#18](https://github.com/jpfelgueiras/btc-timesfm/issues/18) | ✅ Redundant market data source and automatic fallback | #17 | P0 |
+| [#19](https://github.com/jpfelgueiras/btc-timesfm/issues/19) | ✅ Version forecast-history schema and add migrations | #5, #9 | P0 |
 | [#20](https://github.com/jpfelgueiras/btc-timesfm/issues/20) | Forecast-history integrity audit and repair tooling | #19 | P1 |
-| [#21](https://github.com/jpfelgueiras/btc-timesfm/issues/21) | Reproducible experiment manifests | #5, #9, #19 | P1 |
+| [#21](https://github.com/jpfelgueiras/btc-timesfm/issues/21) | ✅ Reproducible experiment manifests | #5, #9, #19 | P1 |
 | [#22](https://github.com/jpfelgueiras/btc-timesfm/issues/22) | Structured observability and pipeline metrics | #17, #21 | P1 |
 | [#23](https://github.com/jpfelgueiras/btc-timesfm/issues/23) | Forecast performance dashboard/reporting | #5, #22 | P1 |
 | [#24](https://github.com/jpfelgueiras/btc-timesfm/issues/24) | Retention, backup and recovery policy | #19, #20 | P1 |
-| [#25](https://github.com/jpfelgueiras/btc-timesfm/issues/25) | CI quality gates: linting, typing and coverage | #9 | P0 |
+| [#25](https://github.com/jpfelgueiras/btc-timesfm/issues/25) | ✅ CI quality gates: linting, typing and coverage | #9 | P0 |
 
 ### Phase 1 definition of done
 
-- Invalid/stale candles cannot reach the forecasting model unnoticed.
-- A healthy secondary provider can safely replace the primary during an outage.
-- Historical database changes use tested migrations.
+- ✅ Invalid/stale candles cannot reach the forecasting model unnoticed.
+- ✅ A healthy secondary provider can safely replace the primary during an outage.
+- ✅ Historical database changes use tested migrations.
 - Historical-data corruption can be detected before it influences adaptive weights.
-- Every experiment/production run is reproducible from recorded metadata.
+- ✅ Every experiment/production run is reproducible from recorded metadata.
 - Pipeline stages expose structured status and timing information.
 - Forecast quality can be reviewed without manually inspecting raw JSON.
-- CI catches style/type/test regressions on every PR.
+- ✅ CI catches style/type/test regressions on every PR.
 
 ---
 
@@ -253,7 +278,7 @@ Goal: make the scheduled forecast/publishing pipeline safe to leave running unat
 |---|---|---|---|
 | [#38](https://github.com/jpfelgueiras/btc-timesfm/issues/38) | X posting idempotency and session-health checks | #9, #22 | P0 |
 | [#39](https://github.com/jpfelgueiras/btc-timesfm/issues/39) | Pipeline alerts, health checks and circuit breakers | #17, #18, #22, #33 | P0 |
-| [#40](https://github.com/jpfelgueiras/btc-timesfm/issues/40) | Automated dependency and security scanning | #25 | P1 |
+| [#40](https://github.com/jpfelgueiras/btc-timesfm/issues/40) | ✅ Automated dependency and security scanning | #25 | P1 |
 | [#44](https://github.com/jpfelgueiras/btc-timesfm/issues/44) | Statistically grounded confidence explanations in posts | #23, #30, #31, #33 | P1 |
 
 ### Phase 4 definition of done
@@ -262,7 +287,7 @@ Goal: make the scheduled forecast/publishing pipeline safe to leave running unat
 - Expired X sessions are detected clearly and safely.
 - Severe data/model health conditions stop publication instead of emitting misleading forecasts.
 - Repeated failures and recovery states are visible.
-- Dependency vulnerabilities are surfaced automatically.
+- ✅ Dependency vulnerabilities are surfaced automatically.
 - Public confidence language is based on measured evidence, sample size and calibration rather than raw model agreement alone.
 
 ---
@@ -292,41 +317,41 @@ Goal: automate repetitive model-selection work without allowing the research sys
 ## Critical paths
 
 ```text
-#9 ──► #25 ──► #40
+#9 ──► #25 ✅ ──► #40 ✅
 ```
 
 ```text
-#5 ──► #19 ──► #20 ──► #24
-             │
-             └──► #21 ──► #22 ──► #23
+#5 ──► #19 ✅ ──► #20 ──► #24
+                │
+                └──► #21 ✅ ──► #22 ──► #23
 ```
 
 ```text
-#5 + #9 + #21
-       │
-       ▼
-      #26
-       │
-       ▼
-      #27
-       │
-       ▼
-      #28
-       │
-       ├──► #29   improved regimes
-       ├──► #30   correlation-aware ensemble
-       ├──► #32   diversified model
-       └──► #33   drift detection
+#5 + #9 + #21 ✅
+          │
+          ▼
+         #26
+          │
+          ▼
+         #27
+          │
+          ▼
+         #28
+          │
+          ├──► #29   improved regimes
+          ├──► #30   correlation-aware ensemble
+          ├──► #32   diversified model
+          └──► #33   drift detection
 ```
 
 ```text
-#17 ──► #18
-  │       │
-  │       ├──► #34 derivatives signals ─┐
-  │       ├──► #35 order-book signals ─┼──► #37 feature ablation
-  │       └──► #36 cross-asset signals ─┘
-  │
-  └──► #22 ──► #38 / #39
+#17 ✅ ──► #18 ✅
+   │          │
+   │          ├──► #34 derivatives signals ─┐
+   │          ├──► #35 order-book signals ─┼──► #37 feature ablation
+   │          └──► #36 cross-asset signals ─┘
+   │
+   └──► #22 ──► #38 / #39
 ```
 
 ```text
@@ -346,39 +371,28 @@ Goal: automate repetitive model-selection work without allowing the research sys
 
 # Recommended next execution order
 
-The roadmap contains many items that can eventually run in parallel, but the highest-value next sequence is:
+The highest-value next work now splits into three independent foundation/evaluation tracks:
 
-1. **#17 — Market data validation and anomaly detection**  
-   Protect every downstream result from bad source data.
+1. **#26 — Expanded benchmark suite (P0)**  
+   #21 completes the reproducibility dependency, so the main modeling critical path can now start. Stronger baselines should be in place before more sophisticated model changes are trusted.
 
-2. **#25 — CI quality gates**  
-   Make the growing codebase safer to change before adding more features.
+2. **#20 — Forecast-history integrity audit and repair tooling (P1)**  
+   Complete the durability track started by #19 and unblock #24 backup/retention work.
 
-3. **#19 — Forecast-history schema migrations**  
-   Establish safe evolution of the most valuable project asset: historical forecasts/outcomes.
+3. **#22 — Structured observability and pipeline metrics (P1)**  
+   Now unblocked by #17 + #21. This creates the run-level telemetry needed by #23 and the production-hardening work in #38/#39.
 
-4. **#18 — Redundant market data provider**  
-   Remove Kraken as a single point of failure.
+Then continue in dependency order:
 
-5. **#21 — Reproducible experiment manifests**  
-   Make comparisons meaningful as the architecture changes.
+4. **#27 — Purged walk-forward cross-validation** after #26.
+5. **#24 — Retention, backup and recovery policy** after #20.
+6. **#38 — X posting idempotency/session health** after #22; this is the next P0 production-reliability item that becomes available.
+7. **#28 — Statistical significance testing** after #27.
+8. **#23 — Forecast performance dashboard** after #22.
+9. **#31 — Conformal interval calibration** after #27.
+10. **#34/#35/#36 — richer market signals** can be explored in parallel, but should be promoted only through the stronger #26/#27/#28 evaluation path.
 
-6. **#26 — Expanded benchmark suite**  
-   Strengthen the baseline that every future model must beat.
-
-7. **#27 — Purged walk-forward cross-validation**  
-   Create the evaluation framework needed by nearly all advanced modeling work.
-
-8. **#28 — Statistical significance testing**  
-   Stop promoting small/noisy metric improvements.
-
-9. **#22 — Structured observability**  
-   Make production behavior easier to diagnose before increasing operational complexity.
-
-10. **#31 — Conformal interval calibration**  
-    Improve uncertainty quality independently of whether point forecasts improve.
-
-After these, the project is ready to pursue **#29/#30/#32/#33** in parallel and then evaluate richer market signals.
+After #28, the project is ready to pursue **#29/#30/#32/#33** in parallel and then formalize optimizer promotion through **#41 → #42 → #43**.
 
 ---
 
@@ -386,7 +400,8 @@ After these, the project is ready to pursue **#29/#30/#32/#33** in parallel and 
 
 ## Stage A — Trusted inputs and history
 
-Target issues: **#17, #18, #19, #20, #21, #24, #25**
+Target issues: **#17, #18, #19, #20, #21, #24, #25**  
+Completed: **#17, #18, #19, #21, #25**. Remaining: **#20, #24**.
 
 Outcome: production data, durable history and CI are trustworthy and recoverable.
 
@@ -410,7 +425,8 @@ Outcome: crypto-native and cross-market features are added only where ablation p
 
 ## Stage E — Production hardening
 
-Target issues: **#22, #23, #38, #39, #40, #44**
+Target issues: **#22, #23, #38, #39, #40, #44**  
+Completed: **#40**.
 
 Outcome: production can run unattended with usable monitoring, safer X publishing and better public confidence communication.
 
@@ -450,11 +466,12 @@ A change should generally not be promoted simply because average MAE improves if
 1. **No look-ahead leakage.** Research results are invalid if future information can enter features, weights or model-selection decisions.
 2. **Persistence is always a benchmark.** A complex model must earn its place.
 3. **Production history is immutable research evidence.** Manual reruns must never rewrite the original forecast that was observed.
-4. **Prefer measured improvement over model novelty.** New models/features should be added because evaluation supports them, not because they are fashionable.
-5. **Uncertainty matters.** Point forecasts without reliable uncertainty can create false confidence.
-6. **Fail closed on bad data.** Skipping a tweet is better than publishing from stale or contradictory inputs.
-7. **Automation must remain reviewable.** Research automation may recommend or open PRs, but should not silently deploy its own findings.
-8. **Keep GitHub Actions cost/runtime bounded.** The project should remain practical to operate continuously.
+4. **Reproducibility is part of the result.** A metric without code/configuration/data identity is not enough evidence for promotion.
+5. **Prefer measured improvement over model novelty.** New models/features should be added because evaluation supports them, not because they are fashionable.
+6. **Uncertainty matters.** Point forecasts without reliable uncertainty can create false confidence.
+7. **Fail closed on bad data.** Skipping a tweet is better than publishing from stale or contradictory inputs.
+8. **Automation must remain reviewable.** Research automation may recommend or open PRs, but should not silently deploy its own findings.
+9. **Keep GitHub Actions cost/runtime bounded.** The project should remain practical to operate continuously.
 
 ---
 
