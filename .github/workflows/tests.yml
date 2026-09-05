@@ -88,6 +88,7 @@ jobs:
       - name: Type check critical modules
         run: |
           mypy --follow-imports=skip \
+            experiment_manifest.py \
             history_migrations.py \
             history_store.py \
             market_data_sources.py \
