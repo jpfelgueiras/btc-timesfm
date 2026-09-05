@@ -14,6 +14,7 @@ import numpy as np
 from market_data_validation import (
     MarketDataValidationError,
     ValidationConfig,
+    trim_incomplete_trailing_candles,
     validate_market_data,
 )
 
@@ -41,11 +42,7 @@ def current_time_for(data, minutes_after_latest: int = 30) -> datetime:
 class MarketDataValidationTests(unittest.TestCase):
     def test_valid_hourly_market_data_passes(self) -> None:
         data = make_market()
-        report = validate_market_data(
-            data,
-            source="unit-test",
-            now=current_time_for(data),
-        )
+        report = validate_market_data(data, source="unit-test", now=current_time_for(data))
         self.assertTrue(report.ok)
         self.assertEqual(report.errors, [])
         self.assertEqual(report.candle_count, 100)
@@ -55,8 +52,7 @@ class MarketDataValidationTests(unittest.TestCase):
         data.timestamps[50] = data.timestamps[49]
         with self.assertRaises(MarketDataValidationError) as ctx:
             validate_market_data(data, source="unit-test", now=current_time_for(data))
-        codes = {item["code"] for item in ctx.exception.report.errors}
-        self.assertIn("duplicate_timestamp", codes)
+        self.assertIn("duplicate_timestamp", {item["code"] for item in ctx.exception.report.errors})
 
     def test_missing_hour_is_rejected(self) -> None:
         data = make_market()
@@ -64,19 +60,14 @@ class MarketDataValidationTests(unittest.TestCase):
             data.timestamps[index] += 3600
         with self.assertRaises(MarketDataValidationError) as ctx:
             validate_market_data(data, source="unit-test", now=current_time_for(data))
-        codes = {item["code"] for item in ctx.exception.report.errors}
-        self.assertIn("missing_or_irregular_candle", codes)
+        self.assertIn("missing_or_irregular_candle", {item["code"] for item in ctx.exception.report.errors})
 
     def test_out_of_order_timestamp_is_rejected(self) -> None:
         data = make_market()
-        data.timestamps[50], data.timestamps[51] = (
-            data.timestamps[51],
-            data.timestamps[50],
-        )
+        data.timestamps[50], data.timestamps[51] = data.timestamps[51], data.timestamps[50]
         with self.assertRaises(MarketDataValidationError) as ctx:
             validate_market_data(data, source="unit-test", now=current_time_for(data))
-        codes = {item["code"] for item in ctx.exception.report.errors}
-        self.assertIn("out_of_order_timestamp", codes)
+        self.assertIn("out_of_order_timestamp", {item["code"] for item in ctx.exception.report.errors})
 
     def test_stale_live_data_is_rejected(self) -> None:
         data = make_market()
@@ -86,8 +77,7 @@ class MarketDataValidationTests(unittest.TestCase):
                 source="unit-test",
                 now=current_time_for(data, minutes_after_latest=180),
             )
-        codes = {item["code"] for item in ctx.exception.report.errors}
-        self.assertIn("stale_data", codes)
+        self.assertIn("stale_data", {item["code"] for item in ctx.exception.report.errors})
 
     def test_historical_data_can_skip_staleness_check(self) -> None:
         data = make_market()
@@ -99,13 +89,35 @@ class MarketDataValidationTests(unittest.TestCase):
         )
         self.assertTrue(report.ok)
 
+    def test_incomplete_trailing_candle_is_trimmed_for_research(self) -> None:
+        data = make_market()
+        now = current_time_for(data)
+        future_close = int((now + timedelta(minutes=30)).timestamp())
+        data.timestamps.append(future_close)
+        data.opens = np.append(data.opens, data.closes[-1])
+        data.highs = np.append(data.highs, data.closes[-1] + 0.2)
+        data.lows = np.append(data.lows, data.closes[-1] - 0.2)
+        data.closes = np.append(data.closes, data.closes[-1] + 0.1)
+        data.volumes = np.append(data.volumes, data.volumes[-1])
+
+        removed = trim_incomplete_trailing_candles(data, now=now)
+
+        self.assertEqual(removed, 1)
+        self.assertLessEqual(data.timestamps[-1], int(now.timestamp()))
+        report = validate_market_data(
+            data,
+            source="unit-test",
+            now=now,
+            check_staleness=False,
+        )
+        self.assertTrue(report.ok)
+
     def test_impossible_ohlc_is_rejected(self) -> None:
         data = make_market()
         data.highs[25] = data.lows[25] - 1.0
         with self.assertRaises(MarketDataValidationError) as ctx:
             validate_market_data(data, source="unit-test", now=current_time_for(data))
-        codes = {item["code"] for item in ctx.exception.report.errors}
-        self.assertIn("invalid_ohlc", codes)
+        self.assertIn("invalid_ohlc", {item["code"] for item in ctx.exception.report.errors})
 
     def test_non_positive_price_and_volume_are_rejected(self) -> None:
         data = make_market()
@@ -125,16 +137,14 @@ class MarketDataValidationTests(unittest.TestCase):
         data.lows[70] = data.opens[70] * 0.999
         with self.assertRaises(MarketDataValidationError) as ctx:
             validate_market_data(data, source="unit-test", now=current_time_for(data))
-        codes = {item["code"] for item in ctx.exception.report.errors}
-        self.assertIn("extreme_hourly_return", codes)
+        self.assertIn("extreme_hourly_return", {item["code"] for item in ctx.exception.report.errors})
 
     def test_extreme_volume_is_rejected(self) -> None:
         data = make_market()
         data.volumes[80] = np.median(data.volumes[20:80]) * 100.0
         with self.assertRaises(MarketDataValidationError) as ctx:
             validate_market_data(data, source="unit-test", now=current_time_for(data))
-        codes = {item["code"] for item in ctx.exception.report.errors}
-        self.assertIn("extreme_volume", codes)
+        self.assertIn("extreme_volume", {item["code"] for item in ctx.exception.report.errors})
 
     def test_thresholds_can_be_overridden_from_environment(self) -> None:
         with patch.dict(
