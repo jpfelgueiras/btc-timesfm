@@ -1,0 +1,125 @@
+name: Clean up issue 33 branch and roadmap
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Delete merged feature branch
+        run: git push origin --delete feature/production-drift-detection
+      - name: Update operational roadmap
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('ROADMAP.md')
+          text = path.read_text(encoding='utf-8')
+
+          replacements = [
+              (
+                  '- **Forecast-history integrity auditing and conservative repair tooling** with machine-readable reports, backups, and structural-corruption safeguards.\n',
+                  '- **Forecast-history integrity auditing and conservative repair tooling** with machine-readable reports, backups, and structural-corruption safeguards.\n- **Bounded forecast-history backup and recovery policy** with verified versioned generations, retention limits, and tested restoration.\n',
+              ),
+              (
+                  '- **Paired statistical comparison** with bootstrap confidence intervals, effect sizes, sample counts, and explicit inconclusive outcomes.\n',
+                  '- **Paired statistical comparison** with bootstrap confidence intervals, effect sizes, sample counts, and explicit inconclusive outcomes.\n- **Leakage-safe production drift detection** across matured forecast errors and observed market features, with warning/severe states that reduce adaptive-weight confidence.\n',
+              ),
+              (
+                  '- [#23 Forecast performance dashboard/reporting](https://github.com/jpfelgueiras/btc-timesfm/issues/23)\n- [#25 CI quality gates](https://github.com/jpfelgueiras/btc-timesfm/issues/25)\n',
+                  '- [#23 Forecast performance dashboard/reporting](https://github.com/jpfelgueiras/btc-timesfm/issues/23)\n- [#24 Forecast-history retention, backup and recovery policy](https://github.com/jpfelgueiras/btc-timesfm/issues/24)\n- [#25 CI quality gates](https://github.com/jpfelgueiras/btc-timesfm/issues/25)\n',
+              ),
+              (
+                  '- [#28 Statistical significance and uncertainty testing](https://github.com/jpfelgueiras/btc-timesfm/issues/28)\n- [#40 Automated dependency and security scanning](https://github.com/jpfelgueiras/btc-timesfm/issues/40)\n',
+                  '- [#28 Statistical significance and uncertainty testing](https://github.com/jpfelgueiras/btc-timesfm/issues/28)\n- [#33 Model and feature drift detection](https://github.com/jpfelgueiras/btc-timesfm/issues/33)\n- [#40 Automated dependency and security scanning](https://github.com/jpfelgueiras/btc-timesfm/issues/40)\n',
+              ),
+              (
+                  'The production workflow stores the compressed SQLite database, analysis exports, and a previous known-good generation. The rolling `.state/previous_forecast.json` cache remains useful for fast scheduling but is not the historical source of truth.\n',
+                  'The production workflow stores the compressed SQLite database, analysis exports, a previous known-good generation, and bounded verified versioned backup generations. Retention limits cap both generation count and total backup bytes. The rolling `.state/previous_forecast.json` cache remains useful for fast scheduling but is not the historical source of truth.\n',
+              ),
+              (
+                  'Weights adapt separately for 2h, 4h, 8h, and 16h according to matured historical performance. Current weighting considers MAE, direction accuracy, bias, interval behavior, and performance relative to persistence while retaining strict floors/caps and sparse-history fallbacks.\n',
+                  'Weights adapt separately for 2h, 4h, 8h, and 16h according to matured historical performance. Current weighting considers MAE, direction accuracy, bias, interval behavior, and performance relative to persistence while retaining strict floors/caps and sparse-history fallbacks. Production drift detection monitors matured model errors and observed feature distributions; warning drift reduces the learned-weight blend and severe drift falls back to the static regime prior.\n',
+              ),
+              (
+                  'Structured observability and history auditing are implemented, but formal retention/backup policy, model/feature drift detection, and pipeline circuit breakers remain incomplete.\n',
+                  'Structured observability, history auditing, bounded backup/recovery, and model/feature drift detection are implemented. Pipeline health alerts and circuit breakers remain incomplete.\n',
+              ),
+              (
+                  '**Completed roadmap items:** #17, #18, #19, #20, #21, #22, #23, #25, #26, #27, #28, and #40.\n\n**Highest-value currently unblocked work:** #38 (X idempotency/session health), #24 (backup/recovery), and the Phase 2 intelligence work #29/#30/#31/#32/#33. Of those, #33 has the most downstream leverage because it unlocks #39 and #41.\n',
+                  '**Completed roadmap items:** #17, #18, #19, #20, #21, #22, #23, #24, #25, #26, #27, #28, #33, and #40.\n\n**Highest-value currently unblocked work:** #38 (X idempotency/session health), #39 (pipeline health/circuit breakers), and #41 (optimizer promotion policy). #31 remains the next high-value uncertainty-calibration improvement, while #29/#30/#32 can proceed in parallel.\n',
+              ),
+              (
+                  '| [#24](https://github.com/jpfelgueiras/btc-timesfm/issues/24) | Retention, backup and recovery policy | #19, #20 | P1 |',
+                  '| [#24](https://github.com/jpfelgueiras/btc-timesfm/issues/24) | ✅ Retention, backup and recovery policy | #19, #20 | P1 |',
+              ),
+              (
+                  '- Formal retention, restore testing, and recovery policy are documented and automated where practical.',
+                  '- ✅ Formal retention, restore testing, and recovery policy are documented and automated where practical.',
+              ),
+              (
+                  '| [#33](https://github.com/jpfelgueiras/btc-timesfm/issues/33) | Model and feature drift detection | #5, #26, #28 | P1 |',
+                  '| [#33](https://github.com/jpfelgueiras/btc-timesfm/issues/33) | ✅ Model and feature drift detection | #5, #26, #28 | P1 |',
+              ),
+              (
+                  '- Production can identify when recent market/error behavior has drifted materially.',
+                  '- ✅ Production can identify when recent market/error behavior has drifted materially.',
+              ),
+              (
+                  '#5 ──► #19 ✅ ──► #20 ✅ ──► #24',
+                  '#5 ──► #19 ✅ ──► #20 ✅ ──► #24 ✅',
+              ),
+              (
+                  '          └──► #33   drift detection',
+                  '          └──► #33 ✅ drift detection',
+              ),
+              (
+                  '   └──► #22 ✅ ──► #38\n                 └──► #39 (also needs #33)',
+                  '   └──► #22 ✅ ──► #38\n                 └──► #39 (also needs #33 ✅)',
+              ),
+              (
+                  '#7 + #28 ✅ + #33\n       │',
+                  '#7 + #28 ✅ + #33 ✅\n       │',
+              ),
+              (
+                  'The previous evaluation critical path **#26 → #27 → #28** is now complete. The next work should exploit that foundation rather than adding more evaluation infrastructure first.\n\nThe highest-value sequence is:\n\n1. **#38 — X posting idempotency and session-health checks (P0)**  \n   Fully unblocked by #9 + #22. This removes a practical production risk immediately: duplicate publishing and silent session expiry.\n\n2. **#33 — Model and feature drift detection (P1)**  \n   High leverage because it unlocks both the P0 circuit-breaker work in #39 and the P0 optimizer-promotion policy in #41.\n\n3. **#24 — Retention, backup and recovery policy (P1)**  \n   #19 + #20 are complete, so the history durability track can now be finished with explicit retention and tested recovery procedures.\n\n4. **#31 — Conformal calibration for forecast intervals (P1)**  \n   Improves uncertainty quality directly and is already unblocked by #5 + #27.\n\n5. **#30 — Correlation-aware ensemble weighting (P1)**  \n   Uses the completed benchmark/statistical foundation to stop highly correlated TimesFM contexts from receiving misleadingly independent weight.\n\n6. **#29 — Improved market regime detection (P1)**  \n   Replace the heuristic classifier with an out-of-sample validated approach before richer regime-dependent logic is added.\n\n7. **#32 — Diversified non-TimesFM forecasting model (P1)**  \n   Evaluate a genuinely different model family through the now-complete benchmark/CV/significance pipeline.\n\n8. **#39 — Pipeline alerts, health checks and circuit breakers (P0)** after #33.  \n   Combine observability, validated market data, and drift state into fail-closed production controls.\n\n9. **#41 — Optimizer promotion policy and safety guardrails (P0)** after #33.  \n   Statistical significance is already available; drift awareness is the remaining major dependency.\n\n10. **#34/#35/#36 — richer market signals** can proceed in parallel where useful, but promotion should continue to use the completed #26/#27/#28 evaluation path. After all three signal families exist, #37 can automate ablation/selection.\n',
+                  'The evaluation critical path **#26 → #27 → #28** is complete, and #33 now supplies production drift awareness. The next work should turn those signals into safer unattended operation and controlled automation.\n\nThe highest-value sequence is:\n\n1. **#38 — X posting idempotency and session-health checks (P0)**  \n   Fully unblocked by #9 + #22. This removes the immediate publishing risks of duplicate posts and silent session expiry.\n\n2. **#39 — Pipeline alerts, health checks and circuit breakers (P0)**  \n   Now fully unblocked by #17 + #18 + #22 + #33. Convert validated data, structured observability, and drift state into fail-closed production controls.\n\n3. **#41 — Optimizer promotion policy and safety guardrails (P0)**  \n   Now fully unblocked by #7 + #28 + #33. Define the machine-readable evidence and safety policy before any optimizer-generated production change is allowed.\n\n4. **#31 — Conformal calibration for forecast intervals (P1)**  \n   Improve uncertainty quality directly using the completed leakage-safe evaluation foundation.\n\n5. **#30 — Correlation-aware ensemble weighting (P1)**  \n   Prevent highly correlated TimesFM contexts from receiving misleadingly independent weight.\n\n6. **#29 — Improved market regime detection (P1)**  \n   Replace the heuristic classifier with an out-of-sample validated approach.\n\n7. **#32 — Diversified non-TimesFM forecasting model (P1)**  \n   Evaluate a genuinely different model family through the completed benchmark/CV/significance pipeline.\n\n8. **#34/#35/#36 — richer market signals** can proceed in parallel where useful, but promotion should continue to use the completed #26/#27/#28 evaluation path. After all three signal families exist, #37 can automate ablation/selection.\n',
+              ),
+              (
+                  'Target issues: **#17, #18, #19, #20, #21, #24, #25**  \nCompleted: **#17, #18, #19, #20, #21, #25**. Remaining: **#24**.',
+                  'Target issues: **#17, #18, #19, #20, #21, #24, #25**  \nCompleted: **#17, #18, #19, #20, #21, #24, #25**. Remaining: **none**.',
+              ),
+              (
+                  'Target issues: **#29, #30, #32, #33**\n\nOutcome:',
+                  'Target issues: **#29, #30, #32, #33**  \nCompleted: **#33**. Remaining: **#29, #30, #32**.\n\nOutcome:',
+              ),
+              (
+                  '- drift state once implemented',
+                  '- drift state and drift-event frequency',
+              ),
+          ]
+
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit(f'ROADMAP replacement not found: {old[:100]!r}')
+              text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit roadmap update
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ROADMAP.md
+          git commit -m 'Update roadmap after drift detection and history backups'
+          git push
