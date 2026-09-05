@@ -67,7 +67,10 @@ def create_archive(
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_name(f".{output.name}.{os.getpid()}.tmp")
     try:
-        with source.open("rb") as source_handle, gzip.open(temporary, "wb", compresslevel=9) as target:
+        with (
+            source.open("rb") as source_handle,
+            gzip.open(temporary, "wb", compresslevel=9) as target,
+        ):
             shutil.copyfileobj(source_handle, target, length=1024 * 1024)
         archive_bytes = temporary.stat().st_size
         if archive_bytes > max_generation_bytes:
@@ -226,7 +229,9 @@ def _write_json(data: Any) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Manage durable forecast-history backup generations")
+    parser = argparse.ArgumentParser(
+        description="Manage durable forecast-history backup generations"
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     create = subparsers.add_parser("create")
@@ -254,9 +259,7 @@ def main() -> None:
     elif args.command == "verify":
         _write_json(verify_archive(args.archive, max_generation_bytes=args.max_bytes))
     elif args.command == "restore":
-        _write_json(
-            restore_archive(args.archive, args.output, max_generation_bytes=args.max_bytes)
-        )
+        _write_json(restore_archive(args.archive, args.output, max_generation_bytes=args.max_bytes))
     elif args.command == "retention-plan":
         payload = json.loads(args.assets_json.read_text(encoding="utf-8"))
         if not isinstance(payload, list):
