@@ -35,7 +35,7 @@ jobs:
         run: |
           coverage run -m unittest discover -s . -p 'test_*.py' -v
           coverage report --format=markdown --fail-under=0 > coverage.md
-          coverage report --fail-under=70
+          coverage report --fail-under=75
 
       - name: Add coverage to summary
         if: always() && hashFiles('coverage.md') != ''
@@ -43,7 +43,7 @@ jobs:
           echo '## Test coverage' >> "$GITHUB_STEP_SUMMARY"
           cat coverage.md >> "$GITHUB_STEP_SUMMARY"
           echo '' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Coverage floor: **70%** across the configured critical modules.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Coverage floor: **75%** across the configured critical modules.' >> "$GITHUB_STEP_SUMMARY"
 
   lint-format:
     name: Lint & format
