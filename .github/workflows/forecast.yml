@@ -42,7 +42,7 @@ jobs:
           restore-keys: |
             timesfm-3-${{ runner.os }}-
 
-      - name: Restore previous forecast state
+      - name: Restore forecast history
         uses: actions/cache/restore@v4
         with:
           path: .state/previous_forecast.json
@@ -55,7 +55,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Forecast BTC and score previous prediction
+      - name: Forecast BTC and score matured predictions
         run: python btc_forecast.py
 
       - name: Add forecast to job summary
@@ -68,12 +68,7 @@ jobs:
           echo '## X post' >> "$GITHUB_STEP_SUMMARY"
           cat tweet.txt >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Prepare next forecast state
-        run: |
-          mkdir -p .state
-          cp forecast.json .state/previous_forecast.json
-
-      - name: Save forecast state
+      - name: Save forecast history
         uses: actions/cache/save@v4
         with:
           path: .state/previous_forecast.json
