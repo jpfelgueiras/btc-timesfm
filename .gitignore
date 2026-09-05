@@ -6,4 +6,6 @@ forecast.json
 tweet.txt
 x_post_status.json
 x_cookies.json
+optimizer_report.json
+optimizer_summary.md
 .state/
