@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 
 @dataclass(frozen=True)
@@ -132,10 +132,45 @@ def _migration_3_add_experiment_manifests(connection: sqlite3.Connection) -> Non
     )
 
 
+def _migration_4_add_drift_events(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS drift_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            evaluation_origin_at TEXT NOT NULL,
+            evaluated_at TEXT NOT NULL,
+            experiment_run_id TEXT,
+            signal_key TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            severity TEXT NOT NULL CHECK (severity IN ('warning', 'severe')),
+            model_name TEXT,
+            horizon_hours INTEGER,
+            feature_name TEXT,
+            metrics_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(evaluation_origin_at, signal_key, severity)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_drift_events_severity_time
+            ON drift_events(severity, evaluation_origin_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_drift_events_signal_time
+            ON drift_events(signal_key, evaluation_origin_at)
+        """
+    )
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial_history_schema", _migration_1_initial_history_schema),
     Migration(2, "add_migration_audit", _migration_2_add_migration_audit),
     Migration(3, "add_experiment_manifests", _migration_3_add_experiment_manifests),
+    Migration(4, "add_drift_events", _migration_4_add_drift_events),
 )
 
 
@@ -253,6 +288,8 @@ def validate_database(
     required_tables = {"metadata", "forecast_origins", "forecast_predictions"}
     if expected_version >= 2:
         required_tables.add("schema_migrations")
+    if expected_version >= 4:
+        required_tables.add("drift_events")
     missing = sorted(required_tables - tables)
     if missing:
         raise RuntimeError(f"History database is missing required tables: {', '.join(missing)}")

@@ -406,8 +406,10 @@ def adaptive_model_weights(
     history: list[dict[str, Any]],
     actual_by_timestamp: dict[int, float],
     enabled: bool = True,
+    confidence: float = 1.0,
 ) -> tuple[dict[str, float], dict[str, Any]]:
     """Blend static priors with recent out-of-sample model performance."""
+    adaptive_confidence = min(1.0, max(0.0, float(confidence)))
     prior = static_model_weights(model_names, regime)
 
     regime_scores = {
@@ -435,6 +437,9 @@ def adaptive_model_weights(
         source = "insufficient_history"
         selected = all_scores
 
+    if enabled and adaptive_confidence <= 0.0 and source != "insufficient_history":
+        source = "drift_fallback"
+
     metrics = {
         name: _performance_metrics(scores)
         if scores
@@ -447,12 +452,13 @@ def adaptive_model_weights(
         for name, scores in selected.items()
     }
 
-    if not enabled or source == "insufficient_history":
+    if not enabled or source in {"insufficient_history", "drift_fallback"}:
         diagnostics = {
             "mode": "static_prior",
             "source": source,
             "horizon": f"{hour}h",
             "regime": regime,
+            "adaptive_confidence": round(adaptive_confidence, 4),
             "blend_factor": 0.0,
             "sample_count": min_all_samples if source != "regime" else min_regime_samples,
             "persistence_mae_pct": (
@@ -501,7 +507,8 @@ def adaptive_model_weights(
             / max(1, ADAPTIVE_FULL_SAMPLES - ADAPTIVE_MIN_SAMPLES),
         ),
     )
-    blend = 0.25 + (ADAPTIVE_MAX_BLEND - 0.25) * progress
+    unscaled_blend = 0.25 + (ADAPTIVE_MAX_BLEND - 0.25) * progress
+    blend = unscaled_blend * adaptive_confidence
 
     blended = {name: (1.0 - blend) * prior[name] + blend * adaptive[name] for name in model_names}
 
@@ -527,6 +534,8 @@ def adaptive_model_weights(
         "source": source,
         "horizon": f"{hour}h",
         "regime": regime,
+        "adaptive_confidence": round(adaptive_confidence, 4),
+        "unscaled_blend_factor": round(unscaled_blend, 4),
         "blend_factor": round(blend, 4),
         "sample_count": sample_count,
         "persistence_fallback": persistence_fallback,
@@ -588,6 +597,7 @@ def ensemble_forecast(
     history: list[dict[str, Any]],
     actual_by_timestamp: dict[int, float],
     adaptive_weights_enabled: bool = True,
+    adaptive_confidence: float = 1.0,
 ) -> tuple[
     dict[str, dict[str, float | str]],
     dict[str, dict[str, float]],
@@ -608,6 +618,7 @@ def ensemble_forecast(
             history,
             actual_by_timestamp,
             enabled=adaptive_weights_enabled,
+            confidence=adaptive_confidence,
         )
         weights_by_horizon[key] = weights
         weighting_diagnostics[key] = diagnostics
@@ -670,6 +681,7 @@ def build_forecast(
     data: MarketData,
     history: list[dict[str, Any]] | None = None,
     adaptive_weights_enabled: bool = True,
+    adaptive_confidence: float = 1.0,
 ) -> dict[str, Any]:
     history = history or []
     features = market_features(data)
@@ -689,6 +701,7 @@ def build_forecast(
         history,
         actuals,
         adaptive_weights_enabled=adaptive_weights_enabled,
+        adaptive_confidence=adaptive_confidence,
     )
 
     return {
@@ -698,6 +711,7 @@ def build_forecast(
         "latest_close_usd": round(float(data.closes[-1]), 2),
         "market_features": features,
         "regime": regime,
+        "adaptive_confidence": round(min(1.0, max(0.0, float(adaptive_confidence))), 4),
         "model_weights": {
             horizon: {name: round(weight, 4) for name, weight in horizon_weights.items()}
             for horizon, horizon_weights in weights.items()

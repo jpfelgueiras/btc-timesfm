@@ -185,6 +185,7 @@ def adaptive_model_weights(
     actual_by_timestamp: dict[int, float],
     enabled: bool = True,
     history_limit: int | None = None,
+    confidence: float = 1.0,
 ) -> tuple[dict[str, float], dict[str, Any]]:
     """Blend static priors with recent out-of-sample performance.
 
@@ -194,6 +195,7 @@ def adaptive_model_weights(
     persistence when the complex models fail to beat it.
     """
     limit = max(ADAPTIVE_MIN_SAMPLES, int(history_limit or DEFAULT_HISTORY_LIMIT))
+    adaptive_confidence = min(1.0, max(0.0, float(confidence)))
     prior = static_model_weights(model_names, regime)
 
     regime_scores = {
@@ -221,6 +223,9 @@ def adaptive_model_weights(
         source = "insufficient_history"
         selected = all_scores
 
+    if enabled and adaptive_confidence <= 0.0 and source != "insufficient_history":
+        source = "drift_fallback"
+
     metrics = {
         name: _performance_metrics(scores)
         if scores
@@ -237,13 +242,14 @@ def adaptive_model_weights(
         for name, scores in selected.items()
     }
 
-    if not enabled or source == "insufficient_history":
+    if not enabled or source in {"insufficient_history", "drift_fallback"}:
         diagnostics = {
             "mode": "static_prior",
             "source": source,
             "horizon": f"{hour}h",
             "regime": regime,
             "history_limit": limit,
+            "adaptive_confidence": round(adaptive_confidence, 4),
             "blend_factor": 0.0,
             "sample_count": min_all_samples if source != "regime" else min_regime_samples,
             "persistence_mae_pct": metrics.get("persistence", {}).get("mae_pct"),
@@ -302,7 +308,8 @@ def adaptive_model_weights(
             / max(1, ADAPTIVE_FULL_SAMPLES - ADAPTIVE_MIN_SAMPLES),
         ),
     )
-    blend = 0.25 + (ADAPTIVE_MAX_BLEND - 0.25) * progress
+    unscaled_blend = 0.25 + (ADAPTIVE_MAX_BLEND - 0.25) * progress
+    blend = unscaled_blend * adaptive_confidence
     blended = {name: (1.0 - blend) * prior[name] + blend * adaptive[name] for name in model_names}
 
     complex_maes = [
@@ -327,6 +334,8 @@ def adaptive_model_weights(
         "horizon": f"{hour}h",
         "regime": regime,
         "history_limit": limit,
+        "adaptive_confidence": round(adaptive_confidence, 4),
+        "unscaled_blend_factor": round(unscaled_blend, 4),
         "blend_factor": round(blend, 4),
         "sample_count": sample_count,
         "persistence_fallback": persistence_fallback,

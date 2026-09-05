@@ -88,6 +88,7 @@ jobs:
       - name: Type check critical modules
         run: |
           mypy --follow-imports=skip \
+            drift_detection.py \
             experiment_manifest.py \
             history_audit.py \
             history_backup.py \

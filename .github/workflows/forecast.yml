@@ -110,6 +110,10 @@ jobs:
         if: steps.due.outputs.run_forecast == 'true'
         run: python validated_entrypoints.py forecast
 
+      - name: Add drift detection to job summary
+        if: always() && steps.due.outputs.run_forecast == 'true' && hashFiles('drift_summary.md') != ''
+        run: cat drift_summary.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Add market data validation to job summary
         if: always() && steps.due.outputs.run_forecast == 'true' && hashFiles('market_data_validation.json') != ''
         run: |
@@ -304,6 +308,8 @@ jobs:
             x_post_status.json
             market_data_validation.json
             market_data_source.json
+            drift_report.json
+            drift_summary.md
             forecast_observability.json
             forecast_observability.jsonl
             .state/uploaded_backup_verification.json

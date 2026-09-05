@@ -61,6 +61,7 @@ def _instrument_forecast(observer: PipelineObserver, btc_forecast: Any) -> None:
     original_fetch = btc_forecast.fetch_redundant_hourly
     original_load_model = btc_forecast.load_timesfm
     original_build_forecast = btc_forecast.build_forecast
+    original_drift = btc_forecast.evaluate_production_drift
     original_manifest = btc_forecast.build_experiment_manifest
     original_store = btc_forecast.ForecastHistoryStore
 
@@ -115,6 +116,24 @@ def _instrument_forecast(observer: PipelineObserver, btc_forecast: Any) -> None:
         with observer.stage("model_inference", model="timesfm_ensemble"):
             return original_build_forecast(*args, **kwargs)
 
+    def drift_observed(*args: Any, **kwargs: Any):
+        with observer.stage("drift_detection"):
+            report = original_drift(*args, **kwargs)
+        severity = str(report.get("severity", "none"))
+        if severity == "warning":
+            observer.increment("drift_warnings")
+        elif severity == "severe":
+            observer.increment("drift_severe")
+        observer.event(
+            "drift_evaluated",
+            status="success",
+            severity=severity,
+            adaptive_confidence=report.get("adaptive_confidence"),
+            event_count=report.get("summary", {}).get("events"),
+            fallback_mode=report.get("fallback_mode"),
+        )
+        return report
+
     def manifest_observed(*args: Any, **kwargs: Any):
         manifest = original_manifest(*args, **kwargs)
         observer.set_experiment_id(manifest.get("run_id"))
@@ -145,6 +164,10 @@ def _instrument_forecast(observer: PipelineObserver, btc_forecast: Any) -> None:
             with observer.stage("history_persistence"):
                 return super().ingest_snapshot(*args, **kwargs)
 
+        def record_drift_events(self, *args: Any, **kwargs: Any):
+            with observer.stage("drift_persistence"):
+                return super().record_drift_events(*args, **kwargs)
+
         def verify(self, *args: Any, **kwargs: Any):
             with observer.stage("history_verify"):
                 return super().verify(*args, **kwargs)
@@ -152,6 +175,7 @@ def _instrument_forecast(observer: PipelineObserver, btc_forecast: Any) -> None:
     btc_forecast.fetch_redundant_hourly = fetch_observed
     btc_forecast.load_timesfm = load_model_observed
     btc_forecast.build_forecast = build_forecast_observed
+    btc_forecast.evaluate_production_drift = drift_observed
     btc_forecast.build_experiment_manifest = manifest_observed
     btc_forecast.ForecastHistoryStore = ObservedForecastHistoryStore
 
