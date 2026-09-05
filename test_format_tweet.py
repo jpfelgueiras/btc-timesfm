@@ -1,26 +1,43 @@
 #!/usr/bin/env python3
-"""Unit tests for the emoji-rich X post formatter."""
+"""Unit tests for the direction-first B1 X post formatter."""
 
 from __future__ import annotations
 
 import unittest
 
-from format_tweet import build_visual_tweet, direction_icon, horizon_text
+from format_tweet import (
+    build_visual_tweet,
+    consensus_text,
+    direction_icon,
+    direction_signal,
+    horizon_text,
+    previous_outcome_text,
+)
 
 
-def sample_output(*, regime: str = "range") -> dict:
+def _score(predicted: float, actual: float, correct: bool) -> dict:
+    return {
+        "predicted_change_pct": predicted,
+        "actual_change_pct": actual,
+        "direction_correct": correct,
+        "absolute_error_pct": abs(actual - predicted),
+    }
+
+
+def sample_output() -> dict:
     return {
         "latest_close_usd": 79_733.0,
-        "regime": regime,
+        "regime": "range",
         "predictions": {
-            "2h": {"price_usd": 79_735.0, "change_pct": 0.003, "model_agreement": 0.4},
-            "4h": {"price_usd": 79_739.0, "change_pct": 0.008, "model_agreement": 0.4},
-            "8h": {"price_usd": 79_751.0, "change_pct": 0.023, "model_agreement": 0.8},
-            "16h": {"price_usd": 79_780.0, "change_pct": 0.060, "model_agreement": 0.8},
+            "2h": {"price_usd": 79_813.0, "change_pct": 0.10, "model_agreement": 0.8},
+            "4h": {"price_usd": 79_877.0, "change_pct": 0.18, "model_agreement": 0.8},
+            "8h": {"price_usd": 80_004.0, "change_pct": 0.34, "model_agreement": 0.8},
+            "16h": {"price_usd": 80_307.0, "change_pct": 0.72, "model_agreement": 0.8},
         },
         "forecast_reliability": {
-            "2h": {"absolute_error_pct": 0.136},
-            "4h": {"absolute_error_pct": 0.135},
+            "2h": _score(0.12, 0.07, True),
+            "4h": _score(0.15, 0.22, True),
+            "8h": _score(0.20, -0.11, False),
         },
     }
 
@@ -32,33 +49,73 @@ class VisualTweetTests(unittest.TestCase):
         self.assertEqual(direction_icon(0.005), "→")
         self.assertEqual(direction_icon(-0.005), "→")
 
-    def test_horizon_text_formats_price_and_change(self) -> None:
+    def test_direction_signal_labels(self) -> None:
+        self.assertEqual(direction_signal(0.10), ("🟢", "UP"))
+        self.assertEqual(direction_signal(-0.10), ("🔴", "DOWN"))
+        self.assertEqual(direction_signal(0.001), ("⚪", "FLAT"))
+
+    def test_horizon_text_keeps_legacy_format(self) -> None:
         self.assertEqual(
             horizon_text("4h", {"price_usd": 80123.7, "change_pct": -0.42}),
             "4h ↘ $80,124 (-0.42%)",
         )
 
-    def test_visual_tweet_contains_key_signals_and_stays_within_limit(self) -> None:
+    def test_previous_outcome_includes_predicted_actual_and_delta(self) -> None:
+        text = previous_outcome_text(_score(0.12, 0.07, True))
+        self.assertEqual(text, "Prev ✅ P+0.12% A+0.07% Δ-0.05pp")
+
+    def test_previous_outcome_handles_wrong_direction_and_positive_delta(self) -> None:
+        text = previous_outcome_text(_score(-0.20, 0.11, False))
+        self.assertEqual(text, "Prev ❌ P-0.20% A+0.11% Δ+0.31pp")
+
+    def test_previous_outcome_missing_or_legacy_score_is_pending(self) -> None:
+        self.assertEqual(previous_outcome_text(None), "Prev …")
+        self.assertEqual(previous_outcome_text({"absolute_error_pct": 0.2}), "Prev …")
+
+    def test_b1_tweet_contains_direction_and_accountability(self) -> None:
         tweet = build_visual_tweet(sample_output())
         self.assertLessEqual(len(tweet), 280)
-        self.assertIn("₿ BTC/USD • Ensemble", tweet)
-        self.assertIn("↔️ Range", tweet)
-        self.assertIn("🤝 Models 60% agree", tweet)
-        self.assertIn("🎯 Error: 2h 0.14% | 4h 0.14% | 8h — | 16h —", tweet)
-        self.assertIn("⚠️ Experimental • NFA", tweet)
+        self.assertIn("₿ BTC SIGNAL", tweet)
+        self.assertIn("2h 🟢 UP +0.10% | Prev ✅ P+0.12% A+0.07% Δ-0.05pp", tweet)
+        self.assertIn("4h 🟢 UP +0.18% | Prev ✅ P+0.15% A+0.22% Δ+0.07pp", tweet)
+        self.assertIn("8h 🟢 UP +0.34% | Prev ❌ P+0.20% A-0.11% Δ-0.31pp", tweet)
+        self.assertIn("16h 🟢 UP +0.72% | Prev …", tweet)
+        self.assertIn("🤝 4/4 bullish", tweet)
+        self.assertIn("💰 $79,733 • ⚠️ Experimental • NFA", tweet)
 
-    def test_unknown_regime_gets_readable_fallback_label(self) -> None:
-        tweet = build_visual_tweet(sample_output(regime="breakout_watch"))
-        self.assertIn("🧭 Breakout Watch", tweet)
+    def test_bearish_neutral_and_mixed_current_signals(self) -> None:
+        output = sample_output()
+        output["predictions"]["2h"]["change_pct"] = -0.20
+        output["predictions"]["4h"]["change_pct"] = -0.10
+        output["predictions"]["8h"]["change_pct"] = 0.001
+        output["predictions"]["16h"]["change_pct"] = 0.002
 
-    def test_long_regime_drops_agreement_before_exceeding_x_limit(self) -> None:
-        tweet = build_visual_tweet(sample_output(regime="x" * 60))
+        tweet = build_visual_tweet(output)
+        self.assertIn("2h 🔴 DOWN -0.20%", tweet)
+        self.assertIn("8h ⚪ FLAT +0.00%", tweet)
+        self.assertIn("🤝 mixed outlook", tweet)
+
+    def test_consensus_reports_dominant_direction(self) -> None:
+        predictions = sample_output()["predictions"]
+        predictions["16h"]["change_pct"] = -0.1
+        self.assertEqual(consensus_text(predictions), "🤝 3/4 bullish")
+
+    def test_long_numbers_use_deterministic_compact_fallback(self) -> None:
+        output = sample_output()
+        for horizon in output["predictions"]:
+            output["predictions"][horizon]["change_pct"] = 1.23456789e120
+            output["forecast_reliability"][horizon] = _score(
+                1.23456789e120,
+                -9.87654321e119,
+                False,
+            )
+
+        tweet = build_visual_tweet(output)
         self.assertLessEqual(len(tweet), 280)
-        self.assertNotIn("🤝 Models", tweet)
-
-    def test_extreme_regime_length_raises_instead_of_posting_oversize_text(self) -> None:
-        with self.assertRaises(RuntimeError):
-            build_visual_tweet(sample_output(regime="x" * 400))
+        self.assertIn("P+1.2e+120%", tweet)
+        self.assertIn("A-9.9e+119%", tweet)
+        self.assertIn("Δ-2.2e+120pp", tweet)
+        self.assertIn("⚠️ Experimental • NFA", tweet)
 
 
 if __name__ == "__main__":
