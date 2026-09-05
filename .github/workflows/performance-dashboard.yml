@@ -1,0 +1,55 @@
+name: Forecast performance dashboard
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 05 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Restore durable forecast history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p .state
+          gh release download forecast-history-v1 \
+            --pattern forecast_history.sqlite.gz \
+            --output .state/forecast_history.sqlite.gz
+          gzip -dc .state/forecast_history.sqlite.gz > .state/forecast_history.sqlite
+
+      - name: Verify durable history
+        run: python history_store.py --db .state/forecast_history.sqlite verify
+
+      - name: Generate dashboard
+        run: |
+          mkdir -p dashboard
+          python performance_dashboard.py \
+            --db .state/forecast_history.sqlite \
+            --json dashboard/performance_dashboard.json \
+            --markdown dashboard/performance_dashboard.md \
+            --html dashboard/performance_dashboard.html
+
+      - name: Add dashboard to Actions summary
+        run: cat dashboard/performance_dashboard.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload dashboard artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: forecast-performance-dashboard
+          path: dashboard/
+          retention-days: 90
