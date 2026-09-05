@@ -10,11 +10,14 @@ from unit_test_stubs import install_timesfm_stub
 
 install_timesfm_stub()
 
+from adaptive_weighting import (  # noqa: E402
+    attach_persisted_outcomes,
+    adaptive_model_weights,
+)
 from forecast_engine import (  # noqa: E402
     ADAPTIVE_MAX_WEIGHT,
     ADAPTIVE_MIN_WEIGHT,
     _bounded_normalize,
-    adaptive_model_weights,
     static_model_weights,
 )
 
@@ -29,6 +32,7 @@ def snapshot(
     *,
     regime: str = "range",
     complex_offset: float | None = None,
+    with_intervals: bool = False,
 ) -> tuple[dict, int, float]:
     if complex_offset is None:
         predictions = {
@@ -47,15 +51,29 @@ def snapshot(
             "ar1": actual + complex_offset,
         }
 
+    model_predictions = {}
+    for name, price in predictions.items():
+        item = {"price_usd": price}
+        if with_intervals and name.startswith("timesfm_"):
+            item.update({"q10_usd": actual - 1.0, "q90_usd": actual + 1.0})
+        model_predictions[name] = {"2h": item}
+
     item = {
         "latest_close_at": origin.isoformat(),
         "latest_close_usd": current,
         "regime": regime,
-        "model_predictions": {
-            name: {"2h": {"price_usd": price}} for name, price in predictions.items()
-        },
+        "model_predictions": model_predictions,
     }
     return item, int((origin + timedelta(hours=2)).timestamp()), actual
+
+
+def add_durable_outcome(item: dict, actual: float) -> None:
+    item["_outcomes"] = {
+        "2h": {
+            name: {"actual_target_price_usd": actual, "matured_at": "2026-01-02T00:00:00+00:00"}
+            for name in MODELS
+        }
+    }
 
 
 class AdaptiveWeightTests(unittest.TestCase):
@@ -131,6 +149,110 @@ class AdaptiveWeightTests(unittest.TestCase):
         self.assertTrue(diagnostics["persistence_fallback"])
         self.assertGreater(weights["persistence"], ADAPTIVE_MIN_WEIGHT)
         self.assertEqual(diagnostics["persistence_mae_pct"], 0.0)
+
+    def test_durable_outcomes_work_without_recent_candle_map(self) -> None:
+        start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        history = []
+        for i in range(8):
+            current = 100.0 + i
+            actual = current + 1.0
+            item, _, _ = snapshot(start + timedelta(hours=2 * i), current, actual)
+            add_durable_outcome(item, actual)
+            history.append(item)
+
+        _, diagnostics = adaptive_model_weights(MODELS, "range", 2, history, {})
+        self.assertEqual(diagnostics["mode"], "adaptive")
+        self.assertEqual(diagnostics["sample_count"], 8)
+        for model in MODELS:
+            self.assertEqual(
+                diagnostics["models"][model]["durable_outcome_samples"], 8
+            )
+            self.assertEqual(
+                diagnostics["models"][model]["candle_outcome_samples"], 0
+            )
+
+    def test_history_limit_applies_after_regime_filtering(self) -> None:
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        history = []
+        actuals = {}
+        for i in range(20):
+            regime = "range" if i % 2 == 0 else "trending"
+            current = 100.0 + i
+            actual = current + 1.0
+            item, target, target_price = snapshot(
+                start + timedelta(hours=2 * i), current, actual, regime=regime
+            )
+            history.append(item)
+            actuals[target] = target_price
+
+        _, diagnostics = adaptive_model_weights(
+            MODELS, "range", 2, history, actuals, history_limit=7
+        )
+        self.assertEqual(diagnostics["source"], "regime")
+        self.assertEqual(diagnostics["sample_count"], 7)
+        self.assertEqual(diagnostics["history_limit"], 7)
+
+    def test_interval_coverage_is_measured_and_affects_score(self) -> None:
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        history = []
+        actuals = {}
+        for i in range(10):
+            current = 100.0 + i
+            actual = current + 1.0
+            item, target, target_price = snapshot(
+                start + timedelta(hours=2 * i), current, actual, with_intervals=True
+            )
+            # Give both TimesFM contexts identical point forecasts so coverage is
+            # the only difference between their raw performance scores.
+            item["model_predictions"]["timesfm_168h"]["2h"]["price_usd"] = actual + 0.1
+            item["model_predictions"]["timesfm_336h"]["2h"]["price_usd"] = actual + 0.1
+            # 168h gets 8/10 ~= target 80%; 336h misses all intervals.
+            if i >= 8:
+                item["model_predictions"]["timesfm_168h"]["2h"].update(
+                    {"q10_usd": actual + 2.0, "q90_usd": actual + 3.0}
+                )
+            item["model_predictions"]["timesfm_336h"]["2h"].update(
+                {"q10_usd": actual + 2.0, "q90_usd": actual + 3.0}
+            )
+            history.append(item)
+            actuals[target] = target_price
+
+        _, diagnostics = adaptive_model_weights(MODELS, "range", 2, history, actuals)
+        m168 = diagnostics["models"]["timesfm_168h"]
+        m336 = diagnostics["models"]["timesfm_336h"]
+        self.assertEqual(m168["interval_samples"], 10)
+        self.assertAlmostEqual(m168["q10_q90_coverage"], 0.8)
+        self.assertEqual(m336["q10_q90_coverage"], 0.0)
+        self.assertGreater(m168["raw_score"], m336["raw_score"])
+
+    def test_attach_persisted_outcomes_maps_rows_by_origin_model_and_horizon(self) -> None:
+        origin = datetime(2026, 1, 1, tzinfo=timezone.utc).isoformat()
+        snapshots = [{"latest_close_at": origin}]
+        rows = [
+            {
+                "origin_at": origin,
+                "model_name": "timesfm_168h",
+                "horizon_hours": 2,
+                "actual_target_price_usd": 101.0,
+                "absolute_error_pct": 0.2,
+                "signed_error_pct": -0.2,
+                "direction_correct": 1,
+                "within_q10_q90": 1,
+                "matured_at": "2026-01-01T03:00:00+00:00",
+            },
+            {
+                "origin_at": origin,
+                "model_name": "ensemble",
+                "horizon_hours": 2,
+                "actual_target_price_usd": 101.0,
+            },
+        ]
+        result = attach_persisted_outcomes(snapshots, rows)
+        self.assertEqual(
+            result[0]["_outcomes"]["2h"]["timesfm_168h"]["actual_target_price_usd"],
+            101.0,
+        )
+        self.assertNotIn("ensemble", result[0]["_outcomes"]["2h"])
 
     def test_weights_respect_bounds_and_sum_to_one(self) -> None:
         weights = _bounded_normalize({"a": 100.0, "b": 1.0, "c": 1.0, "d": 1.0})
