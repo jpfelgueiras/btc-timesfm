@@ -1,0 +1,41 @@
+version: 2
+
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: "Europe/Lisbon"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "deps(python)"
+    groups:
+      python-runtime:
+        patterns:
+          - "requests"
+          - "numpy"
+          - "twikit"
+      python-quality:
+        dependency-type: development
+        patterns:
+          - "coverage*"
+          - "ruff"
+          - "mypy"
+          - "types-requests"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:15"
+      timezone: "Europe/Lisbon"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "deps(actions)"
