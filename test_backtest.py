@@ -14,10 +14,7 @@ from benchmarks import BENCHMARK_NAMES  # noqa: E402
 
 
 def horizon_prices(price: float) -> dict[str, dict[str, float]]:
-    return {
-        horizon: {"price_usd": price}
-        for horizon in ("2h", "4h", "8h", "16h")
-    }
+    return {horizon: {"price_usd": price} for horizon in ("2h", "4h", "8h", "16h")}
 
 
 def make_sample(*, regime: str, current: float, actual: float) -> dict:

@@ -32,9 +32,7 @@ def _safe_std(values: np.ndarray) -> float:
 def _path_prices(current_price: float, path: np.ndarray) -> dict[str, dict[str, float]]:
     cumulative = np.cumsum(path.astype(np.float64))
     return {
-        f"{hour}h": {
-            "price_usd": float(current_price * math.exp(float(cumulative[hour - 1])))
-        }
+        f"{hour}h": {"price_usd": float(current_price * math.exp(float(cumulative[hour - 1])))}
         for hour in (2, 4, 8, 16)
     }
 

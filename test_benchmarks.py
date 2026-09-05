@@ -18,7 +18,9 @@ from forecast_engine import MarketData  # noqa: E402
 
 def make_market(count: int = 200) -> MarketData:
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    closes = np.asarray([100.0 + i * 0.25 + (i % 24) * 0.05 for i in range(count)], dtype=np.float32)
+    closes = np.asarray(
+        [100.0 + i * 0.25 + (i % 24) * 0.05 for i in range(count)], dtype=np.float32
+    )
     return MarketData(
         timestamps=[int((base + timedelta(hours=i)).timestamp()) for i in range(count)],
         opens=closes - 0.1,
@@ -60,9 +62,7 @@ class BenchmarkTests(unittest.TestCase):
         current_index = len(data.closes) - 1
         for hour in (2, 4, 8, 16):
             expected = float(data.closes[current_index + hour - 24])
-            self.assertEqual(
-                forecasts["seasonal_naive_24h"][f"{hour}h"]["price_usd"], expected
-            )
+            self.assertEqual(forecasts["seasonal_naive_24h"][f"{hour}h"]["price_usd"], expected)
 
     def test_suite_is_deterministic_for_identical_input(self) -> None:
         data = make_market()

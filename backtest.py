@@ -114,9 +114,7 @@ def _aggregate_scores(scores: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "samples": len(scores),
         "mae_pct": round(float(np.mean([s["absolute_error_pct"] for s in scores])), 4),
-        "mean_signed_error_pct": round(
-            float(np.mean([s["signed_error_pct"] for s in scores])), 4
-        ),
+        "mean_signed_error_pct": round(float(np.mean([s["signed_error_pct"] for s in scores])), 4),
         "direction_accuracy": round(float(np.mean([s["direction_correct"] for s in scores])), 4),
     }
 
@@ -167,9 +165,7 @@ def summarize(samples: list[dict[str, Any]]) -> dict[str, Any]:
                 benchmark_scores.setdefault(name, []).append(benchmark_score)
                 regime_benchmarks.setdefault(name, []).append(benchmark_score)
 
-        models = {
-            name: _aggregate_scores(scores) for name, scores in sorted(per_model.items())
-        }
+        models = {name: _aggregate_scores(scores) for name, scores in sorted(per_model.items())}
         models["adaptive_ensemble"]["q10_q90_coverage"] = round(
             float(np.mean(ensemble_coverage)), 4
         )
@@ -190,8 +186,7 @@ def summarize(samples: list[dict[str, Any]]) -> dict[str, Any]:
         }
         benchmarks_by_regime = {
             regime: {
-                name: _aggregate_scores(scores)
-                for name, scores in sorted(per_benchmark.items())
+                name: _aggregate_scores(scores) for name, scores in sorted(per_benchmark.items())
             }
             for regime, per_benchmark in sorted(benchmark_regime_scores.items())
         }
