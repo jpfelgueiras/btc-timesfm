@@ -47,18 +47,20 @@ def _actual(
     actual_by_timestamp: dict[int, float],
 ) -> float | None:
     try:
-        value = float(snapshot["_outcomes"][horizon]["ensemble"]["actual_target_price_usd"])
-        if value > 0:
-            return value
-    except (KeyError, TypeError, ValueError):
+        outcomes = snapshot["_outcomes"][horizon]
+        for outcome in outcomes.values():
+            value = float(outcome["actual_target_price_usd"])
+            if value > 0:
+                return value
+    except (KeyError, AttributeError, TypeError, ValueError):
         pass
     origin = _origin(snapshot)
     if origin is None:
         return None
-    value = actual_by_timestamp.get(int(origin.timestamp()) + hour * 3600)
-    if value is None:
+    candle_actual = actual_by_timestamp.get(int(origin.timestamp()) + hour * 3600)
+    if candle_actual is None:
         return None
-    value = float(value)
+    value = float(candle_actual)
     return value if value > 0 else None
 
 
@@ -143,9 +145,7 @@ def calibration_details(
 ) -> dict[str, Any]:
     """Return no-lookahead calibration parameters and comparison diagnostics."""
     _validate_config(target_coverage, history_limit, min_samples)
-    all_samples = collect_scores(
-        history, actual_by_timestamp, hour, history_limit=history_limit
-    )
+    all_samples = collect_scores(history, actual_by_timestamp, hour, history_limit=history_limit)
     regime_samples = (
         collect_scores(
             history,
@@ -173,13 +173,9 @@ def calibration_details(
         mode = "conformal"
 
     calibrated_coverage = (
-        float(np.mean([sample["score"] <= multiplier for sample in selected]))
-        if selected
-        else None
+        float(np.mean([sample["score"] <= multiplier for sample in selected])) if selected else None
     )
-    avg_width = (
-        float(np.mean([sample["width_pct"] for sample in selected])) if selected else None
-    )
+    avg_width = float(np.mean([sample["width_pct"] for sample in selected])) if selected else None
     return {
         "mode": mode,
         "source": source,
@@ -204,6 +200,38 @@ def calibration_details(
     }
 
 
+def _legacy_interval_only(
+    history: list[dict[str, Any]],
+    actual_by_timestamp: dict[int, float],
+    hour: int,
+    target_coverage: float,
+) -> tuple[float, int, float | None]:
+    horizon = f"{hour}h"
+    covered: list[bool] = []
+    for snapshot in reversed(history):
+        try:
+            origin = _origin(snapshot)
+            if origin is None:
+                continue
+            item = snapshot["predictions"][horizon]
+            q10 = float(item["q10_usd"])
+            q90 = float(item["q90_usd"])
+            actual = actual_by_timestamp.get(int(origin.timestamp()) + hour * 3600)
+            if actual is None:
+                continue
+            covered.append(q10 <= float(actual) <= q90)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if len(covered) >= 48:
+            break
+    samples = len(covered)
+    if samples < 10:
+        return 1.0, samples, None
+    coverage = float(np.mean(covered))
+    multiplier = math.sqrt(target_coverage / max(coverage, 0.10))
+    return float(np.clip(multiplier, 0.75, 1.75)), samples, coverage
+
+
 def conformal_calibration_multiplier(
     history: list[dict[str, Any]],
     actual_by_timestamp: dict[int, float],
@@ -217,6 +245,8 @@ def conformal_calibration_multiplier(
         hour,
         target_coverage=target_coverage,
     )
+    if int(details["samples"]) == 0:
+        return _legacy_interval_only(history, actual_by_timestamp, hour, target_coverage)
     return (
         float(details["multiplier"]),
         int(details["samples"]),

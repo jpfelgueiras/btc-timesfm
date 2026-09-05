@@ -25,9 +25,7 @@ def snapshot(
             "q90_usd": 100.0 + half_width,
         }
         if actual is not None:
-            outcomes[f"{hour}h"] = {
-                "ensemble": {"actual_target_price_usd": actual}
-            }
+            outcomes[f"{hour}h"] = {"ensemble": {"actual_target_price_usd": actual}}
     return {
         "latest_close_at": origin.isoformat(),
         "regime": regime,
@@ -42,8 +40,7 @@ class ConformalCalibrationTests(unittest.TestCase):
 
     def test_sparse_history_uses_legacy_fallback(self) -> None:
         history = [
-            snapshot(self.start + timedelta(hours=i), actual=100.0 + (i % 3))
-            for i in range(8)
+            snapshot(self.start + timedelta(hours=i), actual=100.0 + (i % 3)) for i in range(8)
         ]
         details = calibration_details(history, {}, 2, min_samples=20)
         self.assertEqual(details["mode"], "legacy_fallback")
@@ -82,10 +79,7 @@ class ConformalCalibrationTests(unittest.TestCase):
         self.assertEqual(sparse["samples"], 30)
 
     def test_unmatured_future_rows_are_ignored(self) -> None:
-        history = [
-            snapshot(self.start + timedelta(hours=i), actual=101.0)
-            for i in range(20)
-        ]
+        history = [snapshot(self.start + timedelta(hours=i), actual=101.0) for i in range(20)]
         history.append(snapshot(self.start + timedelta(days=10), actual=None, half_width=0.01))
         scores = collect_scores(history, {}, 2)
         self.assertEqual(len(scores), 20)
@@ -101,20 +95,14 @@ class ConformalCalibrationTests(unittest.TestCase):
         self.assertAlmostEqual(scores[0]["score"], 0.5)
 
     def test_target_coverage_is_configurable_and_validated(self) -> None:
-        history = [
-            snapshot(self.start + timedelta(hours=i), actual=101.0)
-            for i in range(25)
-        ]
+        history = [snapshot(self.start + timedelta(hours=i), actual=101.0) for i in range(25)]
         report = calibration_details(history, {}, 2, target_coverage=0.90, min_samples=20)
         self.assertEqual(report["target_coverage"], 0.90)
         with self.assertRaises(ValueError):
             calibration_details(history, {}, 2, target_coverage=1.0)
 
     def test_evaluation_report_contains_all_production_horizons(self) -> None:
-        history = [
-            snapshot(self.start + timedelta(hours=i), actual=101.0)
-            for i in range(25)
-        ]
+        history = [snapshot(self.start + timedelta(hours=i), actual=101.0) for i in range(25)]
         report = evaluation_report(history, {}, regime="range")
         self.assertEqual(set(report), {"2h", "4h", "8h", "16h"})
         for value in report.values():
