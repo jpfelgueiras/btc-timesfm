@@ -1,0 +1,75 @@
+name: Publish Tweet Preview Once
+
+on:
+  push:
+    branches:
+      - feature/tweet-visual-refresh
+    paths:
+      - ".github/workflows/publish-tweet-once.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore forecast history
+        uses: actions/cache/restore@v4
+        with:
+          path: .state/previous_forecast.json
+          key: btc-forecast-state-${{ github.run_id }}
+          restore-keys: |
+            btc-forecast-state-
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Cache Hugging Face model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: timesfm-3-${{ runner.os }}-v1
+          restore-keys: |
+            timesfm-3-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate forecast
+        run: python btc_forecast.py
+
+      - name: Apply visual tweet formatter
+        run: python format_tweet.py
+
+      - name: Show tweet
+        run: |
+          echo '## X post preview' >> "$GITHUB_STEP_SUMMARY"
+          cat tweet.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish to X
+        env:
+          X_COOKIES_JSON: ${{ secrets.X_COOKIES_JSON }}
+        run: python post_to_x.py
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tweet-preview-${{ github.run_id }}
+          path: |
+            forecast.json
+            tweet.txt
+            x_post_status.json
+          if-no-files-found: warn
+          retention-days: 7
