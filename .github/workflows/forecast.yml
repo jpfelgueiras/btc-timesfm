@@ -73,6 +73,10 @@ jobs:
         if: steps.due.outputs.run_forecast == 'true'
         run: python btc_forecast.py
 
+      - name: Format visual X post
+        if: steps.due.outputs.run_forecast == 'true'
+        run: python format_tweet.py
+
       - name: Add forecast to job summary
         if: steps.due.outputs.run_forecast == 'true'
         run: |
