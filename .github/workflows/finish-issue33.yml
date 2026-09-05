@@ -1,0 +1,65 @@
+name: Finish issue 33 implementation
+
+on:
+  push:
+    branches:
+      - feature/production-drift-detection
+
+permissions:
+  contents: write
+
+jobs:
+  finish:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Finish source integration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('drift_detection.py')
+          text = path.read_text()
+          old = '''    active = config or DriftConfig.from_env()\n    active.validate()\n    error_signals = _error_signals(prediction_rows, active)\n'''
+          new = '''    prediction_rows = list(prediction_rows)\n    feature_rows = list(feature_rows)\n    active = config or DriftConfig.from_env()\n    active.validate()\n    error_signals = _error_signals(prediction_rows, active)\n'''
+          if text.count(old) != 1:
+              raise SystemExit('drift iterable patch did not match exactly once')
+          path.write_text(text.replace(old, new, 1))
+
+          path = Path('btc_forecast.py')
+          text = path.read_text()
+          old = '''        run_parameters={"rolling_history_limit": HISTORY_LIMIT},\n'''
+          new = '''        run_parameters={\n            "rolling_history_limit": HISTORY_LIMIT,\n            "adaptive_confidence": adaptive_confidence,\n            "drift_severity": drift_report["severity"],\n            "drift_configuration": drift_report["configuration"],\n        },\n'''
+          if text.count(old) != 1:
+              raise SystemExit('manifest drift-configuration patch did not match exactly once')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Install quality dependencies
+        run: pip install -r requirements-test.txt
+      - name: Format
+        run: ruff format drift_detection.py test_drift_detection.py test_drift_history_store.py history_migrations.py history_store.py adaptive_weighting.py forecast_engine.py btc_forecast.py validated_entrypoints.py observability.py test_history_migrations.py
+      - name: Lint
+        run: ruff check .
+      - name: Unit tests
+        run: coverage run -m unittest discover -s . -p 'test_*.py' -v
+      - name: Coverage gate
+        run: coverage report --fail-under=75
+      - name: Type check drift modules
+        run: mypy --follow-imports=skip drift_detection.py history_migrations.py history_store.py observability.py
+      - name: Commit verified source changes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add drift_detection.py test_drift_detection.py test_drift_history_store.py history_migrations.py history_store.py adaptive_weighting.py forecast_engine.py btc_forecast.py validated_entrypoints.py observability.py test_history_migrations.py
+          if git diff --cached --quiet; then
+            echo 'No source changes to commit.'
+          else
+            git commit -m 'Finalize production drift detection'
+            git push
+          fi
