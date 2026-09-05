@@ -56,9 +56,7 @@ class ProviderConfig:
             comparison_candles=_positive_int(
                 "BTC_PROVIDER_COMPARE_CANDLES", cls.comparison_candles
             ),
-            min_overlap_candles=_positive_int(
-                "BTC_PROVIDER_MIN_OVERLAP", cls.min_overlap_candles
-            ),
+            min_overlap_candles=_positive_int("BTC_PROVIDER_MIN_OVERLAP", cls.min_overlap_candles),
         )
 
 
@@ -231,7 +229,9 @@ def compare_overlapping_closes(
 ) -> dict[str, Any]:
     primary_closes = dict(zip(primary.timestamps, map(float, primary.closes), strict=True))
     secondary_closes = dict(zip(secondary.timestamps, map(float, secondary.closes), strict=True))
-    common = sorted(set(primary_closes).intersection(secondary_closes))[-config.comparison_candles :]
+    common = sorted(set(primary_closes).intersection(secondary_closes))[
+        -config.comparison_candles :
+    ]
     if len(common) < config.min_overlap_candles:
         return {
             "status": "insufficient_overlap",

@@ -59,16 +59,8 @@ def run_forecast(argv: list[str]) -> None:
         raise SystemExit("forecast does not accept positional arguments")
     import btc_forecast
 
-    original_fetch = btc_forecast.fetch_kraken_hourly
-
-    def fetch_validated(limit: int = 512):
-        return _validate_and_persist(
-            original_fetch(limit),
-            source="Kraken BTC/USD hourly OHLC",
-            check_staleness=True,
-        )
-
-    btc_forecast.fetch_kraken_hourly = fetch_validated
+    # Production provider selection performs issue #17 validation for both
+    # Kraken and the Binance fallback before btc_forecast sees the data.
     btc_forecast.main()
 
 
