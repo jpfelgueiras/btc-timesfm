@@ -170,14 +170,15 @@ def build_experiment_manifest(
         "pair": data_pair,
         **market_data_identity(data),
     }
-    configuration = {
+    dependencies: dict[str, str] = {
+        "timesfm": _package_version("timesfm"),
+        "numpy": np.__version__,
+        "requests": _package_version("requests"),
+    }
+    configuration: dict[str, Any] = {
         "forecast": forecast_configuration(model_names),
         "run_parameters": run_parameters or {},
-        "dependencies": {
-            "timesfm": _package_version("timesfm"),
-            "numpy": np.__version__,
-            "requests": _package_version("requests"),
-        },
+        "dependencies": dependencies,
         "seed": seed,
     }
     configuration_hash = _sha256(configuration)
@@ -198,7 +199,7 @@ def build_experiment_manifest(
         "model": {
             "id": MODEL_ID,
             "package": "timesfm",
-            "package_version": configuration["dependencies"]["timesfm"],
+            "package_version": dependencies["timesfm"],
         },
         "configuration": configuration,
         "data": data_identity,
