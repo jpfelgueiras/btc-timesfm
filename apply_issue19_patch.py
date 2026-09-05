@@ -35,8 +35,8 @@ if init_count != 1:
 
 history = replace_once(
     history,
-    "        return {\n            \"schema_version\": SCHEMA_VERSION,\n            \"origins\": origins,",
-    "        diagnostics = schema_diagnostics(self.path)\n        return {\n            \"schema_version\": diagnostics[\"schema_version\"],\n            \"supported_schema_version\": diagnostics[\"supported_schema_version\"],\n            \"applied_migrations\": diagnostics[\"applied_migrations\"],\n            \"origins\": origins,",
+    '        return {\n            "schema_version": SCHEMA_VERSION,\n            "origins": origins,',
+    '        diagnostics = schema_diagnostics(self.path)\n        return {\n            "schema_version": diagnostics["schema_version"],\n            "supported_schema_version": diagnostics["supported_schema_version"],\n            "applied_migrations": diagnostics["applied_migrations"],\n            "origins": origins,',
     "stats diagnostics",
 )
 

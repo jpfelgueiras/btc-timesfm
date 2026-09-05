@@ -131,7 +131,9 @@ def _read_schema_version(path: Path) -> int:
         return int(connection.execute("PRAGMA user_version").fetchone()[0])
 
 
-def _validate_registry(migrations: Iterable[Migration], target_version: int) -> tuple[Migration, ...]:
+def _validate_registry(
+    migrations: Iterable[Migration], target_version: int
+) -> tuple[Migration, ...]:
     ordered = tuple(sorted(migrations, key=lambda migration: migration.version))
     versions = [migration.version for migration in ordered]
     expected = list(range(1, target_version + 1))
@@ -188,7 +190,9 @@ def schema_diagnostics(path: Path | str) -> dict[str, object]:
     }
 
 
-def validate_database(path: Path | str, expected_version: int = CURRENT_SCHEMA_VERSION) -> dict[str, object]:
+def validate_database(
+    path: Path | str, expected_version: int = CURRENT_SCHEMA_VERSION
+) -> dict[str, object]:
     db_path = Path(path)
     uri = f"file:{db_path.resolve()}?mode=ro"
     with sqlite3.connect(uri, uri=True) as connection:

@@ -18,8 +18,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, TextIO
 
+from history_migrations import (
+    CURRENT_SCHEMA_VERSION,
+    migrate_database,
+    schema_diagnostics,
+    validate_database,
+)
 
-SCHEMA_VERSION = 1
+
+SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 DEFAULT_DB_PATH = Path(".state/forecast_history.sqlite")
 ENSEMBLE_MODEL = "ensemble"
 
@@ -146,68 +153,7 @@ class ForecastHistoryStore:
         return connection
 
     def _initialize(self) -> None:
-        with self._connect() as connection:
-            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-            if version > SCHEMA_VERSION:
-                raise RuntimeError(
-                    f"History database schema {version} is newer than supported {SCHEMA_VERSION}"
-                )
-
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS metadata (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS forecast_origins (
-                    origin_at TEXT PRIMARY KEY,
-                    generated_at TEXT NOT NULL,
-                    source_name TEXT,
-                    pair TEXT,
-                    source_price_usd REAL NOT NULL,
-                    regime TEXT,
-                    market_features_json TEXT NOT NULL,
-                    first_seen_at TEXT NOT NULL,
-                    last_seen_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS forecast_predictions (
-                    origin_at TEXT NOT NULL,
-                    model_name TEXT NOT NULL,
-                    horizon_hours INTEGER NOT NULL CHECK (horizon_hours > 0),
-                    target_at TEXT NOT NULL,
-                    predicted_price_usd REAL NOT NULL,
-                    predicted_change_pct REAL NOT NULL,
-                    q10_usd REAL,
-                    q50_usd REAL,
-                    q90_usd REAL,
-                    model_agreement REAL,
-                    ensemble_weight REAL,
-                    actual_target_price_usd REAL,
-                    absolute_error_usd REAL,
-                    absolute_error_pct REAL,
-                    signed_error_pct REAL,
-                    actual_change_pct REAL,
-                    direction_correct INTEGER,
-                    within_q10_q90 INTEGER,
-                    matured_at TEXT,
-                    PRIMARY KEY (origin_at, model_name, horizon_hours),
-                    FOREIGN KEY (origin_at) REFERENCES forecast_origins(origin_at)
-                        ON DELETE CASCADE
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_predictions_target_pending
-                    ON forecast_predictions(target_at, actual_target_price_usd);
-                CREATE INDEX IF NOT EXISTS idx_predictions_model_horizon
-                    ON forecast_predictions(model_name, horizon_hours);
-                """
-            )
-            connection.execute(
-                "INSERT OR REPLACE INTO metadata(key, value) VALUES('schema_version', ?)",
-                (str(SCHEMA_VERSION),),
-            )
-            connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        migrate_database(self.path)
 
     def ingest_snapshot(
         self,
@@ -459,8 +405,11 @@ class ForecastHistoryStore:
             first_last = connection.execute(
                 "SELECT MIN(origin_at), MAX(origin_at) FROM forecast_origins"
             ).fetchone()
+        diagnostics = schema_diagnostics(self.path)
         return {
-            "schema_version": SCHEMA_VERSION,
+            "schema_version": diagnostics["schema_version"],
+            "supported_schema_version": diagnostics["supported_schema_version"],
+            "applied_migrations": diagnostics["applied_migrations"],
             "origins": origins,
             "predictions": predictions,
             "matured_predictions": matured,
@@ -529,17 +478,7 @@ class ForecastHistoryStore:
             return result
 
     def verify(self) -> dict[str, Any]:
-        with self._connect() as connection:
-            integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
-            foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall()
-            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        if integrity != "ok":
-            raise RuntimeError(f"SQLite integrity check failed: {integrity}")
-        if foreign_keys:
-            raise RuntimeError(f"SQLite foreign-key check failed: {len(foreign_keys)} violation(s)")
-        if version != SCHEMA_VERSION:
-            raise RuntimeError(f"Unexpected schema version {version}; expected {SCHEMA_VERSION}")
-        return {"integrity": integrity, "foreign_key_violations": 0, "schema_version": version}
+        return validate_database(self.path)
 
     def export_rows(self) -> list[dict[str, Any]]:
         with self._connect() as connection:

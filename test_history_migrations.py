@@ -70,9 +70,7 @@ CREATE INDEX idx_predictions_model_horizon
 def create_v1_fixture(path: Path) -> None:
     with sqlite3.connect(path) as connection:
         connection.executescript(V1_SCHEMA)
-        connection.execute(
-            "INSERT INTO metadata(key, value) VALUES('schema_version', '1')"
-        )
+        connection.execute("INSERT INTO metadata(key, value) VALUES('schema_version', '1')")
         connection.execute("PRAGMA user_version = 1")
         connection.execute(
             """
