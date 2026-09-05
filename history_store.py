@@ -538,9 +538,7 @@ class ForecastHistoryStore:
         if foreign_keys:
             raise RuntimeError(f"SQLite foreign-key check failed: {len(foreign_keys)} violation(s)")
         if version != SCHEMA_VERSION:
-            raise RuntimeError(
-                f"Unexpected schema version {version}; expected {SCHEMA_VERSION}"
-            )
+            raise RuntimeError(f"Unexpected schema version {version}; expected {SCHEMA_VERSION}")
         return {"integrity": integrity, "foreign_key_violations": 0, "schema_version": version}
 
     def export_rows(self) -> list[dict[str, Any]]:

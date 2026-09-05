@@ -93,13 +93,7 @@ class ScheduleGuardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "state.json"
             path.write_text(
-                json.dumps(
-                    {
-                        "forecasts": [
-                            {"latest_close_at": "2026-09-05T09:00:00+00:00"}
-                        ]
-                    }
-                ),
+                json.dumps({"forecasts": [{"latest_close_at": "2026-09-05T09:00:00+00:00"}]}),
                 encoding="utf-8",
             )
             run, reason = should_run(

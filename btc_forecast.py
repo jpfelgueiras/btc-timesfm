@@ -175,8 +175,12 @@ def performance_summary(
             model_scores = [s["models"][name] for s in scores if name in s.get("models", {})]
             models[name] = {
                 "samples": len(model_scores),
-                "mae_pct": round(float(np.mean([s["absolute_error_pct"] for s in model_scores])), 4),
-                "direction_accuracy": round(float(np.mean([s["direction_correct"] for s in model_scores])), 4),
+                "mae_pct": round(
+                    float(np.mean([s["absolute_error_pct"] for s in model_scores])), 4
+                ),
+                "direction_accuracy": round(
+                    float(np.mean([s["direction_correct"] for s in model_scores])), 4
+                ),
             }
 
         result[f"{hour}h"] = {
@@ -251,7 +255,9 @@ def build_tweet(output: dict[str, Any]) -> str:
 def print_reliability(reliability: dict[str, dict[str, Any]]) -> None:
     print("\nMatured ensemble comparison")
     print("-" * 82)
-    print(f"{'Horizon':<9}{'Predicted':>14}{'Actual':>14}{'MAE':>10}{'Bias':>10}{'Dir':>9}{'Band':>10}")
+    print(
+        f"{'Horizon':<9}{'Predicted':>14}{'Actual':>14}{'MAE':>10}{'Bias':>10}{'Dir':>9}{'Band':>10}"
+    )
     print("-" * 82)
     for hour in TARGET_HOURS:
         key = f"{hour}h"

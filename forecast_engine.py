@@ -69,9 +69,7 @@ def fetch_kraken_hourly(limit: int = 512) -> MarketData:
     pair_key = next(key for key in result if key != "last")
     now = time.time()
     completed = [
-        candle
-        for candle in result[pair_key]
-        if float(candle[0]) + INTERVAL_MINUTES * 60 <= now
+        candle for candle in result[pair_key] if float(candle[0]) + INTERVAL_MINUTES * 60 <= now
     ]
     if len(completed) < 64:
         raise RuntimeError(f"Not enough completed candles: {len(completed)}")
@@ -333,10 +331,7 @@ def _bounded_normalize(
         else:
             high = mid
 
-    result = {
-        name: min(cap, max(floor, high * raw[name]))
-        for name in names
-    }
+    result = {name: min(cap, max(floor, high * raw[name])) for name in names}
 
     # Bisection is already within machine precision. Correct any final rounding
     # residue using a weight that still has room without violating its bounds.
@@ -399,12 +394,8 @@ def _performance_metrics(scores: list[dict[str, float | bool]]) -> dict[str, flo
     return {
         "samples": len(scores),
         "mae_pct": float(np.mean([float(s["absolute_error_pct"]) for s in scores])),
-        "mean_signed_error_pct": float(
-            np.mean([float(s["signed_error_pct"]) for s in scores])
-        ),
-        "direction_accuracy": float(
-            np.mean([bool(s["direction_correct"]) for s in scores])
-        ),
+        "mean_signed_error_pct": float(np.mean([float(s["signed_error_pct"]) for s in scores])),
+        "direction_accuracy": float(np.mean([bool(s["direction_correct"]) for s in scores])),
     }
 
 
@@ -445,7 +436,9 @@ def adaptive_model_weights(
         selected = all_scores
 
     metrics = {
-        name: _performance_metrics(scores) if scores else {
+        name: _performance_metrics(scores)
+        if scores
+        else {
             "samples": 0,
             "mae_pct": None,
             "mean_signed_error_pct": None,
@@ -463,9 +456,7 @@ def adaptive_model_weights(
             "blend_factor": 0.0,
             "sample_count": min_all_samples if source != "regime" else min_regime_samples,
             "persistence_mae_pct": (
-                metrics.get("persistence", {}).get("mae_pct")
-                if "persistence" in metrics
-                else None
+                metrics.get("persistence", {}).get("mae_pct") if "persistence" in metrics else None
             ),
             "models": {
                 name: {
@@ -512,10 +503,7 @@ def adaptive_model_weights(
     )
     blend = 0.25 + (ADAPTIVE_MAX_BLEND - 0.25) * progress
 
-    blended = {
-        name: (1.0 - blend) * prior[name] + blend * adaptive[name]
-        for name in model_names
-    }
+    blended = {name: (1.0 - blend) * prior[name] + blend * adaptive[name] for name in model_names}
 
     complex_maes = [
         float(metrics[name]["mae_pct"])
@@ -542,9 +530,7 @@ def adaptive_model_weights(
         "blend_factor": round(blend, 4),
         "sample_count": sample_count,
         "persistence_fallback": persistence_fallback,
-        "persistence_mae_pct": round(persistence_mae, 6)
-        if persistence_mae is not None
-        else None,
+        "persistence_mae_pct": round(persistence_mae, 6) if persistence_mae is not None else None,
         "models": {},
     }
     for name, metric in metrics.items():
@@ -559,9 +545,7 @@ def adaptive_model_weights(
             "adaptive_weight": round(adaptive[name], 6),
             "final_weight": round(final[name], 6),
             "edge_vs_persistence_mae_pct": (
-                round(persistence_mae - mae, 6)
-                if persistence_mae is not None
-                else None
+                round(persistence_mae - mae, 6) if persistence_mae is not None else None
             ),
         }
 
@@ -651,9 +635,7 @@ def ensemble_forecast(
         normalized /= normalized.sum()
         ensemble_log_change = float(np.dot(normalized, np.asarray(log_changes)))
         price = current_price * math.exp(ensemble_log_change)
-        dispersion = float(
-            math.sqrt(np.dot(normalized, (np.asarray(model_prices) - price) ** 2))
-        )
+        dispersion = float(math.sqrt(np.dot(normalized, (np.asarray(model_prices) - price) ** 2)))
         tf_width = float(np.mean(timesfm_half_widths)) if timesfm_half_widths else 0.0
         base_half_width = max(tf_width, dispersion * 1.5, current_price * 0.0005)
 
@@ -662,10 +644,7 @@ def ensemble_forecast(
         q10 = max(0.01, price - half_width)
         q90 = price + half_width
 
-        moves = [
-            1 if p > current_price else -1 if p < current_price else 0
-            for p in model_prices
-        ]
+        moves = [1 if p > current_price else -1 if p < current_price else 0 for p in model_prices]
         agreement = max(moves.count(1), moves.count(-1), moves.count(0)) / len(moves)
         predictions[key] = {
             "price_usd": round(price, 2),
@@ -715,9 +694,7 @@ def build_forecast(
     return {
         "model": MODEL_ID,
         "forecast_method": "log-return multi-context adaptive ensemble",
-        "latest_close_at": datetime.fromtimestamp(
-            data.timestamps[-1], tz=timezone.utc
-        ).isoformat(),
+        "latest_close_at": datetime.fromtimestamp(data.timestamps[-1], tz=timezone.utc).isoformat(),
         "latest_close_usd": round(float(data.closes[-1]), 2),
         "market_features": features,
         "regime": regime,

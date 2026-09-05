@@ -108,8 +108,7 @@ def run_optimizer(argv: list[str]) -> None:
 def main() -> None:
     if len(sys.argv) < 2:
         raise SystemExit(
-            "Usage: python validated_entrypoints.py "
-            "{forecast|backtest|optimizer} [arguments]"
+            "Usage: python validated_entrypoints.py {forecast|backtest|optimizer} [arguments]"
         )
 
     command = sys.argv[1]

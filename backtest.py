@@ -150,8 +150,12 @@ def summarize(samples: list[dict[str, Any]]) -> dict[str, Any]:
             models[name] = {
                 "samples": len(scores),
                 "mae_pct": round(float(np.mean([s["absolute_error_pct"] for s in scores])), 4),
-                "mean_signed_error_pct": round(float(np.mean([s["signed_error_pct"] for s in scores])), 4),
-                "direction_accuracy": round(float(np.mean([s["direction_correct"] for s in scores])), 4),
+                "mean_signed_error_pct": round(
+                    float(np.mean([s["signed_error_pct"] for s in scores])), 4
+                ),
+                "direction_accuracy": round(
+                    float(np.mean([s["direction_correct"] for s in scores])), 4
+                ),
             }
             if name == "adaptive_ensemble":
                 models[name]["q10_q90_coverage"] = round(float(np.mean(ensemble_coverage)), 4)
@@ -160,7 +164,9 @@ def summarize(samples: list[dict[str, Any]]) -> dict[str, Any]:
             regime: {
                 "samples": len(scores),
                 "mae_pct": round(float(np.mean([s["absolute_error_pct"] for s in scores])), 4),
-                "direction_accuracy": round(float(np.mean([s["direction_correct"] for s in scores])), 4),
+                "direction_accuracy": round(
+                    float(np.mean([s["direction_correct"] for s in scores])), 4
+                ),
             }
             for regime, scores in sorted(regime_scores.items())
         }
@@ -200,13 +206,12 @@ def main() -> None:
     for number, index in enumerate(indices, start=1):
         context = slice_market(data, index)
         forecast = build_forecast(model, context, history=history)
-        actuals = {
-            f"{hour}h": float(data.closes[index + hour])
-            for hour in TARGET_HOURS
-        }
+        actuals = {f"{hour}h": float(data.closes[index + hour]) for hour in TARGET_HOURS}
         samples.append(
             {
-                "origin_at": datetime.fromtimestamp(data.timestamps[index], tz=timezone.utc).isoformat(),
+                "origin_at": datetime.fromtimestamp(
+                    data.timestamps[index], tz=timezone.utc
+                ).isoformat(),
                 "current_price": float(data.closes[index]),
                 "actuals": actuals,
                 "forecast": forecast,

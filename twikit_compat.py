@@ -19,7 +19,7 @@ from twikit.x_client_transaction.transaction import ClientTransaction
 
 ON_DEMAND_FILE_REGEX = re.compile(r',([0-9]+):["\']ondemand\.s["\']')
 ON_DEMAND_HASH_PATTERN = r',{}:["\']([0-9a-f]+)["\']'
-INDICES_REGEX = re.compile(r'\[([0-9]+)\],\s*16')
+INDICES_REGEX = re.compile(r"\[([0-9]+)\],\s*16")
 
 _ORIGINAL_AUTH_USER_INIT = AuthenticatedUser.__init__
 _ORIGINAL_GUEST_USER_INIT = GuestUser.__init__
@@ -41,8 +41,7 @@ async def _patched_get_indices(self, home_page_response, session, headers):
         if hash_match:
             file_hash = hash_match.group(1)
             on_demand_file_url = (
-                "https://abs.twimg.com/responsive-web/client-web/"
-                f"ondemand.s.{file_hash}a.js"
+                f"https://abs.twimg.com/responsive-web/client-web/ondemand.s.{file_hash}a.js"
             )
             on_demand_file_response = await session.request(
                 method="GET",
@@ -50,8 +49,7 @@ async def _patched_get_indices(self, home_page_response, session, headers):
                 headers=headers,
             )
             key_byte_indices.extend(
-                match.group(1)
-                for match in INDICES_REGEX.finditer(on_demand_file_response.text)
+                match.group(1) for match in INDICES_REGEX.finditer(on_demand_file_response.text)
             )
 
     if not key_byte_indices:

@@ -80,7 +80,9 @@ class HistoryStoreTests(unittest.TestCase):
         self.assertEqual(verification["schema_version"], SCHEMA_VERSION)
         self.assertEqual(verification["integrity"], "ok")
         with sqlite3.connect(self.db_path) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
+            self.assertEqual(
+                connection.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION
+            )
 
     def test_snapshot_creates_ensemble_and_model_rows(self) -> None:
         result = self.store.ingest_snapshot(make_snapshot(self.origin))
@@ -90,7 +92,9 @@ class HistoryStoreTests(unittest.TestCase):
 
         rows = self.store.export_rows()
         self.assertEqual(len(rows), 6)
-        self.assertEqual({row["model_name"] for row in rows}, {ENSEMBLE_MODEL, "timesfm_168h", "persistence"})
+        self.assertEqual(
+            {row["model_name"] for row in rows}, {ENSEMBLE_MODEL, "timesfm_168h", "persistence"}
+        )
         timesfm = next(
             row for row in rows if row["model_name"] == "timesfm_168h" and row["horizon_hours"] == 2
         )
@@ -185,7 +189,9 @@ class HistoryStoreTests(unittest.TestCase):
     def test_performance_summary_uses_all_matured_rows(self) -> None:
         second_origin = self.origin + timedelta(hours=6)
         self.store.ingest_snapshot(make_snapshot(self.origin))
-        self.store.ingest_snapshot(make_snapshot(second_origin, source_price=105.0, ensemble_2h=106.0))
+        self.store.ingest_snapshot(
+            make_snapshot(second_origin, source_price=105.0, ensemble_2h=106.0)
+        )
         actuals = {
             int((self.origin + timedelta(hours=2)).timestamp()): 101.0,
             int((second_origin + timedelta(hours=2)).timestamp()): 107.0,
