@@ -12,15 +12,15 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from history_migrations import CURRENT_SCHEMA_VERSION
 
 
-AUDIT_REPORT_VERSION = 1
 DEFAULT_DB_PATH = Path(".state/forecast_history.sqlite")
 DEFAULT_GRACE_MINUTES = 15
 ENSEMBLE_MODEL = "ensemble"
+REPORT_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -30,7 +30,7 @@ class Issue:
     message: str
     count: int = 1
     repairable: bool = False
-    proposed_action: str | None = None
+    action: str | None = None
     examples: list[dict[str, Any]] | None = None
 
     def as_dict(self) -> dict[str, Any]:
@@ -41,24 +41,20 @@ class Issue:
             "count": self.count,
             "repairable": self.repairable,
         }
-        if self.proposed_action:
-            value["proposed_action"] = self.proposed_action
+        if self.action:
+            value["proposed_action"] = self.action
         if self.examples:
             value["examples"] = self.examples
         return value
 
 
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _parse_timestamp(value: Any) -> datetime:
+def _parse_time(value: Any) -> datetime:
     if not isinstance(value, str) or not value:
         raise ValueError("timestamp must be a non-empty string")
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+    result = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if result.tzinfo is None:
+        result = result.replace(tzinfo=timezone.utc)
+    return result.astimezone(timezone.utc)
 
 
 def _iso(value: datetime) -> str:
@@ -75,7 +71,7 @@ def _finite(value: Any, *, positive: bool = False) -> bool:
     return number > 0 if positive else True
 
 
-def _close(left: Any, right: Any, tolerance: float = 1e-8) -> bool:
+def _close(left: Any, right: Any, tolerance: float = 1e-7) -> bool:
     if left is None or right is None:
         return left is right
     try:
@@ -86,21 +82,17 @@ def _close(left: Any, right: Any, tolerance: float = 1e-8) -> bool:
     return abs(a - b) <= tolerance * max(1.0, abs(a), abs(b))
 
 
-def _direction(value: float, epsilon: float = 1e-9) -> int:
-    if value > epsilon:
+def _direction(value: float) -> int:
+    if value > 1e-9:
         return 1
-    if value < -epsilon:
+    if value < -1e-9:
         return -1
     return 0
 
 
-def _examples(rows: Iterable[sqlite3.Row], limit: int = 5) -> list[dict[str, Any]]:
-    return [dict(row) for index, row in enumerate(rows) if index < limit]
-
-
-def _report(path: Path, mode: str, now: datetime) -> dict[str, Any]:
+def _new_report(path: Path, mode: str, now: datetime) -> dict[str, Any]:
     return {
-        "report_version": AUDIT_REPORT_VERSION,
+        "report_version": REPORT_VERSION,
         "database": str(path),
         "mode": mode,
         "checked_at": _iso(now),
@@ -127,7 +119,7 @@ def _propose(report: dict[str, Any], action: dict[str, Any]) -> None:
     report["repairs"]["proposed"].append(action)
 
 
-def _finalize(report: dict[str, Any]) -> dict[str, Any]:
+def _finish(report: dict[str, Any]) -> dict[str, Any]:
     issues = report["issues"]
     summary = report["summary"]
     summary["errors"] = sum(item["severity"] == "error" for item in issues)
@@ -141,7 +133,7 @@ def _finalize(report: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_actuals(path: Path | str | None) -> dict[int, float]:
-    """Load explicit exact-target prices from a JSON mapping or list."""
+    """Load exact target prices from a JSON mapping or list."""
     if path is None:
         return {}
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -155,7 +147,7 @@ def load_actuals(path: Path | str | None) -> dict[int, float]:
         elif isinstance(key, str) and key.strip().isdigit():
             timestamp = int(key.strip())
         else:
-            timestamp = int(_parse_timestamp(str(key)).timestamp())
+            timestamp = int(_parse_time(str(key)).timestamp())
         result[timestamp] = float(value)
 
     if isinstance(payload, dict):
@@ -175,7 +167,10 @@ def load_actuals(path: Path | str | None) -> dict[int, float]:
     raise ValueError("Actuals JSON must be an object or list")
 
 
-def _required_structure(connection: sqlite3.Connection, report: dict[str, Any]) -> bool:
+def _required_structure(
+    connection: sqlite3.Connection,
+    report: dict[str, Any],
+) -> bool:
     integrity = [str(row[0]) for row in connection.execute("PRAGMA integrity_check")]
     report["sqlite_integrity"] = integrity
     if integrity != ["ok"]:
@@ -197,13 +192,13 @@ def _required_structure(connection: sqlite3.Connection, report: dict[str, Any]) 
         )
     }
     report["tables"] = sorted(tables)
-    required_tables = {
+    required = {
         "metadata",
         "forecast_origins",
         "forecast_predictions",
         "schema_migrations",
     }
-    missing_tables = sorted(required_tables - tables)
+    missing_tables = sorted(required - tables)
     if missing_tables:
         _add_issue(
             report,
@@ -217,7 +212,7 @@ def _required_structure(connection: sqlite3.Connection, report: dict[str, Any]) 
         )
         return False
 
-    required_columns: dict[str, set[str]] = {
+    required_columns = {
         "forecast_origins": {
             "origin_at",
             "generated_at",
@@ -246,12 +241,12 @@ def _required_structure(connection: sqlite3.Connection, report: dict[str, Any]) 
         },
     }
     missing_columns: list[dict[str, Any]] = []
-    for table_name, expected_columns in required_columns.items():
-        existing_columns = {
+    for table_name, expected in required_columns.items():
+        existing = {
             str(row["name"])
             for row in connection.execute(f"PRAGMA table_info({table_name})")
         }
-        missing = sorted(expected_columns - existing_columns)
+        missing = sorted(expected - existing)
         if missing:
             missing_columns.append({"table": table_name, "columns": missing})
     if missing_columns:
@@ -260,7 +255,7 @@ def _required_structure(connection: sqlite3.Connection, report: dict[str, Any]) 
             Issue(
                 "missing_columns",
                 "error",
-                "History database tables are missing required columns.",
+                "History tables are missing required columns.",
                 sum(len(item["columns"]) for item in missing_columns),
                 examples=missing_columns[:5],
             ),
@@ -275,71 +270,76 @@ def _required_structure(connection: sqlite3.Connection, report: dict[str, Any]) 
             Issue(
                 "schema_version",
                 "error",
-                f"Schema version {version} does not match "
-                f"{CURRENT_SCHEMA_VERSION}; migrate it first.",
+                (
+                    f"Schema version {version} does not match "
+                    f"{CURRENT_SCHEMA_VERSION}; migrate it first."
+                ),
             ),
         )
 
-    foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall()
-    report["foreign_key_violations"] = len(foreign_keys)
-    if foreign_keys:
+    violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+    report["foreign_key_violations"] = len(violations)
+    if violations:
         _add_issue(
             report,
             Issue(
                 "foreign_key_violation",
                 "error",
-                "Foreign-key violations exist; automatic repair will not delete rows.",
-                len(foreign_keys),
-                examples=_examples(foreign_keys),
+                "Foreign-key violations exist; repair will not delete rows.",
+                len(violations),
+                examples=[dict(row) for row in violations[:5]],
             ),
         )
     return True
 
 
-def _audit_uniqueness(connection: sqlite3.Connection, report: dict[str, Any]) -> None:
-    origins = connection.execute(
-        """
-        SELECT origin_at, COUNT(*) AS duplicate_count
-        FROM forecast_origins
-        GROUP BY origin_at
-        HAVING COUNT(*) > 1
-        """
-    ).fetchall()
-    if origins:
-        _add_issue(
-            report,
-            Issue(
-                "duplicate_origins",
-                "error",
-                "Duplicate logical forecast origins were found.",
-                len(origins),
-                examples=_examples(origins),
-            ),
-        )
+def _audit_duplicates(
+    connection: sqlite3.Connection,
+    report: dict[str, Any],
+) -> None:
+    checks = (
+        (
+            "duplicate_origins",
+            """
+            SELECT origin_at, COUNT(*) AS duplicate_count
+            FROM forecast_origins
+            GROUP BY origin_at
+            HAVING COUNT(*) > 1
+            """,
+            "Duplicate logical forecast origins were found.",
+        ),
+        (
+            "duplicate_predictions",
+            """
+            SELECT origin_at, model_name, horizon_hours,
+                   COUNT(*) AS duplicate_count
+            FROM forecast_predictions
+            GROUP BY origin_at, model_name, horizon_hours
+            HAVING COUNT(*) > 1
+            """,
+            "Duplicate logical prediction keys were found.",
+        ),
+    )
+    for code, query, message in checks:
+        rows = connection.execute(query).fetchall()
+        if rows:
+            _add_issue(
+                report,
+                Issue(
+                    code,
+                    "error",
+                    message,
+                    len(rows),
+                    examples=[dict(row) for row in rows[:5]],
+                ),
+            )
 
-    predictions = connection.execute(
-        """
-        SELECT origin_at, model_name, horizon_hours, COUNT(*) AS duplicate_count
-        FROM forecast_predictions
-        GROUP BY origin_at, model_name, horizon_hours
-        HAVING COUNT(*) > 1
-        """
-    ).fetchall()
-    if predictions:
-        _add_issue(
-            report,
-            Issue(
-                "duplicate_predictions",
-                "error",
-                "Duplicate logical prediction keys were found.",
-                len(predictions),
-                examples=_examples(predictions),
-            ),
-        )
 
-
-def _audit_orphans(connection: sqlite3.Connection, report: dict[str, Any]) -> None:
-    predictions = connection.execute(
+def _audit_orphans(
+    connection: sqlite3.Connection,
+    report: dict[str, Any],
+) -> None:
+    rows = connection.execute(
         """
         SELECT p.origin_at, p.model_name, p.horizon_hours
         FROM forecast_predictions AS p
@@ -348,15 +348,15 @@ def _audit_orphans(connection: sqlite3.Connection, report: dict[str, Any]) -> No
         ORDER BY p.origin_at, p.horizon_hours, p.model_name
         """
     ).fetchall()
-    if predictions:
+    if rows:
         _add_issue(
             report,
             Issue(
                 "orphan_prediction_rows",
                 "error",
-                "Prediction rows reference a missing origin; they are never auto-deleted.",
-                len(predictions),
-                examples=_examples(predictions),
+                "Predictions reference missing origins; rows are never auto-deleted.",
+                len(rows),
+                examples=[dict(row) for row in rows[:5]],
             ),
         )
 
@@ -383,14 +383,17 @@ def _audit_orphans(connection: sqlite3.Connection, report: dict[str, Any]) -> No
             Issue(
                 "orphan_model_groups",
                 "error",
-                "Underlying model rows exist without the matching ensemble row.",
+                "Underlying model rows exist without a matching ensemble row.",
                 len(groups),
-                examples=_examples(groups),
+                examples=[dict(row) for row in groups[:5]],
             ),
         )
 
 
-def _audit_origins(connection: sqlite3.Connection, report: dict[str, Any]) -> None:
+def _audit_origins(
+    connection: sqlite3.Connection,
+    report: dict[str, Any],
+) -> None:
     invalid: list[dict[str, Any]] = []
     rows = connection.execute(
         """
@@ -401,59 +404,61 @@ def _audit_origins(connection: sqlite3.Connection, report: dict[str, Any]) -> No
         """
     ).fetchall()
     for row in rows:
-        row_problems: list[str] = []
-        for column in ("origin_at", "generated_at", "first_seen_at", "last_seen_at"):
+        problems: list[str] = []
+        for column in (
+            "origin_at",
+            "generated_at",
+            "first_seen_at",
+            "last_seen_at",
+        ):
             try:
-                _parse_timestamp(row[column])
+                _parse_time(row[column])
             except (TypeError, ValueError):
-                row_problems.append(f"invalid_{column}")
+                problems.append(f"invalid_{column}")
         if not _finite(row["source_price_usd"], positive=True):
-            row_problems.append("invalid_source_price_usd")
+            problems.append("invalid_source_price_usd")
         try:
             features = json.loads(row["market_features_json"])
             if not isinstance(features, dict):
-                row_problems.append("market_features_json_not_object")
+                problems.append("market_features_json_not_object")
         except (TypeError, json.JSONDecodeError):
-            row_problems.append("invalid_market_features_json")
-        if row_problems:
-            invalid.append({"origin_at": row["origin_at"], "problems": row_problems})
+            problems.append("invalid_market_features_json")
+        if problems:
+            invalid.append({"origin_at": row["origin_at"], "problems": problems})
     if invalid:
         _add_issue(
             report,
             Issue(
                 "invalid_origin_fields",
                 "error",
-                "Forecast-origin rows contain invalid required fields.",
+                "Forecast origins contain invalid required fields.",
                 len(invalid),
                 examples=invalid[:5],
             ),
         )
 
 
-def _expected_outcome(
+def _outcome_metrics(
     row: sqlite3.Row,
-    source_price: float,
+    source: float,
     predicted: float,
     actual: float,
 ) -> dict[str, float | int | None]:
     error = predicted - actual
     q10 = row["q10_usd"]
     q90 = row["q90_usd"]
-    interval = (
-        int(float(q10) <= actual <= float(q90))
-        if q10 is not None and q90 is not None
-        else None
-    )
+    within = None
+    if q10 is not None and q90 is not None:
+        within = int(float(q10) <= actual <= float(q90))
     return {
         "absolute_error_usd": abs(error),
         "absolute_error_pct": abs(error) / actual * 100.0,
         "signed_error_pct": error / actual * 100.0,
-        "actual_change_pct": (actual / source_price - 1.0) * 100.0,
+        "actual_change_pct": (actual / source - 1.0) * 100.0,
         "direction_correct": int(
-            _direction(predicted - source_price)
-            == _direction(actual - source_price)
+            _direction(predicted - source) == _direction(actual - source)
         ),
-        "within_q10_q90": interval,
+        "within_q10_q90": within,
     }
 
 
@@ -462,8 +467,8 @@ def _audit_predictions(
     report: dict[str, Any],
     *,
     now: datetime,
-    maturity_grace_minutes: int,
-    actual_by_timestamp: dict[int, float],
+    grace_minutes: int,
+    actuals: dict[int, float],
 ) -> None:
     rows = connection.execute(
         """
@@ -473,53 +478,46 @@ def _audit_predictions(
         ORDER BY p.origin_at, p.horizon_hours, p.model_name
         """
     ).fetchall()
-
     invalid: list[dict[str, Any]] = []
-    target_mismatches: list[dict[str, Any]] = []
-    change_mismatches: list[dict[str, Any]] = []
-    outcome_mismatches: list[dict[str, Any]] = []
-    missing_matured: list[dict[str, Any]] = []
-    grace = timedelta(minutes=max(0, maturity_grace_minutes))
+    target_errors: list[dict[str, Any]] = []
+    change_errors: list[dict[str, Any]] = []
+    outcome_errors: list[dict[str, Any]] = []
+    missing_outcomes: list[dict[str, Any]] = []
+    grace = timedelta(minutes=max(0, grace_minutes))
 
     for row in rows:
-        row_problems: list[str] = []
-        if not isinstance(row["model_name"], str) or not row["model_name"].strip():
-            row_problems.append("empty_model_name")
-        if not _finite(row["predicted_price_usd"], positive=True):
-            row_problems.append("invalid_predicted_price_usd")
-        if not _finite(row["predicted_change_pct"]):
-            row_problems.append("invalid_predicted_change_pct")
         if row["source_price_usd"] is None:
             continue
-
+        problems: list[str] = []
+        if not isinstance(row["model_name"], str) or not row["model_name"].strip():
+            problems.append("empty_model_name")
+        if not _finite(row["predicted_price_usd"], positive=True):
+            problems.append("invalid_predicted_price_usd")
+        if not _finite(row["predicted_change_pct"]):
+            problems.append("invalid_predicted_change_pct")
         try:
             horizon = int(row["horizon_hours"])
-            origin = _parse_timestamp(row["origin_at"])
-            target = _parse_timestamp(row["target_at"])
+            origin = _parse_time(row["origin_at"])
+            target = _parse_time(row["target_at"])
         except (TypeError, ValueError):
-            row_problems.append("invalid_horizon_or_timestamp")
+            problems.append("invalid_horizon_or_timestamp")
+            horizon = 0
+            origin = now
+            target = now
+        if horizon <= 0:
+            problems.append("invalid_horizon_hours")
+        if row["actual_target_price_usd"] is not None and not _finite(
+            row["actual_target_price_usd"],
+            positive=True,
+        ):
+            problems.append("invalid_actual_target_price_usd")
+        if problems:
             invalid.append(
                 {
                     "origin_at": row["origin_at"],
                     "model_name": row["model_name"],
                     "horizon_hours": row["horizon_hours"],
-                    "problems": row_problems,
-                }
-            )
-            continue
-        if horizon <= 0:
-            row_problems.append("invalid_horizon_hours")
-        if row["actual_target_price_usd"] is not None and not _finite(
-            row["actual_target_price_usd"], positive=True
-        ):
-            row_problems.append("invalid_actual_target_price_usd")
-        if row_problems:
-            invalid.append(
-                {
-                    "origin_at": row["origin_at"],
-                    "model_name": row["model_name"],
-                    "horizon_hours": horizon,
-                    "problems": row_problems,
+                    "problems": sorted(set(problems)),
                 }
             )
             continue
@@ -539,62 +537,61 @@ def _audit_predictions(
                 "stored_target_at": row["target_at"],
                 "expected_target_at": _iso(expected_target),
             }
-            target_mismatches.append(item)
+            target_errors.append(item)
             _propose(report, {"action": "recompute_target_at", **item})
 
         expected_change = (predicted / source - 1.0) * 100.0
-        if not _close(row["predicted_change_pct"], expected_change, 1e-7):
+        if not _close(row["predicted_change_pct"], expected_change):
             item = {
                 **key,
-                "stored_predicted_change_pct": row["predicted_change_pct"],
                 "expected_predicted_change_pct": expected_change,
             }
-            change_mismatches.append(item)
+            change_errors.append(item)
             _propose(report, {"action": "recompute_predicted_change_pct", **item})
 
         actual_value = row["actual_target_price_usd"]
         if actual_value is None:
             if now >= expected_target + grace:
-                supplied = actual_by_timestamp.get(int(expected_target.timestamp()))
+                supplied = actuals.get(int(expected_target.timestamp()))
                 item = {
                     **key,
                     "target_at": _iso(expected_target),
                     "actual_available": supplied is not None,
                 }
-                missing_matured.append(item)
+                missing_outcomes.append(item)
                 if supplied is not None:
                     _propose(
                         report,
                         {
                             "action": "fill_matured_outcome",
                             **item,
-                            "actual_target_price_usd": float(supplied),
+                            "actual_target_price_usd": supplied,
                         },
                     )
             continue
 
         actual = float(actual_value)
-        expected_metrics = _expected_outcome(row, source, predicted, actual)
+        expected = _outcome_metrics(row, source, predicted, actual)
         inconsistent: list[str] = []
-        for column, expected_value in expected_metrics.items():
+        for column, value in expected.items():
             stored = row[column]
-            if expected_value is None:
+            if value is None:
                 if stored is not None:
                     inconsistent.append(column)
             elif column in {"direction_correct", "within_q10_q90"}:
-                if stored is None or int(stored) != int(expected_value):
+                if stored is None or int(stored) != int(value):
                     inconsistent.append(column)
-            elif not _close(stored, expected_value, 1e-7):
+            elif not _close(stored, value):
                 inconsistent.append(column)
         if not row["matured_at"]:
             inconsistent.append("matured_at")
         if inconsistent:
             item = {
                 **key,
-                "fields": sorted(set(inconsistent)),
                 "actual_target_price_usd": actual,
+                "fields": sorted(set(inconsistent)),
             }
-            outcome_mismatches.append(item)
+            outcome_errors.append(item)
             _propose(report, {"action": "recompute_outcome_metrics", **item})
 
     if invalid:
@@ -603,67 +600,65 @@ def _audit_predictions(
             Issue(
                 "invalid_prediction_fields",
                 "error",
-                "Prediction rows contain invalid required fields.",
+                "Predictions contain invalid required fields.",
                 len(invalid),
                 examples=invalid[:5],
             ),
         )
-    if target_mismatches:
+    if target_errors:
         _add_issue(
             report,
             Issue(
                 "target_timestamp_mismatch",
                 "error",
                 "Stored target timestamps do not equal origin + horizon.",
-                len(target_mismatches),
+                len(target_errors),
                 True,
-                "recompute target_at from immutable origin_at + horizon_hours",
-                target_mismatches[:5],
+                "recompute target_at from origin_at + horizon_hours",
+                target_errors[:5],
             ),
         )
-    if change_mismatches:
+    if change_errors:
         _add_issue(
             report,
             Issue(
                 "predicted_change_mismatch",
                 "error",
                 "Stored predicted-change values disagree with stored prices.",
-                len(change_mismatches),
+                len(change_errors),
                 True,
                 "recompute predicted_change_pct",
-                change_mismatches[:5],
+                change_errors[:5],
             ),
         )
-    if outcome_mismatches:
+    if outcome_errors:
         _add_issue(
             report,
             Issue(
                 "incomplete_or_inconsistent_outcome_metrics",
                 "error",
                 "Matured outcomes have missing or inconsistent derived metrics.",
-                len(outcome_mismatches),
+                len(outcome_errors),
                 True,
                 "recompute derived metrics from immutable prices",
-                outcome_mismatches[:5],
+                outcome_errors[:5],
             ),
         )
-    if missing_matured:
-        available = sum(bool(item["actual_available"]) for item in missing_matured)
-        action = (
-            f"fill {available} outcome(s) from supplied exact-target prices"
-            if available
-            else "supply --actuals with exact target timestamps to repair safely"
-        )
+    if missing_outcomes:
+        available = sum(bool(item["actual_available"]) for item in missing_outcomes)
+        action = "supply --actuals with exact target timestamps"
+        if available:
+            action = f"fill {available} outcome(s) from supplied exact-target prices"
         _add_issue(
             report,
             Issue(
                 "missing_matured_outcomes",
                 "warning",
                 "Mature targets still have no stored actual outcome.",
-                len(missing_matured),
+                len(missing_outcomes),
                 available > 0,
                 action,
-                missing_matured[:5],
+                missing_outcomes[:5],
             ),
         )
 
@@ -673,21 +668,21 @@ def _audit(
     report: dict[str, Any],
     *,
     now: datetime,
-    maturity_grace_minutes: int,
-    actual_by_timestamp: dict[int, float],
+    grace_minutes: int,
+    actuals: dict[int, float],
 ) -> None:
     connection.row_factory = sqlite3.Row
     if not _required_structure(connection, report):
         return
-    _audit_uniqueness(connection, report)
+    _audit_duplicates(connection, report)
     _audit_orphans(connection, report)
     _audit_origins(connection, report)
     _audit_predictions(
         connection,
         report,
         now=now,
-        maturity_grace_minutes=maturity_grace_minutes,
-        actual_by_timestamp=actual_by_timestamp,
+        grace_minutes=grace_minutes,
+        actuals=actuals,
     )
 
 
@@ -717,9 +712,9 @@ def _write_outcome(
         raise RuntimeError(f"Prediction disappeared during repair: {key!r}")
     source = float(row["source_price_usd"])
     predicted = float(row["predicted_price_usd"])
-    expected = _expected_outcome(row, source, predicted, actual)
+    expected = _outcome_metrics(row, source, predicted, actual)
     matured_at = row["matured_at"] or _iso(now)
-    sql = """
+    query = """
         UPDATE forecast_predictions
         SET actual_target_price_usd = ?,
             absolute_error_usd = ?,
@@ -732,9 +727,9 @@ def _write_outcome(
         WHERE origin_at = ? AND model_name = ? AND horizon_hours = ?
     """
     if only_if_missing:
-        sql += " AND actual_target_price_usd IS NULL"
+        query += " AND actual_target_price_usd IS NULL"
     return connection.execute(
-        sql,
+        query,
         (
             actual,
             expected["absolute_error_usd"],
@@ -750,14 +745,17 @@ def _write_outcome(
 
 
 def _apply_repairs(path: Path, report: dict[str, Any], now: datetime) -> None:
-    actions = list(report["repairs"]["proposed"])
     writable = {
         "recompute_target_at",
         "recompute_predicted_change_pct",
         "recompute_outcome_metrics",
         "fill_matured_outcome",
     }
-    actions = [action for action in actions if action["action"] in writable]
+    actions = [
+        action
+        for action in report["repairs"]["proposed"]
+        if action["action"] in writable
+    ]
     if not actions:
         return
 
@@ -777,24 +775,30 @@ def _apply_repairs(path: Path, report: dict[str, Any], now: datetime) -> None:
                 str(action["model_name"]),
                 int(action["horizon_hours"]),
             )
-            action_name = action["action"]
-            if action_name == "recompute_target_at":
+            name = action["action"]
+            if name == "recompute_target_at":
                 cursor = connection.execute(
                     """
-                    UPDATE forecast_predictions SET target_at = ?
-                    WHERE origin_at = ? AND model_name = ? AND horizon_hours = ?
+                    UPDATE forecast_predictions
+                    SET target_at = ?
+                    WHERE origin_at = ?
+                      AND model_name = ?
+                      AND horizon_hours = ?
                     """,
                     (action["expected_target_at"], *key),
                 )
-            elif action_name == "recompute_predicted_change_pct":
+            elif name == "recompute_predicted_change_pct":
                 cursor = connection.execute(
                     """
-                    UPDATE forecast_predictions SET predicted_change_pct = ?
-                    WHERE origin_at = ? AND model_name = ? AND horizon_hours = ?
+                    UPDATE forecast_predictions
+                    SET predicted_change_pct = ?
+                    WHERE origin_at = ?
+                      AND model_name = ?
+                      AND horizon_hours = ?
                     """,
                     (float(action["expected_predicted_change_pct"]), *key),
                 )
-            elif action_name == "fill_matured_outcome":
+            elif name == "fill_matured_outcome":
                 cursor = _write_outcome(
                     connection,
                     key,
@@ -807,7 +811,9 @@ def _apply_repairs(path: Path, report: dict[str, Any], now: datetime) -> None:
                     """
                     SELECT actual_target_price_usd
                     FROM forecast_predictions
-                    WHERE origin_at = ? AND model_name = ? AND horizon_hours = ?
+                    WHERE origin_at = ?
+                      AND model_name = ?
+                      AND horizon_hours = ?
                     """,
                     key,
                 ).fetchone()
@@ -841,11 +847,11 @@ def audit_database(
     now: datetime | None = None,
     maturity_grace_minutes: int = DEFAULT_GRACE_MINUTES,
 ) -> dict[str, Any]:
-    """Audit a forecast-history DB and optionally apply conservative repairs."""
+    """Audit a history DB and optionally apply conservative repairs."""
     db_path = Path(path)
-    checked_at = (now or _utc_now()).astimezone(timezone.utc)
+    checked_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     actuals = actual_by_timestamp or {}
-    report = _report(db_path, "repair" if repair else "dry-run", checked_at)
+    report = _new_report(db_path, "repair" if repair else "dry-run", checked_at)
 
     if not db_path.exists() or db_path.stat().st_size == 0:
         _add_issue(
@@ -856,7 +862,7 @@ def audit_database(
                 "Forecast-history database is missing or empty.",
             ),
         )
-        return _finalize(report)
+        return _finish(report)
 
     uri = f"file:{db_path.resolve()}?mode=ro"
     try:
@@ -865,8 +871,8 @@ def audit_database(
                 connection,
                 report,
                 now=checked_at,
-                maturity_grace_minutes=maturity_grace_minutes,
-                actual_by_timestamp=actuals,
+                grace_minutes=maturity_grace_minutes,
+                actuals=actuals,
             )
     except sqlite3.DatabaseError as exc:
         _add_issue(
@@ -877,13 +883,13 @@ def audit_database(
                 f"SQLite could not read the database: {exc}",
             ),
         )
-        return _finalize(report)
+        return _finish(report)
 
-    _finalize(report)
+    _finish(report)
     if not repair:
         return report
 
-    unsafe_codes = {
+    unsafe = {
         "sqlite_integrity",
         "sqlite_read_failure",
         "missing_tables",
@@ -898,27 +904,27 @@ def audit_database(
         "invalid_prediction_fields",
     }
     blockers = sorted(
-        issue["code"] for issue in report["issues"] if issue["code"] in unsafe_codes
+        issue["code"] for issue in report["issues"] if issue["code"] in unsafe
     )
     if blockers:
         report["repairs"]["blocked_reason"] = (
             "Automatic repair blocked by structural or ambiguous errors: "
             + ", ".join(blockers)
         )
-        return _finalize(report)
+        return _finish(report)
 
     _apply_repairs(db_path, report, checked_at)
-    repaired = _report(db_path, "repair", checked_at)
+    repaired = _new_report(db_path, "repair", checked_at)
     repaired["repairs"] = report["repairs"]
     with sqlite3.connect(uri, uri=True) as connection:
         _audit(
             connection,
             repaired,
             now=checked_at,
-            maturity_grace_minutes=maturity_grace_minutes,
-            actual_by_timestamp=actuals,
+            grace_minutes=maturity_grace_minutes,
+            actuals=actuals,
         )
-    return _finalize(repaired)
+    return _finish(repaired)
 
 
 def write_report(report: dict[str, Any], path: Path | str | None) -> None:
@@ -944,7 +950,7 @@ def _exit_code(report: dict[str, Any], fail_on: str) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Audit and safely repair the durable BTC forecast-history database"
+        description="Audit and safely repair the durable forecast-history database"
     )
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument("--report", type=Path)
@@ -963,12 +969,11 @@ def main() -> None:
     parser.add_argument("--now")
     args = parser.parse_args()
 
-    checked_at = _parse_timestamp(args.now) if args.now else None
-    actuals = load_actuals(args.actuals)
+    checked_at = _parse_time(args.now) if args.now else None
     report = audit_database(
         args.db,
         repair=args.repair,
-        actual_by_timestamp=actuals,
+        actual_by_timestamp=load_actuals(args.actuals),
         now=checked_at,
         maturity_grace_minutes=args.maturity_grace_minutes,
     )
