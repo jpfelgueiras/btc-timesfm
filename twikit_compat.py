@@ -1,24 +1,28 @@
 """Compatibility patches for Twikit 2.3.3 against X's current frontend.
 
-X changed the webpack chunk format used to locate ondemand.s.*.js in 2026,
-which makes released Twikit raise `Couldn't get KEY_BYTE indices` before any
-request can be made. This monkey-patch mirrors the focused transaction parsing
-fix proposed upstream while keeping the dependency pinned to the official
-Twikit release.
+X changed several response/frontend details in 2026 that break released
+Twikit 2.3.3. Keep the workarounds here so the project can stay pinned to the
+official release while upstream fixes are pending.
 
-Remove this module once a Twikit release includes the upstream fix.
+Remove individual patches as soon as a Twikit release includes them.
 """
 
 from __future__ import annotations
 
+import copy
 import re
 
+from twikit.guest.user import User as GuestUser
+from twikit.user import User as AuthenticatedUser
 from twikit.x_client_transaction.transaction import ClientTransaction
 
 
 ON_DEMAND_FILE_REGEX = re.compile(r',([0-9]+):["\']ondemand\.s["\']')
 ON_DEMAND_HASH_PATTERN = r',{}:["\']([0-9a-f]+)["\']'
 INDICES_REGEX = re.compile(r'\[([0-9]+)\],\s*16')
+
+_ORIGINAL_AUTH_USER_INIT = AuthenticatedUser.__init__
+_ORIGINAL_GUEST_USER_INIT = GuestUser.__init__
 
 
 async def _patched_get_indices(self, home_page_response, session, headers):
@@ -60,10 +64,38 @@ async def _patched_get_indices(self, home_page_response, session, headers):
     return key_byte_indices_int[0], key_byte_indices_int[1:]
 
 
+def _normalize_user_data(data: dict) -> dict:
+    """Add optional legacy fields that Twikit 2.3.3 assumes always exist."""
+    normalized = copy.deepcopy(data)
+    legacy = normalized.get("legacy")
+    if not isinstance(legacy, dict):
+        return normalized
+
+    entities = legacy.setdefault("entities", {})
+    if isinstance(entities, dict):
+        description = entities.setdefault("description", {})
+        if isinstance(description, dict):
+            description.setdefault("urls", [])
+
+    legacy.setdefault("withheld_in_countries", [])
+    legacy.setdefault("pinned_tweet_ids_str", [])
+    return normalized
+
+
+def _patched_authenticated_user_init(self, client, data):
+    _ORIGINAL_AUTH_USER_INIT(self, client, _normalize_user_data(data))
+
+
+def _patched_guest_user_init(self, client, data):
+    _ORIGINAL_GUEST_USER_INIT(self, client, _normalize_user_data(data))
+
+
 def apply_twikit_compat() -> None:
     """Apply compatibility patches once for the current Python process."""
     if getattr(ClientTransaction, "_btc_timesfm_compat_applied", False):
         return
 
     ClientTransaction.get_indices = _patched_get_indices
+    AuthenticatedUser.__init__ = _patched_authenticated_user_init
+    GuestUser.__init__ = _patched_guest_user_init
     ClientTransaction._btc_timesfm_compat_applied = True
