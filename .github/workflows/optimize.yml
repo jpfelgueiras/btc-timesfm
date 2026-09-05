@@ -52,11 +52,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run bounded walk-forward optimization
+      - name: Validate historical data and run bounded optimization
         run: |
-          python optimizer.py \
+          python validated_entrypoints.py optimizer \
             --days "${{ inputs.days || '120' }}" \
             --samples "${{ inputs.samples || '48' }}"
+
+      - name: Add market data validation summary
+        if: always() && hashFiles('market_data_validation.json') != ''
+        run: |
+          echo '## Market data validation' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat market_data_validation.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Add optimizer summary
         if: always() && hashFiles('optimizer_summary.md') != ''
@@ -70,5 +78,6 @@ jobs:
           path: |
             optimizer_report.json
             optimizer_summary.md
+            market_data_validation.json
           if-no-files-found: warn
           retention-days: 90
