@@ -12,6 +12,7 @@ import numpy as np
 
 import forecast_engine
 from adaptive_weighting import adaptive_model_weights, attach_persisted_outcomes
+from drift_detection import evaluate_drift, persist_drift_report
 from experiment_manifest import build_experiment_manifest, seed_everything
 from forecast_engine import TARGET_HOURS, build_forecast, load_timesfm
 from market_data_sources import fetch_redundant_hourly
@@ -282,6 +283,19 @@ def print_reliability(reliability: dict[str, dict[str, Any]]) -> None:
         )
 
 
+def evaluate_production_drift(store: ForecastHistoryStore, data: Any) -> dict[str, Any]:
+    """Evaluate only durable matured errors plus already observed market features."""
+    inputs = store.load_drift_history()
+    current_features = forecast_engine.market_features(data)
+    current_origin = datetime.fromtimestamp(data.timestamps[-1], tz=timezone.utc).isoformat()
+    return evaluate_drift(
+        inputs["prediction_rows"],
+        inputs["feature_rows"],
+        current_features=current_features,
+        current_origin_at=current_origin,
+    )
+
+
 def main() -> None:
     seed_everything()
     selection = fetch_redundant_hourly(512)
@@ -312,8 +326,13 @@ def main() -> None:
         # Local/first-run fallback before any matured durable records exist.
         summary = performance_summary(history, data.closes, data.timestamps)
 
+    drift_report = evaluate_production_drift(store, data)
+    adaptive_confidence = float(drift_report["adaptive_confidence"])
+
     model = load_timesfm()
-    engine_output = build_forecast(model, data, history)
+    engine_output = build_forecast(
+        model, data, history, adaptive_confidence=adaptive_confidence
+    )
     generated_at = datetime.now(timezone.utc)
     experiment_manifest = build_experiment_manifest(
         run_type="production_forecast",
@@ -324,6 +343,12 @@ def main() -> None:
         model_names=sorted(engine_output.get("model_predictions", {})),
         created_at=generated_at,
     )
+    persisted_drift_events = store.record_drift_events(
+        drift_report, experiment_run_id=str(experiment_manifest.get("run_id") or "") or None
+    )
+    drift_report["persisted_events"] = persisted_drift_events
+    persist_drift_report(drift_report)
+
     output: dict[str, Any] = {
         "generated_at": generated_at.isoformat(),
         "pair": "BTC/USD",
@@ -336,6 +361,7 @@ def main() -> None:
             "comparison": selection.comparison,
         },
         "experiment_manifest": experiment_manifest,
+        "drift_detection": drift_report,
         **engine_output,
         "forecast_reliability": reliability,
         "performance_summary": summary,
@@ -358,6 +384,10 @@ def main() -> None:
     TWEET_PATH.write_text(tweet + "\n")
 
     print(f"\nRegime: {output['regime']}")
+    print(
+        f"Drift: {drift_report['severity']} | adaptive confidence "
+        f"{drift_report['adaptive_confidence']:.2f}"
+    )
     print(f"Model weights: {output['model_weights']}")
     print(f"Durable history: {output['history_store']}")
     print("\nBTC/USD ensemble forecast")

@@ -27,6 +27,8 @@ DEFAULT_COUNTERS = {
     "failures": 0,
     "fallbacks": 0,
     "data_quality_events": 0,
+    "drift_warnings": 0,
+    "drift_severe": 0,
     "successful_posts": 0,
 }
 

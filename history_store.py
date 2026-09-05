@@ -428,6 +428,10 @@ class ForecastHistoryStore:
             first_last = connection.execute(
                 "SELECT MIN(origin_at), MAX(origin_at) FROM forecast_origins"
             ).fetchone()
+            drift_events = int(connection.execute("SELECT COUNT(*) FROM drift_events").fetchone()[0])
+            latest_drift = connection.execute(
+                "SELECT severity, evaluation_origin_at FROM drift_events ORDER BY id DESC LIMIT 1"
+            ).fetchone()
         diagnostics = schema_diagnostics(self.path)
         return {
             "schema_version": diagnostics["schema_version"],
@@ -437,6 +441,11 @@ class ForecastHistoryStore:
             "predictions": predictions,
             "matured_predictions": matured,
             "pending_predictions": predictions - matured,
+            "drift_events": drift_events,
+            "latest_drift_severity": latest_drift["severity"] if latest_drift is not None else None,
+            "latest_drift_origin_at": (
+                latest_drift["evaluation_origin_at"] if latest_drift is not None else None
+            ),
             "first_origin_at": first_last[0],
             "latest_origin_at": first_last[1],
             "database_bytes": self.path.stat().st_size if self.path.exists() else 0,
@@ -499,6 +508,112 @@ class ForecastHistoryStore:
                     "models": models,
                 }
             return result
+
+    def load_drift_history(self) -> dict[str, list[dict[str, Any]]]:
+        """Return only past observed features and matured prediction outcomes."""
+        with self._connect() as connection:
+            prediction_rows = connection.execute(
+                """
+                SELECT origin_at, model_name, horizon_hours, target_at,
+                       absolute_error_pct, signed_error_pct, direction_correct, matured_at
+                FROM forecast_predictions
+                WHERE actual_target_price_usd IS NOT NULL
+                ORDER BY target_at, model_name, horizon_hours
+                """
+            ).fetchall()
+            origin_rows = connection.execute(
+                """
+                SELECT origin_at, market_features_json
+                FROM forecast_origins
+                ORDER BY origin_at
+                """
+            ).fetchall()
+
+        features: list[dict[str, Any]] = []
+        for row in origin_rows:
+            try:
+                parsed = json.loads(row["market_features_json"])
+            except (json.JSONDecodeError, TypeError):
+                parsed = {}
+            features.append(
+                {
+                    "origin_at": str(row["origin_at"]),
+                    "market_features": parsed if isinstance(parsed, dict) else {},
+                }
+            )
+        return {
+            "prediction_rows": [dict(row) for row in prediction_rows],
+            "feature_rows": features,
+        }
+
+    def record_drift_events(
+        self, report: dict[str, Any], *, experiment_run_id: str | None = None
+    ) -> int:
+        """Persist warning/severe drift signals once per observed origin."""
+        events = report.get("events")
+        if not isinstance(events, list) or not events:
+            return 0
+        evaluated_at = str(report.get("evaluated_at") or _iso(_utc_now()))
+        evaluation_origin_at = str(
+            report.get("latest_observed_origin_at") or evaluated_at
+        )
+        created_at = _iso(_utc_now())
+        inserted = 0
+        with self._connect() as connection:
+            for event in events:
+                if not isinstance(event, dict):
+                    continue
+                severity = str(event.get("severity") or "none")
+                if severity not in {"warning", "severe"}:
+                    continue
+                signal_key = str(event.get("signal_key") or "")
+                if not signal_key:
+                    continue
+                cursor = connection.execute(
+                    """
+                    INSERT OR IGNORE INTO drift_events(
+                        evaluation_origin_at, evaluated_at, experiment_run_id,
+                        signal_key, kind, severity, model_name, horizon_hours,
+                        feature_name, metrics_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        evaluation_origin_at,
+                        evaluated_at,
+                        experiment_run_id,
+                        signal_key,
+                        str(event.get("kind") or "unknown"),
+                        severity,
+                        event.get("model_name"),
+                        event.get("horizon_hours"),
+                        event.get("feature_name"),
+                        json.dumps(event.get("metrics", {}), sort_keys=True, separators=(",", ":")),
+                        created_at,
+                    ),
+                )
+                inserted += cursor.rowcount
+        return inserted
+
+    def recent_drift_events(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM drift_events
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (max(0, int(limit)),),
+            ).fetchall()
+        events: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            try:
+                metrics = json.loads(item.pop("metrics_json"))
+            except (json.JSONDecodeError, TypeError):
+                metrics = {}
+            item["metrics"] = metrics
+            events.append(item)
+        return events
 
     def verify(self) -> dict[str, Any]:
         return validate_database(self.path)
