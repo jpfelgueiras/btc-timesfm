@@ -19,6 +19,9 @@ permissions:
 
 env:
   HISTORY_RELEASE_TAG: forecast-history-v1
+  HISTORY_BACKUP_KEEP: "7"
+  HISTORY_BACKUP_MAX_BYTES: "52428800"
+  HISTORY_BACKUP_MAX_TOTAL_BYTES: "262144000"
 
 concurrency:
   group: btc-timesfm-forecast
@@ -140,9 +143,18 @@ jobs:
             --format csv --output .state/forecast_history.csv
           gzip -c .state/forecast_history.sqlite > .state/forecast_history.sqlite.gz
           gzip -c .state/forecast_history.csv > .state/forecast_history.csv.gz
+
+          canonical_bytes="$(stat -c%s .state/forecast_history.sqlite.gz)"
+          if [ "$canonical_bytes" -gt "$HISTORY_BACKUP_MAX_BYTES" ]; then
+            echo "Compressed canonical history is ${canonical_bytes} bytes; limit is ${HISTORY_BACKUP_MAX_BYTES}." >&2
+            exit 1
+          fi
+
           if [ -f .state/forecast_history.previous.sqlite ]; then
-            gzip -c .state/forecast_history.previous.sqlite \
-              > .state/forecast_history.previous.sqlite.gz
+            python history_backup.py create \
+              --source .state/forecast_history.previous.sqlite \
+              --output .state/forecast_history.previous.sqlite.gz \
+              --max-bytes "$HISTORY_BACKUP_MAX_BYTES"
           fi
 
       - name: Publish durable forecast history
@@ -160,11 +172,54 @@ jobs:
           fi
 
           if [ -f .state/history_restored_from_release ]; then
-            # We only overwrite a release that was successfully restored in
-            # this same run. If restore failed transiently, this guard prevents
-            # a fresh empty database from clobbering an existing history.
+            # Preserve and verify a unique generation of the known-good database
+            # before replacing the canonical Release asset.
+            generation="$(date -u +%Y%m%dT%H%M%SZ)-${GITHUB_RUN_ID}"
+            backup_name="forecast_history.backup-${generation}.sqlite.gz"
+            versioned_backup=".state/${backup_name}"
+            cp .state/forecast_history.previous.sqlite.gz "$versioned_backup"
+
+            gh release upload "$HISTORY_RELEASE_TAG" "$versioned_backup" \
+              --repo "$GITHUB_REPOSITORY"
+
+            rm -rf .state/backup_verify
+            mkdir -p .state/backup_verify
+            gh release download "$HISTORY_RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern "$backup_name" \
+              --dir .state/backup_verify
+            python history_backup.py verify \
+              --archive ".state/backup_verify/${backup_name}" \
+              --max-bytes "$HISTORY_BACKUP_MAX_BYTES" \
+              > .state/uploaded_backup_verification.json
+
+            # Only after the new rollback generation has been re-downloaded and
+            # verified may the current canonical assets be replaced.
             gh release upload "$HISTORY_RELEASE_TAG" "${assets[@]}" \
               --repo "$GITHUB_REPOSITORY" --clobber
+
+            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$HISTORY_RELEASE_TAG" \
+              --jq '.assets | map({id: .id, name: .name, size: .size, created_at: .created_at})' \
+              > .state/release_assets.json
+            python history_backup.py retention-plan \
+              --assets-json .state/release_assets.json \
+              --keep "$HISTORY_BACKUP_KEEP" \
+              --max-total-bytes "$HISTORY_BACKUP_MAX_TOTAL_BYTES" \
+              > .state/backup_retention_plan.json
+
+            python - <<'PY' > .state/delete_backup_asset_ids.txt
+          import json
+
+          with open(".state/backup_retention_plan.json", encoding="utf-8") as handle:
+              plan = json.load(handle)
+          for asset in plan["delete"]:
+              print(asset["id"])
+          PY
+            while read -r asset_id; do
+              if [ -n "$asset_id" ]; then
+                gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
+              fi
+            done < .state/delete_backup_asset_ids.txt
           else
             gh release create "$HISTORY_RELEASE_TAG" "${assets[@]}" \
               --repo "$GITHUB_REPOSITORY" \
@@ -186,6 +241,20 @@ jobs:
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
           python history_store.py --db .state/forecast_history.sqlite stats >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+          if [ -f .state/uploaded_backup_verification.json ]; then
+            echo '' >> "$GITHUB_STEP_SUMMARY"
+            echo '### Verified history backup' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat .state/uploaded_backup_verification.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f .state/backup_retention_plan.json ]; then
+            echo '' >> "$GITHUB_STEP_SUMMARY"
+            echo '### History backup retention' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat .state/backup_retention_plan.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo '' >> "$GITHUB_STEP_SUMMARY"
           echo '## X post' >> "$GITHUB_STEP_SUMMARY"
           cat tweet.txt >> "$GITHUB_STEP_SUMMARY"
@@ -243,5 +312,7 @@ jobs:
             drift_summary.md
             forecast_observability.json
             forecast_observability.jsonl
+            .state/uploaded_backup_verification.json
+            .state/backup_retention_plan.json
           if-no-files-found: warn
           retention-days: 7

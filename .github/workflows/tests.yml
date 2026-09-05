@@ -91,6 +91,7 @@ jobs:
             drift_detection.py \
             experiment_manifest.py \
             history_audit.py \
+            history_backup.py \
             history_migrations.py \
             history_store.py \
             market_data_sources.py \
