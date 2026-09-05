@@ -94,4 +94,5 @@ jobs:
             history_store.py \
             market_data_sources.py \
             market_data_validation.py \
-            schedule_guard.py
+            schedule_guard.py \
+            statistical_significance.py
