@@ -1,0 +1,19 @@
+name: Delete merged CI quality branch
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Delete merged branch
+        run: git push origin --delete feature/ci-quality-gates
