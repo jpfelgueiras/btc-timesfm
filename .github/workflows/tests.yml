@@ -96,5 +96,6 @@ jobs:
             market_data_sources.py \
             market_data_validation.py \
             observability.py \
+            performance_dashboard.py \
             schedule_guard.py \
             statistical_significance.py
