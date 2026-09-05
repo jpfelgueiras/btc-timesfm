@@ -32,6 +32,7 @@ source = [
     "format_tweet",
     "post_to_x",
     "twikit_compat",
+    "x_post_registry",
 ]
 
 [tool.coverage.report]
