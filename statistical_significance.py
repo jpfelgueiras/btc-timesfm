@@ -75,7 +75,7 @@ def paired_bootstrap_comparison(
     mean_improvement = float(np.mean(improvement))
 
     rng = np.random.default_rng(seed)
-    bootstrap_means = np.empty(iterations, dtype=np.float64)
+    bootstrap_means: np.ndarray = np.empty(iterations, dtype=np.float64)
     batch_size = 1000
     for start in range(0, iterations, batch_size):
         end = min(start + batch_size, iterations)
