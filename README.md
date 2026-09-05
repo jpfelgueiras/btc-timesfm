@@ -41,7 +41,7 @@ The reliability block records:
 
 The first run has no previous forecast to score. If a run is delayed or skipped, the script uses the timestamp of the previous forecast target rather than blindly comparing with the latest price.
 
-## X / Twitter posting
+## X / Twitter posting with Twikit
 
 The workflow generates a `tweet.txt` file with the current forecasts and the previous +2h reliability result, for example:
 
@@ -54,83 +54,85 @@ Prev +2h: 0.31% error | direction OK | in range
 Experimental - not financial advice.
 ```
 
-The posting step uses X API v2 through Tweepy with OAuth 1.0a user credentials.
+Posting uses **Twikit 2.3.3** and an authenticated X web-session cookie. It does **not** use X's paid developer API, so the previous `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, and `X_ACCESS_TOKEN_SECRET` secrets are no longer required by this branch.
 
-### X API billing and credits
+Twikit is an unofficial X/Twitter client. It can break when X changes its internal endpoints, and X may reject activity that looks automated. Reuse the same session instead of logging in on every workflow run, keep the posting rate modest, and be prepared to refresh the session if X invalidates it.
 
-The standard X API uses prepaid, pay-per-use credits. A valid OAuth setup can still return:
+### 1. Create a reusable X session locally
 
-```text
-402 Payment Required
-credits depleted
-```
-
-when the developer account has no API credit balance.
-
-Purchase credits in the X Developer Console before expecting automated posts to succeed. X currently lists a normal **Content: Create** request at `$0.015` per request; check the Developer Console for the current rate because pricing can change.
-
-At this repository's default every-2-hours schedule, that is about 12 posts/day or roughly 360 posts in a 30-day month, which would be about `$5.40/month` at `$0.015` per post, excluding any other X API usage.
-
-The workflow treats the specific `402 / credits depleted` condition as a warning so the BTC forecast itself is not marked failed. `x_post_status.json` records whether the post was published or skipped because credits were unavailable.
-
-X API pricing and billing documentation:
-
-- <https://docs.x.com/x-api/getting-started/pricing>
-- <https://docs.x.com/x-api/fundamentals/post-cap>
-
-### 1. Create an X developer app
-
-1. Open the X Developer Console at <https://console.x.com/> and sign in with the X account that should publish the forecasts.
-2. Create an app, or open an existing app.
-3. Configure OAuth 1.0a permissions as **Read and write**. Read-only credentials cannot create posts.
-4. Open the app's **Keys and tokens** section.
-5. Generate or copy the following credentials:
-   - **API Key** -> `X_API_KEY`
-   - **API Key Secret** -> `X_API_SECRET`
-   - **Access Token** -> `X_ACCESS_TOKEN`
-   - **Access Token Secret** -> `X_ACCESS_TOKEN_SECRET`
-6. If you changed the app from read-only to read/write after generating user access tokens, regenerate/re-authorize the Access Token and Access Token Secret so they inherit the new permissions.
-
-X's OAuth 1.0a documentation:
-
-- <https://docs.x.com/fundamentals/authentication/oauth-1-0a/overview>
-- <https://docs.x.com/fundamentals/authentication/oauth-1-0a/api-key-and-secret>
-- <https://docs.x.com/fundamentals/developer-apps>
-
-Treat all four values as passwords. Do not commit them to this repository, paste them into workflow YAML, or store them in forecast artifacts.
-
-### 2. Add the credentials as GitHub Actions secrets
-
-Create these repository secrets:
-
-- `X_API_KEY`
-- `X_API_SECRET`
-- `X_ACCESS_TOKEN`
-- `X_ACCESS_TOKEN_SECRET`
-
-Using the GitHub UI:
-
-1. Open this repository on GitHub.
-2. Go to **Settings -> Secrets and variables -> Actions**.
-3. Select **New repository secret**.
-4. Add each of the four names above with the corresponding value from the X Developer Console.
-
-Or, with GitHub CLI authenticated for this repository:
+Install the project dependencies and run the helper on your own computer:
 
 ```bash
-gh secret set X_API_KEY --repo jpfelgueiras/btc-timesfm
-gh secret set X_API_SECRET --repo jpfelgueiras/btc-timesfm
-gh secret set X_ACCESS_TOKEN --repo jpfelgueiras/btc-timesfm
-gh secret set X_ACCESS_TOKEN_SECRET --repo jpfelgueiras/btc-timesfm
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python create_x_session.py
 ```
 
-`gh` prompts securely for each value, so the token does not need to appear in your shell history.
+The helper asks interactively for:
 
-### 3. Test before enabling scheduled posting
+- your X username
+- your X email
+- your X password
+- a 2FA code if X requests one
 
-Run **BTC TimesFM 3 Forecast** manually from GitHub Actions on this branch. Leave `post_to_x` disabled first to verify the forecast and generated `tweet.txt`. Then run it again with `post_to_x` enabled to verify that the app can create a post.
+The password is used only for the local login and is not written to disk. After login, the helper creates:
 
-Credentials are only read from GitHub Actions secrets and are never written to `forecast.json`, `tweet.txt`, artifacts, or the repository.
+```text
+x_cookies.json
+```
+
+That file contains your authenticated X session. Treat it like a password. It is ignored by `.gitignore` and must never be committed.
+
+Twikit's cookie session normally includes `auth_token` and `ct0`; `post_to_x.py` validates that both are present before attempting to publish.
+
+### 2. Store the session in GitHub Actions
+
+The workflow expects one repository secret:
+
+```text
+X_COOKIES_JSON
+```
+
+The easiest way to create it with GitHub CLI is:
+
+```bash
+gh secret set X_COOKIES_JSON --repo jpfelgueiras/btc-timesfm < x_cookies.json
+```
+
+Or with the GitHub UI:
+
+1. Open `jpfelgueiras/btc-timesfm`.
+2. Go to **Settings -> Secrets and variables -> Actions**.
+3. Select **New repository secret**.
+4. Name it `X_COOKIES_JSON`.
+5. Paste the complete contents of `x_cookies.json` as the value.
+
+After the secret is stored, remove the local file if you do not need it anymore:
+
+```bash
+rm x_cookies.json
+```
+
+Once Twikit posting has been tested successfully, the four old X API OAuth secrets can be deleted because this branch no longer reads them.
+
+### 3. Test the session
+
+Run **BTC TimesFM 3 Forecast** manually from GitHub Actions on `feature/x-forecast-reliability`.
+
+First run it with `post_to_x` disabled to verify the forecast. Then run it again with `post_to_x` enabled.
+
+A successful post writes an `x_post_status.json` similar to:
+
+```json
+{
+  "status": "posted",
+  "provider": "twikit",
+  "post_id": "1234567890"
+}
+```
+
+If the session expires, is revoked, or X blocks the request, the workflow records the Twikit exception in `x_post_status.json`. Re-run `create_x_session.py` locally and replace `X_COOKIES_JSON` with the new cookie JSON.
 
 ## Forecast state
 
@@ -167,9 +169,10 @@ python btc_forecast.py
 
 The first run downloads the TimesFM 3 checkpoint.
 
-To post the generated `tweet.txt` locally, export the four X credentials listed above and run:
+To post the generated `tweet.txt` locally after creating `x_cookies.json`:
 
 ```bash
+export X_COOKIES_JSON="$(cat x_cookies.json)"
 python post_to_x.py
 ```
 
@@ -177,7 +180,7 @@ python post_to_x.py
 
 `forecast.json` contains the current forecast plus a `previous_forecast_reliability` section when a comparable previous forecast is available.
 
-The JSON and generated X post are shown in the GitHub Actions job summary and uploaded as a 7-day artifact.
+The JSON, generated X post and `x_post_status.json` are shown or uploaded by GitHub Actions as appropriate, with artifacts retained for 7 days.
 
 ## Important
 
