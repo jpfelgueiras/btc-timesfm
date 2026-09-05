@@ -162,11 +162,12 @@ def fetch_binance_hourly(limit: int = 512) -> MarketData:
     if limit > 1000:
         raise ValueError("Binance recent-kline endpoint supports at most 1000 candles")
 
-    response = requests.get(
-        BINANCE_KLINES_URL,
-        params={"symbol": "BTCUSDT", "interval": "1h", "limit": min(limit + 1, 1000)},
-        timeout=30,
-    )
+    params: dict[str, str | int] = {
+        "symbol": "BTCUSDT",
+        "interval": "1h",
+        "limit": min(limit + 1, 1000),
+    }
+    response = requests.get(BINANCE_KLINES_URL, params=params, timeout=30)
     response.raise_for_status()
     payload = response.json()
     if not isinstance(payload, list):
@@ -279,13 +280,15 @@ def select_market_data(
     checked = checked.astimezone(timezone.utc)
     validation = validation_config or ValidationConfig.from_env()
     config = provider_config or ProviderConfig.from_env()
-    primary_provider = primary_provider or KrakenProvider()
-    secondary_provider = secondary_provider or BinanceProvider()
-
-    primary = _attempt_provider(primary_provider, limit, now=checked, validation_config=validation)
-    secondary = _attempt_provider(
-        secondary_provider, limit, now=checked, validation_config=validation
+    primary_impl: HourlyMarketDataProvider = (
+        primary_provider if primary_provider is not None else KrakenProvider()
     )
+    secondary_impl: HourlyMarketDataProvider = (
+        secondary_provider if secondary_provider is not None else BinanceProvider()
+    )
+
+    primary = _attempt_provider(primary_impl, limit, now=checked, validation_config=validation)
+    secondary = _attempt_provider(secondary_impl, limit, now=checked, validation_config=validation)
 
     comparison: dict[str, Any] | None = None
     if primary.data is not None and secondary.data is not None:
