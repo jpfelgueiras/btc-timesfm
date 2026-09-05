@@ -99,7 +99,7 @@ class ForecastEngineTests(unittest.TestCase):
                 {
                     "volatility_24h_pct": 0.5,
                     "volatility_7d_pct": 0.5,
-                    "momentum_24h_pct": 2.0,
+                    "momentum_24h_pct": 3.5,
                     "rsi_14": 50,
                 }
             ),
