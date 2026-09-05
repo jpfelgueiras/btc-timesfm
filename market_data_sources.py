@@ -196,9 +196,7 @@ def fetch_bitstamp_hourly(limit: int = 512) -> MarketData:
         return np.asarray([float(row[name]) for row in completed], dtype=np.float32)
 
     return MarketData(
-        timestamps=[
-            int(row["timestamp"]) + INTERVAL_MINUTES * 60 for row in completed
-        ],
+        timestamps=[int(row["timestamp"]) + INTERVAL_MINUTES * 60 for row in completed],
         opens=arr("open"),
         highs=arr("high"),
         lows=arr("low"),
