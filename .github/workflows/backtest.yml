@@ -1,0 +1,63 @@
+name: BTC Forecast Backtest
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Historical days to download"
+        required: false
+        default: "90"
+        type: string
+      samples:
+        description: "Walk-forward forecast samples"
+        required: false
+        default: "60"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Cache Hugging Face model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: timesfm-3-${{ runner.os }}-v1
+          restore-keys: |
+            timesfm-3-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run walk-forward backtest
+        run: python backtest.py --days "${{ inputs.days }}" --samples "${{ inputs.samples }}"
+
+      - name: Add report to summary
+        run: |
+          echo '## BTC forecast backtest' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat backtest_report.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: btc-backtest-${{ github.run_id }}
+          path: backtest_report.json
+          retention-days: 30
