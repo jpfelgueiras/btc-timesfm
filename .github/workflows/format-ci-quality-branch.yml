@@ -1,0 +1,40 @@
+name: One-time Ruff formatting
+
+on:
+  push:
+    branches:
+      - feature/ci-quality-gates
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/ci-quality-gates
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Format Python files
+        run: |
+          pip install 'ruff>=0.12,<1'
+          ruff format .
+
+      - name: Commit formatting
+        run: |
+          if git diff --quiet; then
+            echo 'No formatting changes needed.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- '*.py'
+          git commit -m 'style: apply Ruff formatting'
+          git push origin HEAD:feature/ci-quality-gates
