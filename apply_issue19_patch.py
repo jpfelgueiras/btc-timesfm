@@ -51,21 +51,3 @@ if verify_count != 1:
     raise RuntimeError(f"Expected one verify method, replaced {verify_count}")
 
 history_path.write_text(history, encoding="utf-8")
-
-workflow_path = Path(".github/workflows/forecast.yml")
-workflow = workflow_path.read_text(encoding="utf-8")
-setup_anchor = """      - name: Set up Python
-        if: steps.due.outputs.run_forecast == 'true'
-        uses: actions/setup-python@v5
-        with:
-          python-version: \"3.11\"
-          cache: pip
-
-"""
-preflight = setup_anchor + """      - name: Migrate and verify durable history schema
-        if: steps.due.outputs.run_forecast == 'true'
-        run: python history_store.py --db .state/forecast_history.sqlite verify
-
-"""
-workflow = replace_once(workflow, setup_anchor, preflight, "forecast Python setup")
-workflow_path.write_text(workflow, encoding="utf-8")
