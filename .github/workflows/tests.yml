@@ -100,6 +100,7 @@ jobs:
             performance_dashboard.py \
             pipeline_health.py \
             post_to_x.py \
+            promotion_policy.py \
             schedule_guard.py \
             statistical_significance.py \
             x_post_registry.py
