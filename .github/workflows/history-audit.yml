@@ -1,0 +1,65 @@
+name: Forecast history integrity audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * *"
+
+permissions:
+  contents: read
+
+env:
+  HISTORY_RELEASE_TAG: forecast-history-v1
+
+jobs:
+  audit:
+    name: History integrity audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore durable forecast database
+        id: restore
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p .state
+          if gh release view "$HISTORY_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release download "$HISTORY_RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern 'forecast_history.sqlite.gz' \
+              --dir .state
+            gzip -df .state/forecast_history.sqlite.gz
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "No durable history release exists yet; nothing to audit."
+          fi
+
+      - name: Audit durable history
+        if: steps.restore.outputs.available == 'true'
+        run: |
+          python history_audit.py \
+            --db .state/forecast_history.sqlite \
+            --report .state/history_audit.json \
+            --fail-on error
+
+      - name: Add audit report to job summary
+        if: always() && steps.restore.outputs.available == 'true' && hashFiles('.state/history_audit.json') != ''
+        run: |
+          echo '## Forecast history integrity audit' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat .state/history_audit.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload audit report
+        if: always() && steps.restore.outputs.available == 'true' && hashFiles('.state/history_audit.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: forecast-history-audit-${{ github.run_id }}
+          path: .state/history_audit.json
+          retention-days: 30
