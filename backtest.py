@@ -21,6 +21,7 @@ import requests
 
 import forecast_engine
 from adaptive_weighting import DEFAULT_HISTORY_LIMIT, adaptive_model_weights
+from benchmarks import BENCHMARK_NAMES, benchmark_forecasts, benchmark_metadata
 from experiment_manifest import build_experiment_manifest, seed_everything
 from forecast_engine import (
     MarketData,
@@ -109,6 +110,17 @@ def score_one(current: float, predicted: float, actual: float) -> dict[str, Any]
     }
 
 
+def _aggregate_scores(scores: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "samples": len(scores),
+        "mae_pct": round(float(np.mean([s["absolute_error_pct"] for s in scores])), 4),
+        "mean_signed_error_pct": round(
+            float(np.mean([s["signed_error_pct"] for s in scores])), 4
+        ),
+        "direction_accuracy": round(float(np.mean([s["direction_correct"] for s in scores])), 4),
+    }
+
+
 def static_ensemble_price(forecast: dict[str, Any], horizon: str) -> float:
     current = float(forecast["latest_close_usd"])
     model_predictions = forecast["model_predictions"]
@@ -124,17 +136,20 @@ def summarize(samples: list[dict[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for horizon in ("2h", "4h", "8h", "16h"):
         per_model: dict[str, list[dict[str, Any]]] = {}
+        benchmark_scores: dict[str, list[dict[str, Any]]] = {}
         ensemble_coverage: list[bool] = []
         regime_scores: dict[str, list[dict[str, Any]]] = {}
+        benchmark_regime_scores: dict[str, dict[str, list[dict[str, Any]]]] = {}
 
         for sample in samples:
             actual = sample["actuals"][horizon]
             current = sample["current_price"]
+            regime = sample["forecast"]["regime"]
             ensemble = sample["forecast"]["predictions"][horizon]
             score = score_one(current, ensemble["price_usd"], actual)
             per_model.setdefault("adaptive_ensemble", []).append(score)
             ensemble_coverage.append(ensemble["q10_usd"] <= actual <= ensemble["q90_usd"])
-            regime_scores.setdefault(sample["forecast"]["regime"], []).append(score)
+            regime_scores.setdefault(regime, []).append(score)
 
             static_price = static_ensemble_price(sample["forecast"], horizon)
             per_model.setdefault("static_ensemble", []).append(
@@ -146,20 +161,18 @@ def summarize(samples: list[dict[str, Any]]) -> dict[str, Any]:
                     score_one(current, horizons[horizon]["price_usd"], actual)
                 )
 
-        models: dict[str, Any] = {}
-        for name, scores in sorted(per_model.items()):
-            models[name] = {
-                "samples": len(scores),
-                "mae_pct": round(float(np.mean([s["absolute_error_pct"] for s in scores])), 4),
-                "mean_signed_error_pct": round(
-                    float(np.mean([s["signed_error_pct"] for s in scores])), 4
-                ),
-                "direction_accuracy": round(
-                    float(np.mean([s["direction_correct"] for s in scores])), 4
-                ),
-            }
-            if name == "adaptive_ensemble":
-                models[name]["q10_q90_coverage"] = round(float(np.mean(ensemble_coverage)), 4)
+            regime_benchmarks = benchmark_regime_scores.setdefault(regime, {})
+            for name, horizons in sample["benchmarks"].items():
+                benchmark_score = score_one(current, horizons[horizon]["price_usd"], actual)
+                benchmark_scores.setdefault(name, []).append(benchmark_score)
+                regime_benchmarks.setdefault(name, []).append(benchmark_score)
+
+        models = {
+            name: _aggregate_scores(scores) for name, scores in sorted(per_model.items())
+        }
+        models["adaptive_ensemble"]["q10_q90_coverage"] = round(
+            float(np.mean(ensemble_coverage)), 4
+        )
 
         by_regime = {
             regime: {
@@ -171,7 +184,36 @@ def summarize(samples: list[dict[str, Any]]) -> dict[str, Any]:
             }
             for regime, scores in sorted(regime_scores.items())
         }
-        result[horizon] = {"models": models, "adaptive_ensemble_by_regime": by_regime}
+
+        benchmarks = {
+            name: _aggregate_scores(scores) for name, scores in sorted(benchmark_scores.items())
+        }
+        benchmarks_by_regime = {
+            regime: {
+                name: _aggregate_scores(scores)
+                for name, scores in sorted(per_benchmark.items())
+            }
+            for regime, per_benchmark in sorted(benchmark_regime_scores.items())
+        }
+
+        best_benchmark = min(benchmarks, key=lambda name: benchmarks[name]["mae_pct"])
+        adaptive_mae = float(models["adaptive_ensemble"]["mae_pct"])
+        persistence_mae = float(benchmarks["persistence"]["mae_pct"])
+        best_mae = float(benchmarks[best_benchmark]["mae_pct"])
+        comparison = {
+            "best_benchmark": best_benchmark,
+            "best_benchmark_mae_pct": best_mae,
+            "adaptive_minus_persistence_mae_pct": round(adaptive_mae - persistence_mae, 4),
+            "adaptive_minus_best_benchmark_mae_pct": round(adaptive_mae - best_mae, 4),
+        }
+
+        result[horizon] = {
+            "models": models,
+            "adaptive_ensemble_by_regime": by_regime,
+            "benchmarks": benchmarks,
+            "benchmarks_by_regime": benchmarks_by_regime,
+            "benchmark_comparison": comparison,
+        }
     return result
 
 
@@ -208,6 +250,7 @@ def main() -> None:
     for number, index in enumerate(indices, start=1):
         context = slice_market(data, index)
         forecast = build_forecast(model, context, history=history)
+        benchmarks = benchmark_forecasts(context)
         actuals = {f"{hour}h": float(data.closes[index + hour]) for hour in TARGET_HOURS}
         samples.append(
             {
@@ -217,6 +260,7 @@ def main() -> None:
                 "current_price": float(data.closes[index]),
                 "actuals": actuals,
                 "forecast": forecast,
+                "benchmarks": benchmarks,
             }
         )
         history.append(history_snapshot(forecast))
@@ -238,6 +282,7 @@ def main() -> None:
             "days_requested": args.days,
             "samples_requested": args.samples,
             "adaptive_history_limit": DEFAULT_HISTORY_LIMIT,
+            "benchmark_models": list(BENCHMARK_NAMES),
         },
         model_names=sorted(samples[-1]["forecast"]["model_predictions"]) if samples else [],
         created_at=generated_at,
@@ -246,6 +291,7 @@ def main() -> None:
         "generated_at": generated_at.isoformat(),
         "data_source": data_source,
         "experiment_manifest": experiment_manifest,
+        "benchmark_suite": benchmark_metadata(),
         "adaptive_history_limit": DEFAULT_HISTORY_LIMIT,
         "days_requested": args.days,
         "samples": len(samples),
@@ -256,12 +302,14 @@ def main() -> None:
     print("\nBacktest summary")
     for horizon, info in report["summary"].items():
         adaptive = info["models"]["adaptive_ensemble"]
-        static = info["models"]["static_ensemble"]
-        persistence = info["models"].get("persistence", {})
+        persistence = info["benchmarks"]["persistence"]
+        comparison = info["benchmark_comparison"]
+        best_name = comparison["best_benchmark"]
+        best = info["benchmarks"][best_name]
         print(
             f"{horizon}: adaptive MAE {adaptive['mae_pct']:.3f}% / "
-            f"static {static['mae_pct']:.3f}% / persistence "
-            f"{persistence.get('mae_pct', float('nan')):.3f}%"
+            f"persistence {persistence['mae_pct']:.3f}% / "
+            f"best benchmark {best_name} {best['mae_pct']:.3f}%"
         )
     print(f"\nSaved {REPORT_PATH}")
 
