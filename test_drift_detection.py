@@ -169,7 +169,9 @@ class DriftDetectionTests(unittest.TestCase):
 
         self.assertEqual(report["severity"], "severe")
         self.assertEqual(report["latest_observed_origin_at"], current_origin)
-        self.assertIn("feature:volatility_24h_pct", {event["signal_key"] for event in report["events"]})
+        self.assertIn(
+            "feature:volatility_24h_pct", {event["signal_key"] for event in report["events"]}
+        )
 
     def test_thresholds_and_confidence_are_reproducible(self) -> None:
         self.assertEqual(adaptive_confidence_for_severity("none", self.config), 1.0)

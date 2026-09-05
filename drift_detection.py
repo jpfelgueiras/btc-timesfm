@@ -80,18 +80,14 @@ class DriftConfig:
                 1.0,
                 max(
                     0.0,
-                    _env_float(
-                        "BTC_DRIFT_WARNING_DIRECTION_DROP", cls.warning_direction_drop
-                    ),
+                    _env_float("BTC_DRIFT_WARNING_DIRECTION_DROP", cls.warning_direction_drop),
                 ),
             ),
             severe_direction_drop=min(
                 1.0,
                 max(
                     0.0,
-                    _env_float(
-                        "BTC_DRIFT_SEVERE_DIRECTION_DROP", cls.severe_direction_drop
-                    ),
+                    _env_float("BTC_DRIFT_SEVERE_DIRECTION_DROP", cls.severe_direction_drop),
                 ),
             ),
             warning_adaptive_confidence=min(
@@ -149,7 +145,9 @@ def _ks_distance(baseline: np.ndarray, recent: np.ndarray) -> float:
     return float(np.max(np.abs(base_cdf - recent_cdf)))
 
 
-def _distribution_metrics(baseline_values: Iterable[float], recent_values: Iterable[float]) -> dict[str, Any]:
+def _distribution_metrics(
+    baseline_values: Iterable[float], recent_values: Iterable[float]
+) -> dict[str, Any]:
     baseline = np.asarray(list(baseline_values), dtype=np.float64)
     recent = np.asarray(list(recent_values), dtype=np.float64)
     base_median = float(np.median(baseline))
@@ -187,9 +185,7 @@ def _direction_severity(drop: float, config: DriftConfig) -> str:
     return "none"
 
 
-def _error_signals(
-    rows: Iterable[Mapping[str, Any]], config: DriftConfig
-) -> list[dict[str, Any]]:
+def _error_signals(rows: Iterable[Mapping[str, Any]], config: DriftConfig) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, int], list[Mapping[str, Any]]] = {}
     for row in rows:
         absolute_error = _as_float(row.get("absolute_error_pct"))
@@ -356,6 +352,8 @@ def evaluate_drift(
     evaluated_at: datetime | None = None,
 ) -> dict[str, Any]:
     """Evaluate model/error and feature drift without using future outcomes."""
+    prediction_rows = list(prediction_rows)
+    feature_rows = list(feature_rows)
     active = config or DriftConfig.from_env()
     active.validate()
     error_signals = _error_signals(prediction_rows, active)

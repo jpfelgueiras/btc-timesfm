@@ -428,7 +428,9 @@ class ForecastHistoryStore:
             first_last = connection.execute(
                 "SELECT MIN(origin_at), MAX(origin_at) FROM forecast_origins"
             ).fetchone()
-            drift_events = int(connection.execute("SELECT COUNT(*) FROM drift_events").fetchone()[0])
+            drift_events = int(
+                connection.execute("SELECT COUNT(*) FROM drift_events").fetchone()[0]
+            )
             latest_drift = connection.execute(
                 "SELECT severity, evaluation_origin_at FROM drift_events ORDER BY id DESC LIMIT 1"
             ).fetchone()
@@ -554,9 +556,7 @@ class ForecastHistoryStore:
         if not isinstance(events, list) or not events:
             return 0
         evaluated_at = str(report.get("evaluated_at") or _iso(_utc_now()))
-        evaluation_origin_at = str(
-            report.get("latest_observed_origin_at") or evaluated_at
-        )
+        evaluation_origin_at = str(report.get("latest_observed_origin_at") or evaluated_at)
         created_at = _iso(_utc_now())
         inserted = 0
         with self._connect() as connection:

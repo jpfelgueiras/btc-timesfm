@@ -330,16 +330,19 @@ def main() -> None:
     adaptive_confidence = float(drift_report["adaptive_confidence"])
 
     model = load_timesfm()
-    engine_output = build_forecast(
-        model, data, history, adaptive_confidence=adaptive_confidence
-    )
+    engine_output = build_forecast(model, data, history, adaptive_confidence=adaptive_confidence)
     generated_at = datetime.now(timezone.utc)
     experiment_manifest = build_experiment_manifest(
         run_type="production_forecast",
         data=data,
         data_source=selection.source,
         data_pair=selection.source_pair,
-        run_parameters={"rolling_history_limit": HISTORY_LIMIT},
+        run_parameters={
+            "rolling_history_limit": HISTORY_LIMIT,
+            "adaptive_confidence": adaptive_confidence,
+            "drift_severity": drift_report["severity"],
+            "drift_configuration": drift_report["configuration"],
+        },
         model_names=sorted(engine_output.get("model_predictions", {})),
         created_at=generated_at,
     )
