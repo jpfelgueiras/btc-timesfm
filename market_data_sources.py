@@ -12,7 +12,7 @@ import json
 import math
 import os
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
@@ -166,7 +166,7 @@ def fetch_binance_hourly(limit: int = 512) -> MarketData:
 
     response = requests.get(
         BINANCE_KLINES_URL,
-        params={"symbol": "BTCUSDT", "interval": "1h", "limit": limit + 1},
+        params={"symbol": "BTCUSDT", "interval": "1h", "limit": min(limit + 1, 1000)},
         timeout=30,
     )
     response.raise_for_status()
@@ -298,6 +298,7 @@ def select_market_data(
             )
 
     if primary.healthy:
+        assert primary.data is not None
         return MarketDataSelection(
             data=primary.data,
             provider=primary.name,
@@ -318,6 +319,7 @@ def select_market_data(
                 raise ProviderDisagreementError(
                     "Primary data is unhealthy and there is insufficient overlap to validate failover"
                 )
+        assert secondary.data is not None
         return MarketDataSelection(
             data=secondary.data,
             provider=secondary.name,
