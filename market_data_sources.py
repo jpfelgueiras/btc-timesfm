@@ -1,9 +1,10 @@
 """Redundant hourly BTC market-data providers for production forecasts.
 
-Kraken remains the preferred BTC/USD source. Binance BTCUSDT is a liquid
-secondary source used only when the primary is unavailable or fails validation.
-When both sources are available their overlapping closes are compared so a
-provider-specific anomaly cannot silently enter the forecast pipeline.
+Kraken remains the preferred BTC/USD source. Bitstamp BTC/USD is the secondary
+source used only when the primary is unavailable or fails hard validation.
+Large but otherwise valid volume spikes are treated as a soft production-data
+warning: volume is winsorized before it reaches feature engineering, while
+price/timestamp/OHLC validation remains fail-closed.
 """
 
 from __future__ import annotations
@@ -11,7 +12,6 @@ from __future__ import annotations
 import json
 import math
 import os
-import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,7 +30,7 @@ from market_data_validation import (
 )
 
 
-BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
+BITSTAMP_OHLC_URL = "https://www.bitstamp.net/api/v2/ohlc/btcusd/"
 SOURCE_REPORT_PATH = Path("market_data_source.json")
 
 
@@ -49,6 +49,7 @@ class ProviderConfig:
     max_close_difference_pct: float = 0.75
     comparison_candles: int = 24
     min_overlap_candles: int = 6
+    volume_feature_cap_multiplier: float = 10.0
 
     @classmethod
     def from_env(cls) -> "ProviderConfig":
@@ -60,6 +61,9 @@ class ProviderConfig:
                 "BTC_PROVIDER_COMPARE_CANDLES", cls.comparison_candles
             ),
             min_overlap_candles=_positive_int("BTC_PROVIDER_MIN_OVERLAP", cls.min_overlap_candles),
+            volume_feature_cap_multiplier=_positive_float(
+                "BTC_PROVIDER_VOLUME_CAP_MULTIPLIER", cls.volume_feature_cap_multiplier
+            ),
         )
 
 
@@ -126,12 +130,12 @@ class KrakenProvider:
 
 
 @dataclass(frozen=True)
-class BinanceProvider:
-    name: str = "binance"
-    pair: str = "BTC/USDT"
+class BitstampProvider:
+    name: str = "bitstamp"
+    pair: str = "BTC/USD"
 
     def fetch(self, limit: int) -> MarketData:
-        return fetch_binance_hourly(limit)
+        return fetch_bitstamp_hourly(limit)
 
 
 def _positive_float(name: str, default: float) -> float:
@@ -154,50 +158,76 @@ def _positive_int(name: str, default: int) -> int:
     return value
 
 
-def fetch_binance_hourly(limit: int = 512) -> MarketData:
-    """Fetch recent completed Binance BTCUSDT hourly candles.
+def fetch_bitstamp_hourly(limit: int = 512) -> MarketData:
+    """Fetch recent completed Bitstamp BTC/USD hourly candles.
 
-    Timestamps are normalized to candle-close UTC seconds, matching Kraken and
-    the rest of the project. The currently forming candle is excluded.
+    Bitstamp returns candle-open Unix timestamps. They are normalized to
+    candle-close UTC seconds to match Kraken and the rest of the project.
+    ``exclude_current_candle`` keeps the still-forming hour out of the input.
     """
 
     limit = max(limit, max(CONTEXT_WINDOWS) + 1)
     if limit > 1000:
-        raise ValueError("Binance recent-kline endpoint supports at most 1000 candles")
+        raise ValueError("Bitstamp OHLC endpoint supports at most 1000 candles")
 
-    params: dict[str, str | int] = {
-        "symbol": "BTCUSDT",
-        "interval": "1h",
-        "limit": min(limit + 1, 1000),
-    }
-    response = requests.get(BINANCE_KLINES_URL, params=params, timeout=30)
+    response = requests.get(
+        BITSTAMP_OHLC_URL,
+        params={
+            "step": INTERVAL_MINUTES * 60,
+            "limit": limit,
+            "exclude_current_candle": "true",
+        },
+        timeout=30,
+    )
     response.raise_for_status()
     payload = response.json()
-    if not isinstance(payload, list):
-        raise RuntimeError("Unexpected Binance kline response")
+    rows = payload.get("data", {}).get("ohlc") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        raise RuntimeError("Unexpected Bitstamp OHLC response")
 
-    now = time.time()
-    completed = [
-        row
-        for row in payload
-        if isinstance(row, list)
-        and len(row) >= 7
-        and int(row[0]) / 1000 + INTERVAL_MINUTES * 60 <= now
-    ][-limit:]
+    completed = sorted(
+        (row for row in rows if isinstance(row, dict) and "timestamp" in row),
+        key=lambda row: int(row["timestamp"]),
+    )[-limit:]
     if len(completed) < 64:
-        raise RuntimeError(f"Not enough completed Binance candles: {len(completed)}")
+        raise RuntimeError(f"Not enough completed Bitstamp candles: {len(completed)}")
 
-    def arr(index: int) -> np.ndarray:
-        return np.asarray([float(row[index]) for row in completed], dtype=np.float32)
+    def arr(name: str) -> np.ndarray:
+        return np.asarray([float(row[name]) for row in completed], dtype=np.float32)
 
     return MarketData(
-        timestamps=[int(row[0] / 1000) + INTERVAL_MINUTES * 60 for row in completed],
-        opens=arr(1),
-        highs=arr(2),
-        lows=arr(3),
-        closes=arr(4),
-        volumes=arr(5),
+        timestamps=[
+            int(row["timestamp"]) + INTERVAL_MINUTES * 60 for row in completed
+        ],
+        opens=arr("open"),
+        highs=arr("high"),
+        lows=arr("low"),
+        closes=arr("close"),
+        volumes=arr("volume"),
     )
+
+
+def _winsorize_extreme_volumes(
+    data: MarketData,
+    *,
+    validation_config: ValidationConfig,
+    cap_multiplier: float,
+) -> int:
+    """Cap volume-only outliers without altering prices or timestamps."""
+
+    volumes = np.asarray(data.volumes, dtype=np.float64).copy()
+    changed = 0
+    for index in range(validation_config.volume_min_history, len(volumes)):
+        start = max(0, index - validation_config.volume_lookback)
+        baseline = float(np.median(volumes[start:index]))
+        if not math.isfinite(baseline) or baseline <= 0:
+            continue
+        ceiling = baseline * cap_multiplier
+        if volumes[index] > ceiling:
+            volumes[index] = ceiling
+            changed += 1
+    data.volumes = volumes.astype(np.float32)
+    return changed
 
 
 def _attempt_provider(
@@ -206,6 +236,7 @@ def _attempt_provider(
     *,
     now: datetime,
     validation_config: ValidationConfig,
+    provider_config: ProviderConfig,
 ) -> ProviderAttempt:
     try:
         data = provider.fetch(limit)
@@ -221,6 +252,37 @@ def _attempt_provider(
             check_staleness=True,
         )
     except MarketDataValidationError as exc:
+        error_codes = {error["code"] for error in exc.report.errors}
+        if error_codes == {"extreme_volume"}:
+            cap = min(
+                provider_config.volume_feature_cap_multiplier,
+                validation_config.max_volume_median_multiplier,
+            )
+            changed = _winsorize_extreme_volumes(
+                data,
+                validation_config=validation_config,
+                cap_multiplier=cap,
+            )
+            try:
+                report = validate_market_data(
+                    data,
+                    source=f"{provider.name} {provider.pair} hourly OHLCV",
+                    now=now,
+                    config=validation_config,
+                    check_staleness=True,
+                )
+            except MarketDataValidationError as second_exc:
+                return ProviderAttempt(
+                    provider.name,
+                    provider.pair,
+                    data,
+                    second_exc.report,
+                    str(second_exc),
+                )
+            report.metrics["volume_outliers_winsorized"] = changed
+            report.metrics["volume_feature_cap_multiplier"] = cap
+            report.metrics["soft_validation_warnings"] = exc.report.errors
+            return ProviderAttempt(provider.name, provider.pair, data, report, None)
         return ProviderAttempt(provider.name, provider.pair, data, exc.report, str(exc))
     return ProviderAttempt(provider.name, provider.pair, data, report, None)
 
@@ -275,7 +337,7 @@ def select_market_data(
     validation_config: ValidationConfig | None = None,
     provider_config: ProviderConfig | None = None,
 ) -> MarketDataSelection:
-    """Select a validated provider with controlled Kraken -> Binance failover."""
+    """Select a validated provider with controlled Kraken -> Bitstamp failover."""
 
     checked = now or datetime.now(timezone.utc)
     if checked.tzinfo is None:
@@ -287,11 +349,23 @@ def select_market_data(
         primary_provider if primary_provider is not None else KrakenProvider()
     )
     secondary_impl: HourlyMarketDataProvider = (
-        secondary_provider if secondary_provider is not None else BinanceProvider()
+        secondary_provider if secondary_provider is not None else BitstampProvider()
     )
 
-    primary = _attempt_provider(primary_impl, limit, now=checked, validation_config=validation)
-    secondary = _attempt_provider(secondary_impl, limit, now=checked, validation_config=validation)
+    primary = _attempt_provider(
+        primary_impl,
+        limit,
+        now=checked,
+        validation_config=validation,
+        provider_config=config,
+    )
+    secondary = _attempt_provider(
+        secondary_impl,
+        limit,
+        now=checked,
+        validation_config=validation,
+        provider_config=config,
+    )
 
     comparison: dict[str, Any] | None = None
     if primary.data is not None and secondary.data is not None:
@@ -329,7 +403,7 @@ def select_market_data(
         return MarketDataSelection(
             data=secondary.data,
             provider=secondary.name,
-            source="Binance BTCUSDT hourly klines (fallback)",
+            source="Bitstamp BTC/USD hourly OHLC (fallback)",
             source_pair=secondary.pair,
             fallback_used=True,
             comparison=comparison,
