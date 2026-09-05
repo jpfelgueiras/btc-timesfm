@@ -85,7 +85,7 @@ class PipelineObserver:
             self.data.setdefault("metadata", {})
         else:
             now = utc_now()
-            self.data: dict[str, Any] = {
+            self.data = {
                 "schema_version": 1,
                 "run_id": resolved_run_id,
                 "run_type": run_type,
