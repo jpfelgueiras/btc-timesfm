@@ -74,6 +74,10 @@ jobs:
               --dir .state
             gzip -df .state/forecast_history.sqlite.gz
             cp .state/forecast_history.sqlite .state/forecast_history.previous.sqlite
+            gh release download "$HISTORY_RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern 'x_post_registry.json' \
+              --dir .state >/dev/null 2>&1 || true
             touch .state/history_restored_from_release
             echo "Restored durable history from release $HISTORY_RELEASE_TAG"
           else
@@ -134,6 +138,13 @@ jobs:
         if: steps.due.outputs.run_forecast == 'true'
         run: python format_tweet.py
 
+      - name: Preflight and reserve X publication
+        id: x_prepare
+        if: steps.due.outputs.run_forecast == 'true' && (github.event_name == 'schedule' || inputs.post_to_x)
+        env:
+          X_COOKIES_JSON: ${{ secrets.X_COOKIES_JSON }}
+        run: python post_to_x.py prepare
+
       - name: Verify and export durable history
         if: steps.due.outputs.run_forecast == 'true'
         run: |
@@ -169,6 +180,9 @@ jobs:
           )
           if [ -f .state/forecast_history.previous.sqlite.gz ]; then
             assets+=(.state/forecast_history.previous.sqlite.gz)
+          fi
+          if [ -f .state/x_post_registry.json ]; then
+            assets+=(.state/x_post_registry.json)
           fi
 
           if [ -f .state/history_restored_from_release ]; then
@@ -267,14 +281,23 @@ jobs:
           key: btc-forecast-state-${{ github.run_id }}
 
       - name: Post forecast to X with Twikit
-        if: steps.due.outputs.run_forecast == 'true' && (github.event_name == 'schedule' || inputs.post_to_x)
+        if: steps.due.outputs.run_forecast == 'true' && (github.event_name == 'schedule' || inputs.post_to_x) && steps.x_prepare.outputs.publish == 'true'
         env:
           X_COOKIES_JSON: ${{ secrets.X_COOKIES_JSON }}
         run: |
           python observability.py run-stage \
             --stage x_post \
             --success-counter successful_posts \
-            -- python post_to_x.py
+            -- python post_to_x.py publish
+
+      - name: Persist X publication metadata
+        if: always() && steps.due.outputs.run_forecast == 'true' && (github.event_name == 'schedule' || inputs.post_to_x) && steps.x_prepare.outputs.publish == 'true' && hashFiles('.state/x_post_registry.json') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$HISTORY_RELEASE_TAG" .state/x_post_registry.json \
+            --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Add X posting status to job summary
         if: always() && steps.due.outputs.run_forecast == 'true' && hashFiles('x_post_status.json') != ''
@@ -312,6 +335,8 @@ jobs:
             drift_summary.md
             forecast_observability.json
             forecast_observability.jsonl
+            .state/x_post_registry.json
+            .state/x_post_prepared.json
             .state/uploaded_backup_verification.json
             .state/backup_retention_plan.json
           if-no-files-found: warn
