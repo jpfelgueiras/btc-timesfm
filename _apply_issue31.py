@@ -14,7 +14,6 @@ replace(
     '        if model_name == "ensemble":\n            continue\n',
     "",
 )
-
 replace(
     "btc_forecast.py",
     "from adaptive_weighting import adaptive_model_weights, attach_persisted_outcomes\n",
@@ -45,12 +44,6 @@ replace(
     '        **engine_output,\n',
 )
 
-replace(
-    ".github/workflows/tests.yml",
-    "            history_backup.py \\\n            history_migrations.py \\\n",
-    "            history_backup.py \\\n            conformal_calibration.py \\\n            history_migrations.py \\\n",
-)
-
 roadmap = Path("ROADMAP.md")
 text = roadmap.read_text(encoding="utf-8")
 text = text.replace("- #31 Conformal interval calibration", "- ✅ #31 Conformal interval calibration")
@@ -58,10 +51,8 @@ roadmap.write_text(text, encoding="utf-8")
 
 readme = Path("README.md")
 text = readme.read_text(encoding="utf-8")
-marker = "## "
 if "CONFORMAL_CALIBRATION.md" not in text:
     text += "\n## Interval calibration\n\nPrediction intervals use finite-sample conformal calibration once enough matured history exists, with the previous empirical multiplier as the sparse-history fallback. See `CONFORMAL_CALIBRATION.md` for configuration and diagnostics.\n"
 readme.write_text(text, encoding="utf-8")
 
 Path("_apply_issue31.py").unlink(missing_ok=True)
-Path(".github/workflows/_apply_issue31.yml").unlink(missing_ok=True)
