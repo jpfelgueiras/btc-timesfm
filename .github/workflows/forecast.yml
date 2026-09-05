@@ -93,9 +93,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Forecast BTC and persist matured predictions
+      - name: Validate market data and forecast BTC
         if: steps.due.outputs.run_forecast == 'true'
-        run: python btc_forecast.py
+        run: python validated_entrypoints.py forecast
+
+      - name: Add market data validation to job summary
+        if: always() && steps.due.outputs.run_forecast == 'true' && hashFiles('market_data_validation.json') != ''
+        run: |
+          echo '## Market data validation' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat market_data_validation.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Format visual X post
         if: steps.due.outputs.run_forecast == 'true'
@@ -191,5 +199,6 @@ jobs:
             forecast.json
             tweet.txt
             x_post_status.json
+            market_data_validation.json
           if-no-files-found: warn
           retention-days: 7
