@@ -1,4 +1,4 @@
-name: Unit tests
+name: CI quality gates
 
 on:
   workflow_dispatch:
@@ -25,11 +25,73 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-test.txt
 
-      - name: Run unit tests
-        run: python -m unittest discover -s . -p 'test_*.py' -v
+      - name: Run unit tests with coverage
+        run: |
+          coverage run -m unittest discover -s . -p 'test_*.py' -v
+          coverage report --format=markdown > coverage.md
+          coverage report
+
+      - name: Add coverage to summary
+        if: always() && hashFiles('coverage.md') != ''
+        run: |
+          echo '## Test coverage' >> "$GITHUB_STEP_SUMMARY"
+          cat coverage.md >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Coverage floor: **80%** across the configured critical modules.' >> "$GITHUB_STEP_SUMMARY"
+
+  lint-format:
+    name: Lint & format
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install quality dependencies
+        run: pip install -r requirements-test.txt
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+  type-check:
+    name: Type check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install quality dependencies
+        run: pip install -r requirements-test.txt
+
+      - name: Type check critical modules
+        run: |
+          mypy \
+            adaptive_weighting.py \
+            history_store.py \
+            market_data_validation.py \
+            schedule_guard.py
