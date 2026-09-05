@@ -1,0 +1,42 @@
+name: Fix observability typing
+
+on:
+  push:
+    branches:
+      - feature/structured-observability
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Fix observer attribute annotation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('observability.py')
+          text = path.read_text()
+          old = '''        resolved_run_id = run_id or stable_run_id()\n        existing = self._load_existing()\n'''
+          new = '''        resolved_run_id = run_id or stable_run_id()\n        self.data: dict[str, Any]\n        existing = self._load_existing()\n'''
+          if text.count(old) != 1:
+              raise SystemExit('expected observer initialization match')
+          text = text.replace(old, new, 1)
+          old = '''            self.data: dict[str, Any] = {\n'''
+          new = '''            self.data = {\n'''
+          if text.count(old) != 1:
+              raise SystemExit('expected observer assignment match')
+          path.write_text(text)
+          PY
+      - name: Commit fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add observability.py
+          git commit -m 'Fix observability type annotation'
+          git push
