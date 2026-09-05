@@ -138,14 +138,41 @@ def _add_error(
     count: int = 1,
     samples: list[Any] | None = None,
 ) -> None:
-    item: dict[str, Any] = {
-        "code": code,
-        "message": message,
-        "count": int(count),
-    }
+    item: dict[str, Any] = {"code": code, "message": message, "count": int(count)}
     if samples:
         item["samples"] = samples
     errors.append(item)
+
+
+def trim_incomplete_trailing_candles(
+    data: MarketDataLike,
+    *,
+    now: datetime | None = None,
+) -> int:
+    """Drop trailing candles whose close timestamp is still in the future.
+
+    Binance historical endpoints can include the currently forming kline. The
+    rest of the project stores candle close timestamps, so a timestamp newer
+    than ``now`` is incomplete and must not enter a backtest/optimizer.
+    """
+    checked = now or datetime.now(timezone.utc)
+    if checked.tzinfo is None:
+        checked = checked.replace(tzinfo=timezone.utc)
+    cutoff = int(checked.astimezone(timezone.utc).timestamp())
+
+    timestamps = list(data.timestamps)
+    keep = len(timestamps)
+    while keep and int(timestamps[keep - 1]) > cutoff:
+        keep -= 1
+    removed = len(timestamps) - keep
+    if not removed:
+        return 0
+
+    data.timestamps = timestamps[:keep]
+    for attribute in ("opens", "highs", "lows", "closes", "volumes"):
+        values = getattr(data, attribute)
+        setattr(data, attribute, values[:keep])
+    return removed
 
 
 def validate_market_data(
@@ -156,12 +183,7 @@ def validate_market_data(
     config: ValidationConfig | None = None,
     check_staleness: bool = True,
 ) -> ValidationReport:
-    """Validate OHLCV structure, cadence, freshness, and hard anomalies.
-
-    Any error makes the report fail and raises ``MarketDataValidationError``.
-    Thresholds are intentionally conservative: they are meant to catch corrupt
-    or clearly implausible inputs, not classify ordinary market volatility.
-    """
+    """Validate OHLCV structure, cadence, freshness, and hard anomalies."""
     cfg = config or ValidationConfig.from_env()
     checked = now or datetime.now(timezone.utc)
     if checked.tzinfo is None:
@@ -180,50 +202,27 @@ def validate_market_data(
         "volume": np.asarray(data.volumes, dtype=np.float64),
     }
 
-    lengths = {
-        "timestamps": len(timestamps),
-        **{name: len(values) for name, values in arrays.items()},
-    }
+    lengths = {"timestamps": len(timestamps), **{name: len(values) for name, values in arrays.items()}}
     unique_lengths = set(lengths.values())
     if len(unique_lengths) != 1:
-        _add_error(
-            errors,
-            "length_mismatch",
-            f"OHLCV arrays have inconsistent lengths: {lengths}",
-        )
+        _add_error(errors, "length_mismatch", f"OHLCV arrays have inconsistent lengths: {lengths}")
 
     count = min(lengths.values()) if lengths else 0
     first_timestamp = int(timestamps[0]) if len(timestamps) else None
     latest_timestamp = int(timestamps[-1]) if len(timestamps) else None
 
     if count < cfg.min_candles:
-        _add_error(
-            errors,
-            "insufficient_candles",
-            f"Need at least {cfg.min_candles} candles, got {count}",
-        )
+        _add_error(errors, "insufficient_candles", f"Need at least {cfg.min_candles} candles, got {count}")
 
     if len(timestamps):
         nonpositive_ts = np.where(timestamps <= 0)[0]
         if len(nonpositive_ts):
-            _add_error(
-                errors,
-                "invalid_timestamp",
-                "Timestamps must be positive Unix seconds",
-                count=len(nonpositive_ts),
-                samples=_sample_indices(nonpositive_ts),
-            )
+            _add_error(errors, "invalid_timestamp", "Timestamps must be positive Unix seconds", count=len(nonpositive_ts), samples=_sample_indices(nonpositive_ts))
 
     for name, values in arrays.items():
         bad = np.where(~np.isfinite(values))[0]
         if len(bad):
-            _add_error(
-                errors,
-                f"non_finite_{name}",
-                f"{name} contains NaN or infinity",
-                count=len(bad),
-                samples=_sample_indices(bad),
-            )
+            _add_error(errors, f"non_finite_{name}", f"{name} contains NaN or infinity", count=len(bad), samples=_sample_indices(bad))
 
     if len(unique_lengths) == 1 and count:
         opens = arrays["open"]
@@ -232,38 +231,16 @@ def validate_market_data(
         closes = arrays["close"]
         volumes = arrays["volume"]
 
-        for name, values in (
-            ("open", opens),
-            ("high", highs),
-            ("low", lows),
-            ("close", closes),
-        ):
+        for name, values in (("open", opens), ("high", highs), ("low", lows), ("close", closes)):
             bad = np.where(values <= 0)[0]
             if len(bad):
-                _add_error(
-                    errors,
-                    f"non_positive_{name}",
-                    f"{name} prices must be positive",
-                    count=len(bad),
-                    samples=_sample_indices(bad),
-                )
+                _add_error(errors, f"non_positive_{name}", f"{name} prices must be positive", count=len(bad), samples=_sample_indices(bad))
 
         bad_volume = np.where(volumes <= 0)[0]
         if len(bad_volume):
-            _add_error(
-                errors,
-                "non_positive_volume",
-                "Volume must be positive",
-                count=len(bad_volume),
-                samples=_sample_indices(bad_volume),
-            )
+            _add_error(errors, "non_positive_volume", "Volume must be positive", count=len(bad_volume), samples=_sample_indices(bad_volume))
 
-        if (
-            np.all(np.isfinite(opens))
-            and np.all(np.isfinite(highs))
-            and np.all(np.isfinite(lows))
-            and np.all(np.isfinite(closes))
-        ):
+        if all(np.all(np.isfinite(values)) for values in (opens, highs, lows, closes)):
             invalid_ohlc = np.where(
                 (highs < opens)
                 | (highs < closes)
@@ -273,42 +250,21 @@ def validate_market_data(
                 | (lows > highs)
             )[0]
             if len(invalid_ohlc):
-                _add_error(
-                    errors,
-                    "invalid_ohlc",
-                    "OHLC relationship is impossible (high/low do not bound open/close)",
-                    count=len(invalid_ohlc),
-                    samples=_sample_indices(invalid_ohlc),
-                )
+                _add_error(errors, "invalid_ohlc", "OHLC relationship is impossible (high/low do not bound open/close)", count=len(invalid_ohlc), samples=_sample_indices(invalid_ohlc))
 
             if np.all(closes > 0) and len(closes) > 1:
                 hourly_returns = np.abs(closes[1:] / closes[:-1] - 1.0) * 100.0
-                max_return = float(np.max(hourly_returns))
-                metrics["max_abs_hourly_return_pct"] = round(max_return, 6)
+                metrics["max_abs_hourly_return_pct"] = round(float(np.max(hourly_returns)), 6)
                 extreme = np.where(hourly_returns > cfg.max_hourly_return_pct)[0] + 1
                 if len(extreme):
-                    _add_error(
-                        errors,
-                        "extreme_hourly_return",
-                        "Absolute close-to-close return exceeds "
-                        f"{cfg.max_hourly_return_pct:.2f}%",
-                        count=len(extreme),
-                        samples=_sample_indices(extreme),
-                    )
+                    _add_error(errors, "extreme_hourly_return", f"Absolute close-to-close return exceeds {cfg.max_hourly_return_pct:.2f}%", count=len(extreme), samples=_sample_indices(extreme))
 
             if np.all(lows > 0):
                 candle_ranges = (highs / lows - 1.0) * 100.0
-                max_range = float(np.max(candle_ranges))
-                metrics["max_candle_range_pct"] = round(max_range, 6)
+                metrics["max_candle_range_pct"] = round(float(np.max(candle_ranges)), 6)
                 extreme = np.where(candle_ranges > cfg.max_candle_range_pct)[0]
                 if len(extreme):
-                    _add_error(
-                        errors,
-                        "extreme_candle_range",
-                        f"High-low candle range exceeds {cfg.max_candle_range_pct:.2f}%",
-                        count=len(extreme),
-                        samples=_sample_indices(extreme),
-                    )
+                    _add_error(errors, "extreme_candle_range", f"High-low candle range exceeds {cfg.max_candle_range_pct:.2f}%", count=len(extreme), samples=_sample_indices(extreme))
 
         if np.all(np.isfinite(volumes)) and np.all(volumes > 0):
             max_ratio = 1.0
@@ -324,39 +280,18 @@ def validate_market_data(
                     volume_outliers.append(index)
             metrics["max_volume_median_multiplier"] = round(max_ratio, 6)
             if volume_outliers:
-                _add_error(
-                    errors,
-                    "extreme_volume",
-                    "Volume exceeds rolling-median anomaly threshold "
-                    f"({cfg.max_volume_median_multiplier:.2f}x)",
-                    count=len(volume_outliers),
-                    samples=volume_outliers[:5],
-                )
+                _add_error(errors, "extreme_volume", f"Volume exceeds rolling-median anomaly threshold ({cfg.max_volume_median_multiplier:.2f}x)", count=len(volume_outliers), samples=volume_outliers[:5])
 
     if len(timestamps) > 1:
         diffs = np.diff(timestamps)
         duplicate = np.where(diffs == 0)[0] + 1
         out_of_order = np.where(diffs < 0)[0] + 1
-        irregular = np.where(
-            (diffs > 0) & (diffs != cfg.interval_seconds)
-        )[0] + 1
+        irregular = np.where((diffs > 0) & (diffs != cfg.interval_seconds))[0] + 1
 
         if len(duplicate):
-            _add_error(
-                errors,
-                "duplicate_timestamp",
-                "Duplicate candle timestamps detected",
-                count=len(duplicate),
-                samples=_sample_indices(duplicate),
-            )
+            _add_error(errors, "duplicate_timestamp", "Duplicate candle timestamps detected", count=len(duplicate), samples=_sample_indices(duplicate))
         if len(out_of_order):
-            _add_error(
-                errors,
-                "out_of_order_timestamp",
-                "Candle timestamps are not strictly increasing",
-                count=len(out_of_order),
-                samples=_sample_indices(out_of_order),
-            )
+            _add_error(errors, "out_of_order_timestamp", "Candle timestamps are not strictly increasing", count=len(out_of_order), samples=_sample_indices(out_of_order))
         if len(irregular):
             gaps = [
                 {
@@ -367,32 +302,16 @@ def validate_market_data(
                 }
                 for index in irregular[:5]
             ]
-            _add_error(
-                errors,
-                "missing_or_irregular_candle",
-                f"Expected exactly {cfg.interval_seconds} seconds between candles",
-                count=len(irregular),
-                samples=gaps,
-            )
+            _add_error(errors, "missing_or_irregular_candle", f"Expected exactly {cfg.interval_seconds} seconds between candles", count=len(irregular), samples=gaps)
 
     if latest_timestamp is not None:
         checked_epoch = checked.timestamp()
         age_seconds = checked_epoch - latest_timestamp
         metrics["latest_age_seconds"] = round(float(age_seconds), 3)
         if latest_timestamp > checked_epoch + cfg.future_tolerance_seconds:
-            _add_error(
-                errors,
-                "future_timestamp",
-                "Latest candle timestamp is unexpectedly in the future",
-            )
+            _add_error(errors, "future_timestamp", "Latest candle timestamp is unexpectedly in the future")
         if check_staleness and age_seconds > cfg.max_staleness_minutes * 60.0:
-            _add_error(
-                errors,
-                "stale_data",
-                "Latest completed candle is stale: "
-                f"{age_seconds / 60.0:.1f} minutes old "
-                f"(limit {cfg.max_staleness_minutes:.1f})",
-            )
+            _add_error(errors, "stale_data", "Latest completed candle is stale: " f"{age_seconds / 60.0:.1f} minutes old " f"(limit {cfg.max_staleness_minutes:.1f})")
 
     report = ValidationReport(
         source=source,
@@ -410,10 +329,7 @@ def validate_market_data(
     return report
 
 
-def persist_validation_report(
-    report: ValidationReport,
-    path: Path = VALIDATION_REPORT_PATH,
-) -> None:
+def persist_validation_report(report: ValidationReport, path: Path = VALIDATION_REPORT_PATH) -> None:
     path.write_text(json.dumps(report.to_dict(), indent=2) + "\n", encoding="utf-8")
 
 
