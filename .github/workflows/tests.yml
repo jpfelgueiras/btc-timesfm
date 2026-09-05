@@ -108,3 +108,29 @@ jobs:
             fi
           done
           exit "$failed"
+
+  unit-tests-required-compat:
+    name: Unit tests
+    needs: quality-gates
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mirror quality-gate result
+        env:
+          RESULT: ${{ needs.quality-gates.result }}
+        run: |
+          echo "Unit tests + quality: $RESULT"
+          test "$RESULT" = "success"
+
+  unit-tests-legacy-compat:
+    name: unit-tests
+    needs: quality-gates
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mirror quality-gate result
+        env:
+          RESULT: ${{ needs.quality-gates.result }}
+        run: |
+          echo "Unit tests + quality: $RESULT"
+          test "$RESULT" = "success"
