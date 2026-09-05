@@ -12,7 +12,6 @@ import argparse
 import json
 import os
 import subprocess
-import sys
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -148,7 +147,9 @@ class PipelineObserver:
         counters = self.data.setdefault("counters", {})
         counters[name] = int(counters.get(name, 0)) + int(value)
         self._persist()
-        self.event("counter", status="success", counter=name, delta=value, value=counters[name], **fields)
+        self.event(
+            "counter", status="success", counter=name, delta=value, value=counters[name], **fields
+        )
 
     def record_stage(
         self,
@@ -172,7 +173,9 @@ class PipelineObserver:
         }
         self.data.setdefault("stages", []).append(entry)
         self._persist()
-        self.event("stage_finished", status=status, stage=name, duration_ms=entry["duration_ms"], **fields)
+        self.event(
+            "stage_finished", status=status, stage=name, duration_ms=entry["duration_ms"], **fields
+        )
         return entry
 
     @contextmanager
@@ -256,7 +259,9 @@ class PipelineObserver:
         return "\n".join(lines) + "\n"
 
 
-def run_stage(observer: PipelineObserver, stage_name: str, command: Sequence[str], success_counter: str | None) -> int:
+def run_stage(
+    observer: PipelineObserver, stage_name: str, command: Sequence[str], success_counter: str | None
+) -> int:
     if not command:
         raise ValueError("run-stage requires a command after --")
     try:

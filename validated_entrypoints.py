@@ -69,9 +69,7 @@ def _instrument_forecast(observer: PipelineObserver, btc_forecast: Any) -> None:
             selection = original_fetch(limit)
 
         selected = selection.secondary if selection.fallback_used else selection.primary
-        validation_metrics = (
-            selected.validation.metrics if selected.validation is not None else {}
-        )
+        validation_metrics = selected.validation.metrics if selected.validation is not None else {}
         soft_warnings = validation_metrics.get("soft_validation_warnings", [])
         observer.record_stage(
             "market_data_validation",
