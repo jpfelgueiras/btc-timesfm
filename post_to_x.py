@@ -93,11 +93,33 @@ def classify_twikit_error(exc: BaseException) -> str:
     type_name = type(exc).__name__.lower()
     message = str(exc).lower()
     combined = f"{type_name} {message}"
-    if any(token in combined for token in ("401", "403", "unauthorized", "forbidden", "auth", "login", "cookie", "challenge")):
+    if any(
+        token in combined
+        for token in (
+            "401",
+            "403",
+            "unauthorized",
+            "forbidden",
+            "auth",
+            "login",
+            "cookie",
+            "challenge",
+        )
+    ):
         return "authentication"
     if any(token in combined for token in ("429", "rate limit", "ratelimit", "too many requests")):
         return "rate_limit"
-    if any(token in combined for token in ("json", "parse", "keyerror", "couldn't get", "could not get", "unexpected response")):
+    if any(
+        token in combined
+        for token in (
+            "json",
+            "parse",
+            "keyerror",
+            "couldn't get",
+            "could not get",
+            "unexpected response",
+        )
+    ):
         return "response_parsing"
     if any(token in combined for token in ("timeout", "connection", "network", "transport", "dns")):
         return "network"
@@ -133,7 +155,9 @@ async def prepare_post() -> bool:
         )
         _set_output("publish", "false")
         _set_output("reason", failure_class)
-        print(f"::warning::X session preflight failed ({failure_class}): {type(exc).__name__}: {exc}")
+        print(
+            f"::warning::X session preflight failed ({failure_class}): {type(exc).__name__}: {exc}"
+        )
         return False
 
     registry = XPostRegistry(REGISTRY_PATH)
@@ -194,7 +218,10 @@ async def publish_post() -> None:
     if not PREPARED_PATH.exists():
         raise RuntimeError("X post was not prepared; refusing an unreserved publication attempt")
     prepared = json.loads(PREPARED_PATH.read_text(encoding="utf-8"))
-    if not isinstance(prepared, dict) or prepared.get("idempotency_key") != context["idempotency_key"]:
+    if (
+        not isinstance(prepared, dict)
+        or prepared.get("idempotency_key") != context["idempotency_key"]
+    ):
         raise RuntimeError("Prepared X post does not match the current forecast/content")
     prepared_run = prepared.get("github_run_id")
     if prepared_run and context["github_run_id"] and prepared_run != context["github_run_id"]:
