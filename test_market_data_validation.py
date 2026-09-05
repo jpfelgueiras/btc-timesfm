@@ -60,14 +60,18 @@ class MarketDataValidationTests(unittest.TestCase):
             data.timestamps[index] += 3600
         with self.assertRaises(MarketDataValidationError) as ctx:
             validate_market_data(data, source="unit-test", now=current_time_for(data))
-        self.assertIn("missing_or_irregular_candle", {item["code"] for item in ctx.exception.report.errors})
+        self.assertIn(
+            "missing_or_irregular_candle", {item["code"] for item in ctx.exception.report.errors}
+        )
 
     def test_out_of_order_timestamp_is_rejected(self) -> None:
         data = make_market()
         data.timestamps[50], data.timestamps[51] = data.timestamps[51], data.timestamps[50]
         with self.assertRaises(MarketDataValidationError) as ctx:
             validate_market_data(data, source="unit-test", now=current_time_for(data))
-        self.assertIn("out_of_order_timestamp", {item["code"] for item in ctx.exception.report.errors})
+        self.assertIn(
+            "out_of_order_timestamp", {item["code"] for item in ctx.exception.report.errors}
+        )
 
     def test_stale_live_data_is_rejected(self) -> None:
         data = make_market()
@@ -137,7 +141,9 @@ class MarketDataValidationTests(unittest.TestCase):
         data.lows[70] = data.opens[70] * 0.999
         with self.assertRaises(MarketDataValidationError) as ctx:
             validate_market_data(data, source="unit-test", now=current_time_for(data))
-        self.assertIn("extreme_hourly_return", {item["code"] for item in ctx.exception.report.errors})
+        self.assertIn(
+            "extreme_hourly_return", {item["code"] for item in ctx.exception.report.errors}
+        )
 
     def test_extreme_volume_is_rejected(self) -> None:
         data = make_market()

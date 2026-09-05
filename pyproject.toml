@@ -1,0 +1,35 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+exclude = [".state"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_unused_ignores = true
+pretty = true
+show_error_codes = true
+
+[tool.coverage.run]
+branch = true
+source = [
+    "adaptive_weighting",
+    "history_store",
+    "market_data_validation",
+    "schedule_guard",
+    "format_tweet",
+    "post_to_x",
+    "twikit_compat",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+precision = 1
+fail_under = 75

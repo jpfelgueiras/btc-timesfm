@@ -84,9 +84,16 @@ class OptimizerTests(unittest.TestCase):
         self.assertNotIn(2500, seen_max_timestamps)
         self.assertNotIn(9999, seen_max_timestamps)
 
-    def _result(self, name: str, mae: float, *, samples: int = 48, direction: float = 0.55,
-                horizon_maes: dict[str, float] | None = None,
-                fold_maes: tuple[float, float, float] | None = None) -> dict:
+    def _result(
+        self,
+        name: str,
+        mae: float,
+        *,
+        samples: int = 48,
+        direction: float = 0.55,
+        horizon_maes: dict[str, float] | None = None,
+        fold_maes: tuple[float, float, float] | None = None,
+    ) -> dict:
         horizons = horizon_maes or {h: mae for h in ("2h", "4h", "8h", "16h")}
         folds = fold_maes or (mae, mae, mae)
         return {

@@ -26,9 +26,7 @@ def write_status(status: str, **extra: object) -> None:
 def load_cookies() -> dict[str, str]:
     raw = os.getenv(COOKIES_ENV)
     if not raw:
-        raise RuntimeError(
-            f"Required GitHub secret/environment variable {COOKIES_ENV} is not set"
-        )
+        raise RuntimeError(f"Required GitHub secret/environment variable {COOKIES_ENV} is not set")
 
     try:
         cookies = json.loads(raw)

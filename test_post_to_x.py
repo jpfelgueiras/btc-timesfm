@@ -54,9 +54,7 @@ class PostToXTests(unittest.TestCase):
 
     def test_load_cookies_accepts_required_session_values(self) -> None:
         value = {"auth_token": "abc", "ct0": "def", "extra": 123}
-        with patch.dict(
-            os.environ, {post_to_x.COOKIES_ENV: json.dumps(value)}, clear=True
-        ):
+        with patch.dict(os.environ, {post_to_x.COOKIES_ENV: json.dumps(value)}, clear=True):
             self.assertEqual(
                 post_to_x.load_cookies(),
                 {"auth_token": "abc", "ct0": "def", "extra": "123"},
@@ -84,11 +82,13 @@ class PostToXTests(unittest.TestCase):
             tweet_path.write_text("hello BTC", encoding="utf-8")
             cookies = json.dumps({"auth_token": "abc", "ct0": "def"})
 
-            with patch.object(post_to_x, "TWEET_PATH", tweet_path), patch.object(
-                post_to_x, "STATUS_PATH", status_path
-            ), patch.object(post_to_x, "Client", FakeClient), patch.object(
-                post_to_x, "apply_twikit_compat", lambda: None
-            ), patch.dict(os.environ, {post_to_x.COOKIES_ENV: cookies}, clear=True):
+            with (
+                patch.object(post_to_x, "TWEET_PATH", tweet_path),
+                patch.object(post_to_x, "STATUS_PATH", status_path),
+                patch.object(post_to_x, "Client", FakeClient),
+                patch.object(post_to_x, "apply_twikit_compat", lambda: None),
+                patch.dict(os.environ, {post_to_x.COOKIES_ENV: cookies}, clear=True),
+            ):
                 asyncio.run(post_to_x.post())
 
             status = json.loads(status_path.read_text(encoding="utf-8"))

@@ -103,7 +103,9 @@ def candidate_catalog() -> list[CandidateConfig]:
             enabled_models=("timesfm_512h", "persistence", "drift_7d", "ar1"),
             max_weight=0.65,
         ),
-        CandidateConfig(name="interval_stricter", target_interval_coverage=0.80, coverage_penalty=0.60),
+        CandidateConfig(
+            name="interval_stricter", target_interval_coverage=0.80, coverage_penalty=0.60
+        ),
     ]
 
 
@@ -155,7 +157,11 @@ def _ensemble_price(
     horizon: str,
     weights: dict[str, float],
 ) -> float:
-    active = [(name, weight) for name, weight in weights.items() if weight > 0 and name in model_predictions]
+    active = [
+        (name, weight)
+        for name, weight in weights.items()
+        if weight > 0 and name in model_predictions
+    ]
     if not active:
         return current
     total = sum(weight for _, weight in active)
@@ -201,14 +207,14 @@ def generate_base_samples(days: int, samples: int) -> tuple[list[dict[str, Any]]
         result.append(
             {
                 "index": index,
-                "origin_at": datetime.fromtimestamp(data.timestamps[index], tz=timezone.utc).isoformat(),
+                "origin_at": datetime.fromtimestamp(
+                    data.timestamps[index], tz=timezone.utc
+                ).isoformat(),
                 "origin_timestamp": int(data.timestamps[index]),
                 "current_price": float(data.closes[index]),
                 "regime": regime,
                 "model_predictions": model_predictions,
-                "actuals": {
-                    f"{hour}h": float(data.closes[index + hour]) for hour in TARGET_HOURS
-                },
+                "actuals": {f"{hour}h": float(data.closes[index + hour]) for hour in TARGET_HOURS},
             }
         )
         print(f"Base forecast {number}/{len(indices)}: {result[-1]['origin_at']} ({regime})")
@@ -230,7 +236,9 @@ def replay_candidate(
         for sample in samples:
             current_timestamp = int(sample["origin_timestamp"])
             visible_actuals = {
-                timestamp: price for timestamp, price in all_actuals.items() if timestamp <= current_timestamp
+                timestamp: price
+                for timestamp, price in all_actuals.items()
+                if timestamp <= current_timestamp
             }
             available_models = [
                 name for name in config.enabled_models if name in sample["model_predictions"]
@@ -290,7 +298,12 @@ def replay_candidate(
 
 def _aggregate(scores: list[dict[str, Any]]) -> dict[str, Any]:
     if not scores:
-        return {"samples": 0, "mae_pct": None, "mean_signed_error_pct": None, "direction_accuracy": None}
+        return {
+            "samples": 0,
+            "mae_pct": None,
+            "mean_signed_error_pct": None,
+            "direction_accuracy": None,
+        }
     return {
         "samples": len(scores),
         "mae_pct": round(float(np.mean([s["absolute_error_pct"] for s in scores])), 6),
@@ -313,7 +326,9 @@ def summarize_candidate(config: CandidateConfig, scored: list[dict[str, Any]]) -
 
     for horizon in ("2h", "4h", "8h", "16h"):
         by_horizon[horizon] = _aggregate([item["horizons"][horizon] for item in scored])
-        persistence_by_horizon[horizon] = _aggregate([item["persistence"][horizon] for item in scored])
+        persistence_by_horizon[horizon] = _aggregate(
+            [item["persistence"][horizon] for item in scored]
+        )
 
     for regime in sorted({item["regime"] for item in scored}):
         by_regime[regime] = {
@@ -333,8 +348,14 @@ def summarize_candidate(config: CandidateConfig, scored: list[dict[str, Any]]) -
         metric = _aggregate(fold_scores)
         folds.append({"fold": number, "start": start, "end": end, **metric})
 
-    horizon_maes = [float(value["mae_pct"]) for value in by_horizon.values() if value["mae_pct"] is not None]
-    horizon_dirs = [float(value["direction_accuracy"]) for value in by_horizon.values() if value["direction_accuracy"] is not None]
+    horizon_maes = [
+        float(value["mae_pct"]) for value in by_horizon.values() if value["mae_pct"] is not None
+    ]
+    horizon_dirs = [
+        float(value["direction_accuracy"])
+        for value in by_horizon.values()
+        if value["direction_accuracy"] is not None
+    ]
     objective_mae = float(np.mean(horizon_maes)) if horizon_maes else float("inf")
     direction_accuracy = float(np.mean(horizon_dirs)) if horizon_dirs else 0.0
 
@@ -368,18 +389,24 @@ def compare_to_current(candidate: dict[str, Any], current: dict[str, Any]) -> di
         new = float(cand_fold["mae_pct"])
         fold_changes.append((base - new) / base if base > 0 else 0.0)
 
-    direction_delta = float(candidate["mean_direction_accuracy"]) - float(current["mean_direction_accuracy"])
+    direction_delta = float(candidate["mean_direction_accuracy"]) - float(
+        current["mean_direction_accuracy"]
+    )
     return {
         "relative_mae_improvement": round(relative_improvement, 6),
         "direction_accuracy_delta": round(direction_delta, 6),
-        "horizon_relative_improvement": {key: round(value, 6) for key, value in horizon_changes.items()},
+        "horizon_relative_improvement": {
+            key: round(value, 6) for key, value in horizon_changes.items()
+        },
         "fold_relative_improvement": [round(value, 6) for value in fold_changes],
         "improved_folds": sum(value > 0 for value in fold_changes),
         "worst_fold_relative_improvement": round(min(fold_changes), 6) if fold_changes else 0.0,
     }
 
 
-def recommendation(candidate: dict[str, Any], current: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+def recommendation(
+    candidate: dict[str, Any], current: dict[str, Any]
+) -> tuple[str, dict[str, Any]]:
     comparison = compare_to_current(candidate, current)
     enough_samples = int(candidate["samples"]) >= MIN_RECOMMENDATION_SAMPLES
     material_improvement = comparison["relative_mae_improvement"] >= MIN_RELATIVE_MAE_IMPROVEMENT
@@ -406,7 +433,11 @@ def recommendation(candidate: dict[str, Any], current: dict[str, Any]) -> tuple[
 def choose_candidate(results: list[dict[str, Any]]) -> tuple[dict[str, Any], str, dict[str, Any]]:
     current = next(result for result in results if result["name"] == "production")
     alternatives = [result for result in results if result["name"] != "production"]
-    best = min(alternatives, key=lambda item: float(item["objective_mae_pct"])) if alternatives else current
+    best = (
+        min(alternatives, key=lambda item: float(item["objective_mae_pct"]))
+        if alternatives
+        else current
+    )
     decision, comparison = recommendation(best, current)
     if decision == "keep_current":
         return current, decision, comparison

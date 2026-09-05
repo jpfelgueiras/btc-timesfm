@@ -29,7 +29,9 @@ from forecast_engine import (
     static_model_weights,
 )
 
-DEFAULT_HISTORY_LIMIT = max(ADAPTIVE_MIN_SAMPLES, int(os.getenv("BTC_ADAPTIVE_HISTORY_LIMIT", "200")))
+DEFAULT_HISTORY_LIMIT = max(
+    ADAPTIVE_MIN_SAMPLES, int(os.getenv("BTC_ADAPTIVE_HISTORY_LIMIT", "200"))
+)
 TARGET_INTERVAL_COVERAGE = 0.80
 COVERAGE_PENALTY = 0.35
 MIN_COVERAGE_SAMPLES = 3
@@ -159,7 +161,9 @@ def _score_history_for_model(
 
 
 def _performance_metrics(scores: list[dict[str, Any]]) -> dict[str, float | int | None]:
-    covered = [bool(score["within_q10_q90"]) for score in scores if score.get("within_q10_q90") is not None]
+    covered = [
+        bool(score["within_q10_q90"]) for score in scores if score.get("within_q10_q90") is not None
+    ]
     durable_samples = sum(score.get("outcome_source") == "durable" for score in scores)
     return {
         "samples": len(scores),
@@ -273,7 +277,10 @@ def adaptive_model_weights(
         score *= math.exp(-0.35 * bias)
 
         coverage = metric.get("q10_q90_coverage")
-        if coverage is not None and int(metric.get("interval_samples") or 0) >= MIN_COVERAGE_SAMPLES:
+        if (
+            coverage is not None
+            and int(metric.get("interval_samples") or 0) >= MIN_COVERAGE_SAMPLES
+        ):
             score *= math.exp(-COVERAGE_PENALTY * abs(float(coverage) - TARGET_INTERVAL_COVERAGE))
 
         if persistence_mae is not None and name != "persistence":
@@ -296,10 +303,7 @@ def adaptive_model_weights(
         ),
     )
     blend = 0.25 + (ADAPTIVE_MAX_BLEND - 0.25) * progress
-    blended = {
-        name: (1.0 - blend) * prior[name] + blend * adaptive[name]
-        for name in model_names
-    }
+    blended = {name: (1.0 - blend) * prior[name] + blend * adaptive[name] for name in model_names}
 
     complex_maes = [
         float(metrics[name]["mae_pct"])

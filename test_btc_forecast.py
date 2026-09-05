@@ -90,9 +90,7 @@ class ForecastScoringTests(unittest.TestCase):
                     "latest_close_at": origin.isoformat(),
                     "latest_close_usd": 100.0 + i,
                     "predictions": {"2h": {"price_usd": 101.0 + i}},
-                    "model_predictions": {
-                        "persistence": {"2h": {"price_usd": 100.0 + i}}
-                    },
+                    "model_predictions": {"persistence": {"2h": {"price_usd": 100.0 + i}}},
                 }
             )
             timestamps.append(int((origin + timedelta(hours=2)).timestamp()))
@@ -145,8 +143,9 @@ class ForecastStateTests(unittest.TestCase):
                 "model_predictions": {},
                 "predictions": {"2h": {"price_usd": 101.0}},
             }
-            with patch.object(btc_forecast, "STATE_PATH", path), patch.object(
-                btc_forecast, "HISTORY_LIMIT", 2
+            with (
+                patch.object(btc_forecast, "STATE_PATH", path),
+                patch.object(btc_forecast, "HISTORY_LIMIT", 2),
             ):
                 btc_forecast.save_forecast_history([old, {"latest_close_at": "older"}], output)
 

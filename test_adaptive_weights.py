@@ -86,9 +86,7 @@ class AdaptiveWeightTests(unittest.TestCase):
 
     def test_disabled_adaptation_uses_static_prior(self) -> None:
         prior = static_model_weights(MODELS, "trending")
-        weights, diagnostics = adaptive_model_weights(
-            MODELS, "trending", 2, [], {}, enabled=False
-        )
+        weights, diagnostics = adaptive_model_weights(MODELS, "trending", 2, [], {}, enabled=False)
         self.assertEqual(weights, prior)
         self.assertEqual(diagnostics["mode"], "static_prior")
         self.assertEqual(diagnostics["source"], "disabled")
@@ -164,12 +162,8 @@ class AdaptiveWeightTests(unittest.TestCase):
         self.assertEqual(diagnostics["mode"], "adaptive")
         self.assertEqual(diagnostics["sample_count"], 8)
         for model in MODELS:
-            self.assertEqual(
-                diagnostics["models"][model]["durable_outcome_samples"], 8
-            )
-            self.assertEqual(
-                diagnostics["models"][model]["candle_outcome_samples"], 0
-            )
+            self.assertEqual(diagnostics["models"][model]["durable_outcome_samples"], 8)
+            self.assertEqual(diagnostics["models"][model]["candle_outcome_samples"], 0)
 
     def test_history_limit_applies_after_regime_filtering(self) -> None:
         start = datetime(2026, 1, 1, tzinfo=timezone.utc)
