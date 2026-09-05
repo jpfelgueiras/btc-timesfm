@@ -77,7 +77,9 @@ class XPostRegistry:
         posts: dict[str, Any] = self.data["posts"]
         existing = posts.get(key)
         if isinstance(existing, dict):
-            if existing.get("origin_at") != origin_at or existing.get("content_sha256") != content_sha256(text):
+            if existing.get("origin_at") != origin_at or existing.get(
+                "content_sha256"
+            ) != content_sha256(text):
                 raise RuntimeError("Idempotency-key collision with different forecast content")
             failure_class = existing.get("failure_class")
             if existing.get("status") == "failed" and failure_class in RETRYABLE_FAILURE_CLASSES:
