@@ -12,10 +12,10 @@ permissions:
   contents: read
 
 jobs:
-  unit-tests:
-    name: Unit tests
+  quality-gates:
+    name: Unit tests + quality
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -25,15 +25,24 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-test.txt
 
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-test.txt
 
-      - name: Run unit tests with coverage
+      - name: Unit tests
+        id: unit
+        continue-on-error: true
+        run: coverage run -m unittest discover -s . -p 'test_*.py' -v
+
+      - name: Coverage floor
+        id: coverage
+        if: always()
+        continue-on-error: true
         run: |
-          coverage run -m unittest discover -s . -p 'test_*.py' -v
           coverage report --format=markdown --fail-under=0 > coverage.md
           coverage report --fail-under=75
 
@@ -45,47 +54,22 @@ jobs:
           echo '' >> "$GITHUB_STEP_SUMMARY"
           echo 'Coverage floor: **75%** across the configured critical modules.' >> "$GITHUB_STEP_SUMMARY"
 
-  lint-format:
-    name: Lint & format
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.11"
-
-      - name: Install quality dependencies
-        run: pip install -r requirements-test.txt
-
       - name: Ruff lint
+        id: lint
+        if: always()
+        continue-on-error: true
         run: ruff check .
 
       - name: Ruff format check
+        id: format
+        if: always()
+        continue-on-error: true
         run: ruff format --check .
 
-  type-check:
-    name: Type check
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.11"
-
-      - name: Install quality dependencies
-        run: pip install -r requirements-test.txt
-
       - name: Type check critical modules
+        id: typecheck
+        if: always()
+        continue-on-error: true
         run: |
           mypy --follow-imports=skip \
             conformal_calibration.py \
@@ -104,3 +88,22 @@ jobs:
             schedule_guard.py \
             statistical_significance.py \
             x_post_registry.py
+
+      - name: Enforce quality gates
+        if: always()
+        env:
+          UNIT: ${{ steps.unit.outcome }}
+          COVERAGE: ${{ steps.coverage.outcome }}
+          LINT: ${{ steps.lint.outcome }}
+          FORMAT: ${{ steps.format.outcome }}
+          TYPECHECK: ${{ steps.typecheck.outcome }}
+        run: |
+          failed=0
+          for gate in UNIT COVERAGE LINT FORMAT TYPECHECK; do
+            outcome="${!gate}"
+            echo "$gate: $outcome"
+            if [ "$outcome" != "success" ]; then
+              failed=1
+            fi
+          done
+          exit "$failed"
