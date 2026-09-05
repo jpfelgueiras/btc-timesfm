@@ -93,11 +93,7 @@ def build_purged_walk_forward_folds(
         validation_indices = tuple(map(int, chunk))
         validation_start = timestamps[validation_indices[0]]
         cutoff = validation_start - (purge_hours + embargo_hours) * 3600
-        eligible = [
-            index
-            for index in range(validation_indices[0])
-            if timestamps[index] <= cutoff
-        ]
+        eligible = [index for index in range(validation_indices[0]) if timestamps[index] <= cutoff]
         if mode == "rolling":
             eligible = eligible[-rolling_train_samples:]
         if not eligible:

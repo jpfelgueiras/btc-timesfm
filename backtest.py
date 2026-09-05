@@ -451,9 +451,7 @@ def main() -> None:
         origin_timestamp = int(data.timestamps[index])
         samples.append(
             {
-                "origin_at": datetime.fromtimestamp(
-                    origin_timestamp, tz=timezone.utc
-                ).isoformat(),
+                "origin_at": datetime.fromtimestamp(origin_timestamp, tz=timezone.utc).isoformat(),
                 "origin_timestamp": origin_timestamp,
                 "current_price": float(data.closes[index]),
                 "actuals": actuals,
