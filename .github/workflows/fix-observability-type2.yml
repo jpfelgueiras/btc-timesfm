@@ -1,0 +1,36 @@
+name: Finish observability typing fix
+
+on:
+  push:
+    branches:
+      - feature/structured-observability
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Remove duplicate attribute annotation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('observability.py')
+          text = path.read_text()
+          old = '            self.data: dict[str, Any] = {\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one duplicate annotation, got {text.count(old)}')
+          path.write_text(text.replace(old, '            self.data = {\n', 1))
+          PY
+      - name: Commit fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add observability.py
+          git commit -m 'Remove duplicate observer attribute annotation'
+          git push
