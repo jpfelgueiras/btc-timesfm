@@ -156,7 +156,9 @@ class PipelineHealth:
         events.append({"event": event, "timestamp": _iso(now), **fields})
         del events[:-EVENT_LIMIT]
 
-    def record_success(self, stage: str, *, now: datetime | None = None, detail: str | None = None) -> None:
+    def record_success(
+        self, stage: str, *, now: datetime | None = None, detail: str | None = None
+    ) -> None:
         checked = now or _utc_now()
         item = self._stage(stage)
         previous_state = str(item.get("circuit_state", "closed"))
