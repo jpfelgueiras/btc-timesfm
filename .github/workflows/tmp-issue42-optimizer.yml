@@ -1,0 +1,79 @@
+name: Temporary issue 42 optimizer update
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/champion-challenger-reports
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Add leakage-safe interval metrics to optimizer
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('optimizer.py')
+          text = path.read_text(encoding='utf-8')
+
+          text = text.replace(
+              '    detect_regime,\n    load_timesfm,\n    market_features,\n',
+              '    detect_regime,\n    empirical_calibration_multiplier,\n    load_timesfm,\n    market_features,\n',
+              1,
+          )
+
+          score_pattern = re.compile(r'def _score\(current: float, predicted: float, actual: float\) -> dict\[str, Any\]:\n.*?\n\n(?=def _ensemble_price)', re.S)
+          score_replacement = '''def _score(\n    current: float,\n    predicted: float,\n    actual: float,\n    q10: float | None = None,\n    q90: float | None = None,\n) -> dict[str, Any]:\n    error = predicted - actual\n    interval_available = q10 is not None and q90 is not None\n    return {\n        "absolute_error_pct": abs(error) / actual * 100.0,\n        "signed_error_pct": error / actual * 100.0,\n        "direction_correct": _direction(predicted - current) == _direction(actual - current),\n        "interval_covered": (q10 <= actual <= q90) if interval_available else None,\n        "interval_width_pct": ((q90 - q10) / actual * 100.0) if interval_available else None,\n    }\n\n\n'''
+          text, count = score_pattern.subn(score_replacement, text, count=1)
+          if count != 1:
+              raise SystemExit('Failed to replace _score')
+
+          marker = '    return current * math.exp(log_change)\n\n\ndef _history_snapshot(sample: dict[str, Any]) -> dict[str, Any]:\n'
+          helper = '''    return current * math.exp(log_change)\n\n\ndef _ensemble_prediction(\n    current: float,\n    model_predictions: dict[str, dict[str, dict[str, float]]],\n    horizon: str,\n    weights: dict[str, float],\n    calibration_multiplier: float,\n) -> tuple[float, float, float]:\n    active = [\n        (name, weight)\n        for name, weight in weights.items()\n        if weight > 0 and name in model_predictions\n    ]\n    if not active:\n        base_width = current * 0.0005 * calibration_multiplier\n        return current, max(0.01, current - base_width), current + base_width\n\n    normalized = np.asarray([weight for _, weight in active], dtype=float)\n    normalized /= normalized.sum()\n    model_prices = np.asarray(\n        [float(model_predictions[name][horizon]["price_usd"]) for name, _ in active],\n        dtype=float,\n    )\n    log_changes = np.log(model_prices / current)\n    price = current * math.exp(float(np.dot(normalized, log_changes)))\n    dispersion = float(math.sqrt(np.dot(normalized, (model_prices - price) ** 2)))\n    timesfm_half_widths = [\n        max(\n            0.0,\n            (\n                float(model_predictions[name][horizon]["q90_usd"])\n                - float(model_predictions[name][horizon]["q10_usd"])\n            )\n            / 2.0,\n        )\n        for name, _ in active\n        if "q10_usd" in model_predictions[name][horizon]\n        and "q90_usd" in model_predictions[name][horizon]\n    ]\n    timesfm_width = float(np.mean(timesfm_half_widths)) if timesfm_half_widths else 0.0\n    base_half_width = max(timesfm_width, dispersion * 1.5, current * 0.0005)\n    half_width = base_half_width * calibration_multiplier\n    return price, max(0.01, price - half_width), price + half_width\n\n\ndef _history_snapshot(\n    sample: dict[str, Any], predictions: dict[str, dict[str, float]] | None = None\n) -> dict[str, Any]:\n'''
+          if marker not in text:
+              raise SystemExit('Failed to locate ensemble/history marker')
+          text = text.replace(marker, helper, 1)
+          text = text.replace('        "predictions": {},\n', '        "predictions": predictions or {},\n', 1)
+
+          old_block = '''            horizon_results: dict[str, Any] = {}\n            for hour in TARGET_HOURS:\n                horizon = f"{hour}h"\n                weights, diagnostics = aw.adaptive_model_weights(\n                    available_models,\n                    sample["regime"],\n                    hour,\n                    history,\n                    visible_actuals,\n                    history_limit=config.history_limit,\n                )\n                predicted = _ensemble_price(\n                    float(sample["current_price"]),\n                    sample["model_predictions"],\n                    horizon,\n                    weights,\n                )\n                score = _score(\n                    float(sample["current_price"]),\n                    predicted,\n                    float(sample["actuals"][horizon]),\n                )\n                horizon_results[horizon] = {\n                    **score,\n                    "predicted_price_usd": predicted,\n                    "actual_price_usd": float(sample["actuals"][horizon]),\n                    "weighting_mode": diagnostics["mode"],\n                }\n'''
+          new_block = '''            horizon_results: dict[str, Any] = {}\n            snapshot_predictions: dict[str, dict[str, float]] = {}\n            for hour in TARGET_HOURS:\n                horizon = f"{hour}h"\n                weights, diagnostics = aw.adaptive_model_weights(\n                    available_models,\n                    sample["regime"],\n                    hour,\n                    history,\n                    visible_actuals,\n                    history_limit=config.history_limit,\n                )\n                multiplier, calibration_samples, empirical_coverage = empirical_calibration_multiplier(\n                    history,\n                    visible_actuals,\n                    hour,\n                    target_coverage=config.target_interval_coverage,\n                )\n                predicted, q10, q90 = _ensemble_prediction(\n                    float(sample["current_price"]),\n                    sample["model_predictions"],\n                    horizon,\n                    weights,\n                    multiplier,\n                )\n                score = _score(\n                    float(sample["current_price"]),\n                    predicted,\n                    float(sample["actuals"][horizon]),\n                    q10,\n                    q90,\n                )\n                snapshot_predictions[horizon] = {\n                    "price_usd": predicted,\n                    "q10_usd": q10,\n                    "q90_usd": q90,\n                }\n                horizon_results[horizon] = {\n                    **score,\n                    "predicted_price_usd": predicted,\n                    "q10_usd": q10,\n                    "q90_usd": q90,\n                    "actual_price_usd": float(sample["actuals"][horizon]),\n                    "weighting_mode": diagnostics["mode"],\n                    "interval_calibration_multiplier": multiplier,\n                    "calibration_samples": calibration_samples,\n                    "empirical_prior_coverage": empirical_coverage,\n                }\n'''
+          if old_block not in text:
+              raise SystemExit('Failed to locate replay horizon block')
+          text = text.replace(old_block, new_block, 1)
+          text = text.replace(
+              '            history.append(_history_snapshot(sample))\n',
+              '            history.append(_history_snapshot(sample, snapshot_predictions))\n',
+              1,
+          )
+
+          aggregate_pattern = re.compile(r'def _aggregate\(scores: list\[dict\[str, Any\]\]\) -> dict\[str, Any\]:\n.*?\n\n(?=def _fold_indices)', re.S)
+          aggregate_replacement = '''def _aggregate(scores: list[dict[str, Any]]) -> dict[str, Any]:\n    if not scores:\n        return {\n            "samples": 0,\n            "mae_pct": None,\n            "mean_signed_error_pct": None,\n            "direction_accuracy": None,\n            "interval_coverage": None,\n            "average_interval_width_pct": None,\n        }\n    covered = [score["interval_covered"] for score in scores if score.get("interval_covered") is not None]\n    widths = [\n        float(score["interval_width_pct"])\n        for score in scores\n        if score.get("interval_width_pct") is not None\n    ]\n    return {\n        "samples": len(scores),\n        "mae_pct": round(float(np.mean([s["absolute_error_pct"] for s in scores])), 6),\n        "mean_signed_error_pct": round(float(np.mean([s["signed_error_pct"] for s in scores])), 6),\n        "direction_accuracy": round(float(np.mean([s["direction_correct"] for s in scores])), 6),\n        "interval_coverage": round(float(np.mean(covered)), 6) if covered else None,\n        "average_interval_width_pct": round(float(np.mean(widths)), 6) if widths else None,\n    }\n\n\n'''
+          text, count = aggregate_pattern.subn(aggregate_replacement, text, count=1)
+          if count != 1:
+              raise SystemExit('Failed to replace _aggregate')
+
+          text = text.replace('        "schema_version": 2,\n', '        "schema_version": 3,\n', 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+          pip install 'ruff<1,>=0.16.5'
+          ruff format optimizer.py champion_challenger.py test_champion_challenger.py
+      - name: Commit optimizer updates
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add optimizer.py champion_challenger.py test_champion_challenger.py
+          git commit -m 'Add interval metrics to champion challenger evaluation'
+          git push origin HEAD:feature/champion-challenger-reports
