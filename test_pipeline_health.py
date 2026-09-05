@@ -113,7 +113,9 @@ class PipelineHealthTests(unittest.TestCase):
             now=self.now + timedelta(hours=3, minutes=3),
         )
         self.assertEqual(self.health.state["stages"]["x_post"]["circuit_state"], "open")
-        self.assertEqual(self.health.state["stages"]["x_post"]["opened_at"], "2026-09-05T23:03:00+00:00")
+        self.assertEqual(
+            self.health.state["stages"]["x_post"]["opened_at"], "2026-09-05T23:03:00+00:00"
+        )
 
     def test_severe_drift_blocks_publication_even_with_healthy_forecast(self) -> None:
         self.validation_path.write_text(json.dumps({"status": "ok"}), encoding="utf-8")
@@ -144,9 +146,7 @@ class PipelineHealthTests(unittest.TestCase):
         report = self.health.publication_gate(now=self.now, ignore_stages=("history",))
         self.assertFalse(report["publication_allowed"])
         self.assertIn("current_market_data_unhealthy", report["blockers"])
-        self.assertEqual(
-            self.health.state["stages"]["market_data"]["consecutive_failures"], 1
-        )
+        self.assertEqual(self.health.state["stages"]["market_data"]["consecutive_failures"], 1)
 
     def test_history_failure_blocks_current_publication_and_success_recovers(self) -> None:
         self.health.state["current_signals"]["market_data_status"] = "healthy"
@@ -183,9 +183,7 @@ class PipelineHealthTests(unittest.TestCase):
     def test_state_round_trips_and_events_are_bounded(self) -> None:
         for minute in range(105):
             self.health.record_success("forecast", now=self.now + timedelta(minutes=minute))
-        reloaded = PipelineHealth(
-            self.state_path, config=HealthConfig(x_post_cooldown_minutes=60)
-        )
+        reloaded = PipelineHealth(self.state_path, config=HealthConfig(x_post_cooldown_minutes=60))
         self.assertLessEqual(len(reloaded.state["events"]), 100)
         self.assertEqual(reloaded.state["stages"]["forecast"]["health"], "healthy")
 
