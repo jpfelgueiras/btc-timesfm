@@ -27,55 +27,52 @@ GitHub Actions runs every 2 hours, at minute `17` UTC:
 
 Scheduled runs post the forecast to X automatically. Manual runs can optionally post by enabling the `post_to_x` workflow input.
 
-## Previous forecast reliability
+## Multi-horizon forecast reliability
 
-Each run restores the previous forecast from the GitHub Actions cache and evaluates its **+2h prediction** against the exact completed Kraken hourly candle that corresponds to that forecast target.
+The workflow keeps a rolling history of recent forecasts and scores the most recent matured prediction for each horizon: **2h, 4h, 8h and 16h**.
 
-The reliability block records:
+For example, at a 12:00 run:
 
+- the 2h comparison comes from the forecast issued around 10:00
+- the 4h comparison comes from the forecast issued around 08:00
+- the 8h comparison comes from the forecast issued around 04:00
+- the 16h comparison comes from the forecast issued around 20:00 the previous day
+
+Each score is matched to the exact completed Kraken hourly candle at that prediction's target timestamp. The reliability block records:
+
+- predicted and actual price
 - absolute price error in USD
 - absolute percentage error
 - predicted vs actual percentage change
 - whether the predicted direction was correct
-- whether the actual price landed inside the previous Q10-Q90 interval
+- whether the actual price landed inside the forecast Q10-Q90 interval
 
-The first run has no previous forecast to score. If a run is delayed or skipped, the script uses the timestamp of the previous forecast target rather than blindly comparing with the latest price.
+The forecast history keeps up to 48 snapshots and is persisted through the GitHub Actions cache. The old single-forecast cache format is migrated automatically on the first run.
+
+A fresh history needs time to mature: 2h accuracy appears first, then 4h, 8h and finally 16h after enough scheduled runs have accumulated.
 
 ## X / Twitter posting with Twikit
 
-The workflow generates a `tweet.txt` file with the current forecasts and the previous +2h reliability result, for example:
+The workflow generates a `tweet.txt` file with current forecasts plus the latest available error for each horizon, for example:
 
 ```text
 BTC/USD - TimesFM 3
 Now $100,000
 2h $100,200 (+0.20%) | 4h $100,450 (+0.45%)
 8h $100,800 (+0.80%) | 16h $101,100 (+1.10%)
-Prev +2h: 0.31% error | direction OK | in range
+Prev err: 2h 0.31% | 4h 0.42% | 8h 0.75% | 16h 1.10%
 Experimental - not financial advice.
 ```
 
-Posting uses **Twikit 2.3.3** and an authenticated X web-session cookie. It does **not** use X's paid developer API, so the previous `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, and `X_ACCESS_TOKEN_SECRET` secrets are no longer required by this branch.
+Posting uses **Twikit 2.3.3** and an authenticated X web-session cookie. It does **not** use X's paid developer API.
 
-Twikit is an unofficial X/Twitter client. It can break when X changes its internal endpoints, and X may reject activity that looks automated. Reuse the same session instead of logging in on every workflow run, keep the posting rate modest, and be prepared to refresh the session if X invalidates it.
+Twikit is an unofficial X/Twitter client. It can break when X changes its internal endpoints, and X may reject activity that looks automated. Reuse the same session, keep the posting rate modest, and refresh the browser session cookie if X invalidates it.
 
-### 1. Get the X session cookies from your browser
+### X session cookies
 
-Open `https://x.com` in a desktop browser where you are already logged in.
+Open `https://x.com` in a desktop browser where you are logged in and copy the `auth_token` and `ct0` cookies from the browser developer tools.
 
-In Chrome, Edge or Brave:
-
-1. Open Developer Tools.
-2. Go to **Application -> Storage -> Cookies -> https://x.com**.
-3. Copy the values of `auth_token` and `ct0`.
-
-In Safari on macOS:
-
-1. Enable **Safari -> Settings -> Advanced -> Show features for web developers**.
-2. Open the Web Inspector for `x.com`.
-3. Go to **Storage -> Cookies**.
-4. Copy the values of `auth_token` and `ct0`.
-
-Create a temporary local file named `x_cookies.json`:
+Create a temporary local file:
 
 ```json
 {
@@ -84,61 +81,20 @@ Create a temporary local file named `x_cookies.json`:
 }
 ```
 
-Additional X cookies may be included, but `auth_token` and `ct0` are the ones required by `post_to_x.py`.
-
-Treat this file like a password. It is ignored by `.gitignore` and must never be committed.
-
-### 2. Store the session in GitHub Actions
-
-The workflow expects one repository secret:
-
-```text
-X_COOKIES_JSON
-```
-
-With GitHub CLI:
+Store it as the repository secret:
 
 ```bash
 gh secret set X_COOKIES_JSON --repo jpfelgueiras/btc-timesfm < x_cookies.json
-```
-
-Or with the GitHub UI:
-
-1. Open `jpfelgueiras/btc-timesfm`.
-2. Go to **Settings -> Secrets and variables -> Actions**.
-3. Select **New repository secret**.
-4. Name it `X_COOKIES_JSON`.
-5. Paste the complete JSON object as the value.
-
-After the secret is stored, remove the temporary local file:
-
-```bash
 rm x_cookies.json
 ```
 
-Once Twikit posting has been tested successfully, the four old X API OAuth secrets can be deleted because this branch no longer reads them.
-
-### 3. Test the session
-
-Run **BTC TimesFM 3 Forecast** manually from GitHub Actions on `feature/x-forecast-reliability` with `post_to_x` enabled.
-
-A successful post writes an `x_post_status.json` similar to:
-
-```json
-{
-  "status": "posted",
-  "provider": "twikit",
-  "post_id": "1234567890"
-}
-```
-
-If the session expires, is revoked, or X blocks the request, refresh `auth_token` and `ct0` from a logged-in browser session and replace the `X_COOKIES_JSON` secret.
+Treat these cookies like a password and never commit them.
 
 ## Forecast state
 
-The current `forecast.json` is copied to `.state/previous_forecast.json` and saved with `actions/cache/save`. The next workflow run restores the most recent matching cache entry.
+`.state/previous_forecast.json` now stores a versioned rolling forecast history rather than only one previous run. Keeping the existing path allows the first multi-horizon run to import the previous single-forecast cache automatically.
 
-This avoids committing generated forecast state back to the repository.
+The state is saved with `actions/cache/save`, so generated forecast history is not committed to the repository.
 
 ## Data source
 
@@ -178,7 +134,11 @@ python post_to_x.py
 
 ## Output
 
-`forecast.json` contains the current forecast plus a `previous_forecast_reliability` section when a comparable previous forecast is available.
+`forecast.json` contains:
+
+- the current 2h/4h/8h/16h forecasts
+- `forecast_reliability` with the latest matured score for each available horizon
+- `previous_forecast_reliability` as a backwards-compatible alias for the 2h score
 
 The JSON, generated X post and `x_post_status.json` are shown or uploaded by GitHub Actions as appropriate, with artifacts retained for 7 days.
 
