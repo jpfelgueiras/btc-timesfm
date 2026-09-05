@@ -58,33 +58,35 @@ Posting uses **Twikit 2.3.3** and an authenticated X web-session cookie. It does
 
 Twikit is an unofficial X/Twitter client. It can break when X changes its internal endpoints, and X may reject activity that looks automated. Reuse the same session instead of logging in on every workflow run, keep the posting rate modest, and be prepared to refresh the session if X invalidates it.
 
-### 1. Create a reusable X session locally
+### 1. Get the X session cookies from your browser
 
-Install the project dependencies and run the helper on your own computer:
+Open `https://x.com` in a desktop browser where you are already logged in.
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python create_x_session.py
+In Chrome, Edge or Brave:
+
+1. Open Developer Tools.
+2. Go to **Application -> Storage -> Cookies -> https://x.com**.
+3. Copy the values of `auth_token` and `ct0`.
+
+In Safari on macOS:
+
+1. Enable **Safari -> Settings -> Advanced -> Show features for web developers**.
+2. Open the Web Inspector for `x.com`.
+3. Go to **Storage -> Cookies**.
+4. Copy the values of `auth_token` and `ct0`.
+
+Create a temporary local file named `x_cookies.json`:
+
+```json
+{
+  "auth_token": "YOUR_AUTH_TOKEN",
+  "ct0": "YOUR_CT0"
+}
 ```
 
-The helper asks interactively for:
+Additional X cookies may be included, but `auth_token` and `ct0` are the ones required by `post_to_x.py`.
 
-- your X username
-- your X email
-- your X password
-- a 2FA code if X requests one
-
-The password is used only for the local login and is not written to disk. After login, the helper creates:
-
-```text
-x_cookies.json
-```
-
-That file contains your authenticated X session. Treat it like a password. It is ignored by `.gitignore` and must never be committed.
-
-Twikit's cookie session normally includes `auth_token` and `ct0`; `post_to_x.py` validates that both are present before attempting to publish.
+Treat this file like a password. It is ignored by `.gitignore` and must never be committed.
 
 ### 2. Store the session in GitHub Actions
 
@@ -94,7 +96,7 @@ The workflow expects one repository secret:
 X_COOKIES_JSON
 ```
 
-The easiest way to create it with GitHub CLI is:
+With GitHub CLI:
 
 ```bash
 gh secret set X_COOKIES_JSON --repo jpfelgueiras/btc-timesfm < x_cookies.json
@@ -106,9 +108,9 @@ Or with the GitHub UI:
 2. Go to **Settings -> Secrets and variables -> Actions**.
 3. Select **New repository secret**.
 4. Name it `X_COOKIES_JSON`.
-5. Paste the complete contents of `x_cookies.json` as the value.
+5. Paste the complete JSON object as the value.
 
-After the secret is stored, remove the local file if you do not need it anymore:
+After the secret is stored, remove the temporary local file:
 
 ```bash
 rm x_cookies.json
@@ -118,9 +120,7 @@ Once Twikit posting has been tested successfully, the four old X API OAuth secre
 
 ### 3. Test the session
 
-Run **BTC TimesFM 3 Forecast** manually from GitHub Actions on `feature/x-forecast-reliability`.
-
-First run it with `post_to_x` disabled to verify the forecast. Then run it again with `post_to_x` enabled.
+Run **BTC TimesFM 3 Forecast** manually from GitHub Actions on `feature/x-forecast-reliability` with `post_to_x` enabled.
 
 A successful post writes an `x_post_status.json` similar to:
 
@@ -132,7 +132,7 @@ A successful post writes an `x_post_status.json` similar to:
 }
 ```
 
-If the session expires, is revoked, or X blocks the request, the workflow records the Twikit exception in `x_post_status.json`. Re-run `create_x_session.py` locally and replace `X_COOKIES_JSON` with the new cookie JSON.
+If the session expires, is revoked, or X blocks the request, refresh `auth_token` and `ct0` from a logged-in browser session and replace the `X_COOKIES_JSON` secret.
 
 ## Forecast state
 
@@ -169,7 +169,7 @@ python btc_forecast.py
 
 The first run downloads the TimesFM 3 checkpoint.
 
-To post the generated `tweet.txt` locally after creating `x_cookies.json`:
+To post the generated `tweet.txt` locally with a temporary cookie file:
 
 ```bash
 export X_COOKIES_JSON="$(cat x_cookies.json)"
