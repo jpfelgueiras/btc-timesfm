@@ -14,6 +14,8 @@ from pathlib import Path
 
 from twikit import Client
 
+from twikit_compat import apply_twikit_compat
+
 
 OUTPUT_PATH = Path("x_cookies.json")
 
@@ -29,6 +31,7 @@ async def create_session() -> None:
     if not username or not password:
         raise RuntimeError("Username and password are required")
 
+    apply_twikit_compat()
     client = Client(language="en-US")
 
     # If X requests a 2FA code, Twikit will prompt for it interactively.
