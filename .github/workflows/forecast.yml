@@ -79,20 +79,17 @@ jobs:
           path: .state/previous_forecast.json
           key: btc-forecast-state-${{ github.run_id }}
 
-      - name: Post forecast to X
+      - name: Post forecast to X with Twikit
         if: github.event_name == 'schedule' || inputs.post_to_x
         env:
-          X_API_KEY: ${{ secrets.X_API_KEY }}
-          X_API_SECRET: ${{ secrets.X_API_SECRET }}
-          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
-          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          X_COOKIES_JSON: ${{ secrets.X_COOKIES_JSON }}
         run: python post_to_x.py
 
       - name: Add X posting status to job summary
         if: always() && hashFiles('x_post_status.json') != ''
         run: |
           echo '' >> "$GITHUB_STEP_SUMMARY"
-          echo '### X API result' >> "$GITHUB_STEP_SUMMARY"
+          echo '### X posting result' >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
           cat x_post_status.json >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
