@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -18,7 +19,13 @@ from typing import Any
 import numpy as np
 import requests
 
-from forecast_engine import MarketData, TARGET_HOURS, build_forecast, load_timesfm
+from forecast_engine import (
+    MarketData,
+    TARGET_HOURS,
+    build_forecast,
+    load_timesfm,
+    static_model_weights,
+)
 
 
 BINANCE_KLINES = "https://api.binance.com/api/v3/klines"
@@ -57,7 +64,6 @@ def fetch_binance_history(days: int) -> MarketData:
     if len(rows) < 550:
         raise RuntimeError(f"Not enough historical candles: {len(rows)}")
 
-    # Binance timestamps are candle open times; convert to completed-candle time.
     timestamps = [int(row[0] / 1000) + 3600 for row in rows]
     return MarketData(
         timestamps=timestamps,
@@ -95,6 +101,17 @@ def score_one(current: float, predicted: float, actual: float) -> dict[str, Any]
     }
 
 
+def static_ensemble_price(forecast: dict[str, Any], horizon: str) -> float:
+    current = float(forecast["latest_close_usd"])
+    model_predictions = forecast["model_predictions"]
+    weights = static_model_weights(list(model_predictions), forecast["regime"])
+    log_change = 0.0
+    for name, weight in weights.items():
+        price = float(model_predictions[name][horizon]["price_usd"])
+        log_change += weight * math.log(price / current)
+    return current * math.exp(log_change)
+
+
 def summarize(samples: list[dict[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for horizon in ("2h", "4h", "8h", "16h"):
@@ -107,9 +124,14 @@ def summarize(samples: list[dict[str, Any]]) -> dict[str, Any]:
             current = sample["current_price"]
             ensemble = sample["forecast"]["predictions"][horizon]
             score = score_one(current, ensemble["price_usd"], actual)
-            per_model.setdefault("ensemble", []).append(score)
+            per_model.setdefault("adaptive_ensemble", []).append(score)
             ensemble_coverage.append(ensemble["q10_usd"] <= actual <= ensemble["q90_usd"])
             regime_scores.setdefault(sample["forecast"]["regime"], []).append(score)
+
+            static_price = static_ensemble_price(sample["forecast"], horizon)
+            per_model.setdefault("static_ensemble", []).append(
+                score_one(current, static_price, actual)
+            )
 
             for name, horizons in sample["forecast"]["model_predictions"].items():
                 per_model.setdefault(name, []).append(
@@ -124,7 +146,7 @@ def summarize(samples: list[dict[str, Any]]) -> dict[str, Any]:
                 "mean_signed_error_pct": round(float(np.mean([s["signed_error_pct"] for s in scores])), 4),
                 "direction_accuracy": round(float(np.mean([s["direction_correct"] for s in scores])), 4),
             }
-            if name == "ensemble":
+            if name == "adaptive_ensemble":
                 models[name]["q10_q90_coverage"] = round(float(np.mean(ensemble_coverage)), 4)
 
         by_regime = {
@@ -135,8 +157,19 @@ def summarize(samples: list[dict[str, Any]]) -> dict[str, Any]:
             }
             for regime, scores in sorted(regime_scores.items())
         }
-        result[horizon] = {"models": models, "ensemble_by_regime": by_regime}
+        result[horizon] = {"models": models, "adaptive_ensemble_by_regime": by_regime}
     return result
+
+
+def history_snapshot(forecast: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "latest_close_at": forecast["latest_close_at"],
+        "latest_close_usd": forecast["latest_close_usd"],
+        "regime": forecast["regime"],
+        "model_predictions": forecast["model_predictions"],
+        "predictions": forecast["predictions"],
+        "model_weights": forecast["model_weights"],
+    }
 
 
 def main() -> None:
@@ -155,10 +188,11 @@ def main() -> None:
     indices = sorted(set(map(int, candidate_indices)))
     model = load_timesfm()
     samples: list[dict[str, Any]] = []
+    history: list[dict[str, Any]] = []
 
     for number, index in enumerate(indices, start=1):
         context = slice_market(data, index)
-        forecast = build_forecast(model, context, history=[])
+        forecast = build_forecast(model, context, history=history)
         actuals = {
             f"{hour}h": float(data.closes[index + hour])
             for hour in TARGET_HOURS
@@ -171,7 +205,13 @@ def main() -> None:
                 "forecast": forecast,
             }
         )
-        print(f"Backtest {number}/{len(indices)}: {samples[-1]['origin_at']} ({forecast['regime']})")
+        history.append(history_snapshot(forecast))
+        history = history[-72:]
+        modes = sorted({str(p["weighting_mode"]) for p in forecast["predictions"].values()})
+        print(
+            f"Backtest {number}/{len(indices)}: {samples[-1]['origin_at']} "
+            f"({forecast['regime']}; {','.join(modes)})"
+        )
 
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -184,11 +224,12 @@ def main() -> None:
 
     print("\nBacktest summary")
     for horizon, info in report["summary"].items():
-        ensemble = info["models"]["ensemble"]
+        adaptive = info["models"]["adaptive_ensemble"]
+        static = info["models"]["static_ensemble"]
         persistence = info["models"].get("persistence", {})
         print(
-            f"{horizon}: ensemble MAE {ensemble['mae_pct']:.3f}% / dir "
-            f"{ensemble['direction_accuracy']:.1%}; persistence MAE "
+            f"{horizon}: adaptive MAE {adaptive['mae_pct']:.3f}% / "
+            f"static {static['mae_pct']:.3f}% / persistence "
             f"{persistence.get('mae_pct', float('nan')):.3f}%"
         )
     print(f"\nSaved {REPORT_PATH}")
