@@ -20,6 +20,7 @@ show_error_codes = true
 branch = true
 source = [
     "adaptive_weighting",
+    "experiment_manifest",
     "history_migrations",
     "history_store",
     "market_data_sources",

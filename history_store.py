@@ -176,6 +176,16 @@ class ForecastHistoryStore:
         market_features = snapshot.get("market_features", {})
         if not isinstance(market_features, dict):
             market_features = {}
+        experiment_manifest = snapshot.get("experiment_manifest")
+        if not isinstance(experiment_manifest, dict):
+            experiment_manifest = {}
+        experiment_run_id = experiment_manifest.get("run_id")
+        configuration_id = experiment_manifest.get("configuration_id")
+        experiment_manifest_json = (
+            json.dumps(experiment_manifest, sort_keys=True, separators=(",", ":"))
+            if experiment_manifest
+            else None
+        )
 
         prediction_rows = list(_prediction_rows(snapshot))
         inserted_origins = 0
@@ -186,8 +196,9 @@ class ForecastHistoryStore:
                 """
                 INSERT OR IGNORE INTO forecast_origins(
                     origin_at, generated_at, source_name, pair, source_price_usd,
-                    regime, market_features_json, first_seen_at, last_seen_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    regime, market_features_json, first_seen_at, last_seen_at,
+                    experiment_run_id, configuration_id, experiment_manifest_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     origin_at,
@@ -199,6 +210,9 @@ class ForecastHistoryStore:
                     json.dumps(market_features, sort_keys=True, separators=(",", ":")),
                     now,
                     now,
+                    experiment_run_id,
+                    configuration_id,
+                    experiment_manifest_json,
                 ),
             )
             inserted_origins += cursor.rowcount
@@ -346,6 +360,14 @@ class ForecastHistoryStore:
                     market_features = json.loads(origin["market_features_json"])
                 except (json.JSONDecodeError, TypeError):
                     market_features = {}
+                experiment_manifest: dict[str, Any] | None = None
+                if origin["experiment_manifest_json"]:
+                    try:
+                        parsed_manifest = json.loads(origin["experiment_manifest_json"])
+                        if isinstance(parsed_manifest, dict):
+                            experiment_manifest = parsed_manifest
+                    except (json.JSONDecodeError, TypeError):
+                        pass
                 snapshot: dict[str, Any] = {
                     "generated_at": origin["generated_at"],
                     "latest_close_at": origin["origin_at"],
@@ -354,6 +376,7 @@ class ForecastHistoryStore:
                     "pair": origin["pair"],
                     "regime": origin["regime"],
                     "market_features": market_features,
+                    "experiment_manifest": experiment_manifest,
                     "model_weights": {},
                     "model_predictions": {},
                     "predictions": {},
@@ -491,6 +514,9 @@ class ForecastHistoryStore:
                        o.source_price_usd,
                        o.regime,
                        o.market_features_json,
+                       o.experiment_run_id,
+                       o.configuration_id,
+                       o.experiment_manifest_json,
                        p.model_name,
                        p.horizon_hours,
                        p.target_at,
