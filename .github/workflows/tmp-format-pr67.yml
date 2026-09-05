@@ -1,0 +1,33 @@
+name: Temporary format PR 67
+
+on:
+  push:
+    branches:
+      - feature/history-integrity-audit-v3
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/history-integrity-audit-v3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install 'ruff>=0.12,<1'
+      - name: Format changed Python files
+        run: ruff format history_audit.py test_history_audit.py
+      - name: Commit formatting
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if ! git diff --quiet; then
+            git add history_audit.py test_history_audit.py
+            git commit -m 'style: format history audit files'
+            git push origin HEAD:feature/history-integrity-audit-v3
+          fi
