@@ -60,7 +60,7 @@ jobs:
           echo '## Forecast skipped' >> "$GITHUB_STEP_SUMMARY"
           echo "$SKIP_REASON" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Restore durable forecast database
+      - name: Restore durable production state
         if: steps.due.outputs.run_forecast == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -78,8 +78,12 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --pattern 'x_post_registry.json' \
               --dir .state >/dev/null 2>&1 || true
+            gh release download "$HISTORY_RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern 'pipeline_health.json' \
+              --dir .state >/dev/null 2>&1 || true
             touch .state/history_restored_from_release
-            echo "Restored durable history from release $HISTORY_RELEASE_TAG"
+            echo "Restored durable production state from release $HISTORY_RELEASE_TAG"
           else
             echo "No durable history release exists yet; the first forecast will create it."
           fi
@@ -111,8 +115,15 @@ jobs:
           pip install -r requirements.txt
 
       - name: Validate market data and forecast BTC
+        id: forecast_run
         if: steps.due.outputs.run_forecast == 'true'
         run: python validated_entrypoints.py forecast
+
+      - name: Observe forecast and data health
+        if: always() && steps.due.outputs.run_forecast == 'true'
+        env:
+          FORECAST_OUTCOME: ${{ steps.forecast_run.outcome }}
+        run: python3 pipeline_health.py observe-forecast --outcome "$FORECAST_OUTCOME"
 
       - name: Add drift detection to job summary
         if: always() && steps.due.outputs.run_forecast == 'true' && hashFiles('drift_summary.md') != ''
@@ -135,18 +146,27 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Format visual X post
-        if: steps.due.outputs.run_forecast == 'true'
+        if: steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success'
         run: python format_tweet.py
+
+      - name: Preliminary publication health gate
+        id: health_pre
+        if: always() && steps.due.outputs.run_forecast == 'true' && (github.event_name == 'schedule' || inputs.post_to_x)
+        run: python3 pipeline_health.py gate --ignore-stage history
 
       - name: Preflight and reserve X publication
         id: x_prepare
-        if: steps.due.outputs.run_forecast == 'true' && (github.event_name == 'schedule' || inputs.post_to_x)
+        if: steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success' && (github.event_name == 'schedule' || inputs.post_to_x) && steps.health_pre.outputs.allow == 'true'
         env:
           X_COOKIES_JSON: ${{ secrets.X_COOKIES_JSON }}
         run: python post_to_x.py prepare
 
+      - name: Observe X preflight health
+        if: always() && steps.due.outputs.run_forecast == 'true' && (github.event_name == 'schedule' || inputs.post_to_x) && hashFiles('x_post_status.json') != ''
+        run: python3 pipeline_health.py observe-x --phase preflight
+
       - name: Verify and export durable history
-        if: steps.due.outputs.run_forecast == 'true'
+        if: steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success'
         run: |
           set -euo pipefail
           python history_store.py --db .state/forecast_history.sqlite verify
@@ -169,7 +189,8 @@ jobs:
           fi
 
       - name: Publish durable forecast history
-        if: steps.due.outputs.run_forecast == 'true'
+        id: history_publish
+        if: steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -183,6 +204,9 @@ jobs:
           fi
           if [ -f .state/x_post_registry.json ]; then
             assets+=(.state/x_post_registry.json)
+          fi
+          if [ -f .state/pipeline_health.json ]; then
+            assets+=(.state/pipeline_health.json)
           fi
 
           if [ -f .state/history_restored_from_release ]; then
@@ -243,8 +267,29 @@ jobs:
               --latest=false
           fi
 
+      - name: Observe durable history health
+        if: always() && steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success'
+        env:
+          HISTORY_OUTCOME: ${{ steps.history_publish.outcome }}
+        run: python3 pipeline_health.py observe-history --outcome "$HISTORY_OUTCOME"
+
+      - name: Persist current pipeline health
+        id: health_persist
+        if: always() && steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success' && hashFiles('.state/pipeline_health.json') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$HISTORY_RELEASE_TAG" .state/pipeline_health.json \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Final publication health gate
+        id: health_gate
+        if: always() && steps.due.outputs.run_forecast == 'true' && (github.event_name == 'schedule' || inputs.post_to_x)
+        run: python3 pipeline_health.py gate
+
       - name: Add forecast to job summary
-        if: steps.due.outputs.run_forecast == 'true'
+        if: steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success'
         run: |
           echo '## BTC TimesFM 3 forecast' >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
@@ -274,14 +319,15 @@ jobs:
           cat tweet.txt >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save forecast history
-        if: steps.due.outputs.run_forecast == 'true'
+        if: steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success'
         uses: actions/cache/save@v6
         with:
           path: .state/previous_forecast.json
           key: btc-forecast-state-${{ github.run_id }}
 
       - name: Post forecast to X with Twikit
-        if: steps.due.outputs.run_forecast == 'true' && (github.event_name == 'schedule' || inputs.post_to_x) && steps.x_prepare.outputs.publish == 'true'
+        id: x_publish
+        if: steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success' && (github.event_name == 'schedule' || inputs.post_to_x) && steps.x_prepare.outputs.publish == 'true' && steps.health_persist.outcome == 'success' && steps.health_gate.outputs.allow == 'true'
         env:
           X_COOKIES_JSON: ${{ secrets.X_COOKIES_JSON }}
         run: |
@@ -290,14 +336,43 @@ jobs:
             --success-counter successful_posts \
             -- python post_to_x.py publish
 
-      - name: Persist X publication metadata
-        if: always() && steps.due.outputs.run_forecast == 'true' && (github.event_name == 'schedule' || inputs.post_to_x) && steps.x_prepare.outputs.publish == 'true' && hashFiles('.state/x_post_registry.json') != ''
+      - name: Observe X publication health
+        if: always() && steps.due.outputs.run_forecast == 'true' && (github.event_name == 'schedule' || inputs.post_to_x) && steps.x_publish.outcome != 'skipped' && hashFiles('x_post_status.json') != ''
+        run: python3 pipeline_health.py observe-x --phase publish
+
+      - name: Persist X and health metadata
+        if: always() && steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release upload "$HISTORY_RELEASE_TAG" .state/x_post_registry.json \
-            --repo "$GITHUB_REPOSITORY" --clobber
+          assets=()
+          if [ -f .state/x_post_registry.json ]; then
+            assets+=(.state/x_post_registry.json)
+          fi
+          if [ -f .state/pipeline_health.json ]; then
+            assets+=(.state/pipeline_health.json)
+          fi
+          if [ "${#assets[@]}" -gt 0 ]; then
+            gh release upload "$HISTORY_RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          fi
+
+      - name: Refresh pipeline health report
+        if: always() && steps.due.outputs.run_forecast == 'true'
+        run: python3 pipeline_health.py report
+
+      - name: Send optional pipeline health notification
+        if: always() && steps.due.outputs.run_forecast == 'true'
+        continue-on-error: true
+        env:
+          PIPELINE_HEALTH_WEBHOOK_URL: ${{ secrets.PIPELINE_HEALTH_WEBHOOK_URL }}
+        run: python3 pipeline_health.py notify
+
+      - name: Add pipeline health to job summary
+        if: always() && steps.due.outputs.run_forecast == 'true' && hashFiles('pipeline_health_summary.md') != ''
+        run: cat pipeline_health_summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Add X posting status to job summary
         if: always() && steps.due.outputs.run_forecast == 'true' && hashFiles('x_post_status.json') != ''
@@ -333,8 +408,11 @@ jobs:
             market_data_source.json
             drift_report.json
             drift_summary.md
+            pipeline_health_report.json
+            pipeline_health_summary.md
             forecast_observability.json
             forecast_observability.jsonl
+            .state/pipeline_health.json
             .state/x_post_registry.json
             .state/x_post_prepared.json
             .state/uploaded_backup_verification.json

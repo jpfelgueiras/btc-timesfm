@@ -98,6 +98,7 @@ jobs:
             market_data_validation.py \
             observability.py \
             performance_dashboard.py \
+            pipeline_health.py \
             post_to_x.py \
             schedule_guard.py \
             statistical_significance.py \
