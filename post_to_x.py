@@ -10,6 +10,8 @@ from pathlib import Path
 
 from twikit import Client
 
+from twikit_compat import apply_twikit_compat
+
 
 TWEET_PATH = Path("tweet.txt")
 STATUS_PATH = Path("x_post_status.json")
@@ -55,6 +57,7 @@ async def post() -> None:
     if len(text) > 280:
         raise RuntimeError(f"Refusing to post {len(text)} characters to X")
 
+    apply_twikit_compat()
     client = Client(language="en-US")
     client.set_cookies(load_cookies(), clear_cookies=True)
 
