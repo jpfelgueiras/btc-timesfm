@@ -1,8 +1,9 @@
 """Forecasting engine for BTC/USD.
 
 TimesFM predicts log returns across several context windows. The engine combines
-those forecasts with simple baselines, market/regime features, model agreement,
-and empirical interval calibration from recent forecast history.
+those forecasts with simple baselines, market/regime features, adaptive
+performance-based weighting, model agreement, and empirical interval calibration
+from recent forecast history.
 """
 
 from __future__ import annotations
@@ -26,6 +27,16 @@ TARGET_HOURS = (2, 4, 8, 16)
 FORECAST_HOURS = max(TARGET_HOURS)
 CONTEXT_WINDOWS = (168, 336, 512)
 
+ADAPTIVE_HISTORY_LIMIT = 72
+ADAPTIVE_MIN_SAMPLES = 6
+ADAPTIVE_FULL_SAMPLES = 24
+ADAPTIVE_MAX_BLEND = 0.80
+ADAPTIVE_MIN_WEIGHT = 0.03
+ADAPTIVE_MAX_WEIGHT = 0.55
+ADAPTIVE_MAE_LAMBDA = 2.5
+ADAPTIVE_DIRECTION_REWARD = 0.25
+PERSISTENCE_FALLBACK_BOOST = 0.12
+
 
 @dataclass
 class MarketData:
@@ -42,6 +53,8 @@ class MarketData:
 
 
 def fetch_kraken_hourly(limit: int = 512) -> MarketData:
+    # N hourly returns require N+1 closes. Keep enough candles for the largest context.
+    limit = max(limit, max(CONTEXT_WINDOWS) + 1)
     response = requests.get(
         KRAKEN_OHLC_URL,
         params={"pair": PAIR, "interval": INTERVAL_MINUTES},
@@ -253,7 +266,8 @@ def baseline_forecasts(data: MarketData) -> dict[str, dict[str, dict[str, float]
     return result
 
 
-def model_weights(model_names: list[str], regime: str) -> dict[str, float]:
+def static_model_weights(model_names: list[str], regime: str) -> dict[str, float]:
+    """Return the existing hand-tuned regime prior."""
     timesfm_names = [name for name in model_names if name.startswith("timesfm_")]
     if regime == "high_volatility":
         family = {"timesfm": 0.72, "persistence": 0.14, "drift_7d": 0.04, "ar1": 0.10}
@@ -276,6 +290,278 @@ def model_weights(model_names: list[str], regime: str) -> dict[str, float]:
             weights[name] = family[name]
     total = sum(weights.values())
     return {name: weight / total for name, weight in weights.items()}
+
+
+model_weights = static_model_weights
+
+
+def _direction(value: float, epsilon: float = 1e-12) -> int:
+    return 1 if value > epsilon else -1 if value < -epsilon else 0
+
+
+def _bounded_normalize(
+    weights: dict[str, float],
+    floor: float = ADAPTIVE_MIN_WEIGHT,
+    cap: float = ADAPTIVE_MAX_WEIGHT,
+) -> dict[str, float]:
+    """Normalize weights while respecting per-model floors and caps."""
+    names = list(weights)
+    if not names:
+        return {}
+    if floor * len(names) > 1.0 or cap * len(names) < 1.0:
+        raise ValueError("Weight floor/cap cannot produce a normalized distribution")
+
+    raw = {name: max(float(weights[name]), 1e-12) for name in names}
+    result: dict[str, float] = {}
+    remaining = set(names)
+    remaining_mass = 1.0
+
+    while remaining:
+        raw_total = sum(raw[name] for name in remaining)
+        proposed = {
+            name: remaining_mass * raw[name] / raw_total
+            for name in remaining
+        }
+        low = [name for name, value in proposed.items() if value < floor - 1e-12]
+        high = [name for name, value in proposed.items() if value > cap + 1e-12]
+
+        if not low and not high:
+            result.update(proposed)
+            break
+
+        fixed = False
+        for name in low:
+            result[name] = floor
+            remaining.remove(name)
+            remaining_mass -= floor
+            fixed = True
+        for name in high:
+            if name not in remaining:
+                continue
+            result[name] = cap
+            remaining.remove(name)
+            remaining_mass -= cap
+            fixed = True
+        if not fixed:
+            result.update(proposed)
+            break
+
+    total = sum(result.values())
+    return {name: value / total for name, value in result.items()}
+
+
+def _score_history_for_model(
+    history: list[dict[str, Any]],
+    actual_by_timestamp: dict[int, float],
+    model_name: str,
+    hour: int,
+    regime: str | None,
+) -> list[dict[str, float | bool]]:
+    key = f"{hour}h"
+    scores: list[dict[str, float | bool]] = []
+
+    for snapshot in history[-ADAPTIVE_HISTORY_LIMIT:]:
+        if regime is not None and snapshot.get("regime") != regime:
+            continue
+        try:
+            origin = datetime.fromisoformat(str(snapshot["latest_close_at"]))
+            if origin.tzinfo is None:
+                origin = origin.replace(tzinfo=timezone.utc)
+            origin = origin.astimezone(timezone.utc)
+            previous_close = float(snapshot["latest_close_usd"])
+            predicted = float(snapshot["model_predictions"][model_name][key]["price_usd"])
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        target = int(origin.timestamp()) + hour * 3600
+        actual = actual_by_timestamp.get(target)
+        if actual is None or actual <= 0:
+            continue
+
+        error = predicted - actual
+        scores.append(
+            {
+                "absolute_error_pct": abs(error) / actual * 100.0,
+                "signed_error_pct": error / actual * 100.0,
+                "direction_correct": _direction(predicted - previous_close)
+                == _direction(actual - previous_close),
+            }
+        )
+
+    return scores
+
+
+def _performance_metrics(scores: list[dict[str, float | bool]]) -> dict[str, float | int]:
+    return {
+        "samples": len(scores),
+        "mae_pct": float(np.mean([float(s["absolute_error_pct"]) for s in scores])),
+        "mean_signed_error_pct": float(
+            np.mean([float(s["signed_error_pct"]) for s in scores])
+        ),
+        "direction_accuracy": float(
+            np.mean([bool(s["direction_correct"]) for s in scores])
+        ),
+    }
+
+
+def adaptive_model_weights(
+    model_names: list[str],
+    regime: str,
+    hour: int,
+    history: list[dict[str, Any]],
+    actual_by_timestamp: dict[int, float],
+    enabled: bool = True,
+) -> tuple[dict[str, float], dict[str, Any]]:
+    """Blend static priors with recent out-of-sample model performance."""
+    prior = static_model_weights(model_names, regime)
+
+    regime_scores = {
+        name: _score_history_for_model(history, actual_by_timestamp, name, hour, regime)
+        for name in model_names
+    }
+    all_scores = {
+        name: _score_history_for_model(history, actual_by_timestamp, name, hour, None)
+        for name in model_names
+    }
+
+    min_regime_samples = min((len(scores) for scores in regime_scores.values()), default=0)
+    min_all_samples = min((len(scores) for scores in all_scores.values()), default=0)
+
+    if not enabled:
+        source = "disabled"
+        selected = all_scores
+    elif min_regime_samples >= ADAPTIVE_MIN_SAMPLES:
+        source = "regime"
+        selected = regime_scores
+    elif min_all_samples >= ADAPTIVE_MIN_SAMPLES:
+        source = "all_regimes"
+        selected = all_scores
+    else:
+        source = "insufficient_history"
+        selected = all_scores
+
+    metrics = {
+        name: _performance_metrics(scores) if scores else {
+            "samples": 0,
+            "mae_pct": None,
+            "mean_signed_error_pct": None,
+            "direction_accuracy": None,
+        }
+        for name, scores in selected.items()
+    }
+
+    if not enabled or source == "insufficient_history":
+        diagnostics = {
+            "mode": "static_prior",
+            "source": source,
+            "horizon": f"{hour}h",
+            "regime": regime,
+            "blend_factor": 0.0,
+            "sample_count": min_all_samples if source != "regime" else min_regime_samples,
+            "persistence_mae_pct": (
+                metrics.get("persistence", {}).get("mae_pct")
+                if "persistence" in metrics
+                else None
+            ),
+            "models": {
+                name: {
+                    **metric,
+                    "prior_weight": round(prior[name], 6),
+                    "raw_score": None,
+                    "final_weight": round(prior[name], 6),
+                    "edge_vs_persistence_mae_pct": None,
+                }
+                for name, metric in metrics.items()
+            },
+        }
+        return prior, diagnostics
+
+    persistence_mae = float(metrics["persistence"]["mae_pct"]) if "persistence" in metrics else None
+    raw_scores: dict[str, float] = {}
+    for name, metric in metrics.items():
+        mae = float(metric["mae_pct"])
+        direction_accuracy = float(metric["direction_accuracy"])
+        bias = abs(float(metric["mean_signed_error_pct"]))
+
+        score = math.exp(-ADAPTIVE_MAE_LAMBDA * mae)
+        score *= 1.0 + ADAPTIVE_DIRECTION_REWARD * (direction_accuracy - 0.5) * 2.0
+        score *= math.exp(-0.35 * bias)
+
+        if persistence_mae is not None and name != "persistence":
+            edge = persistence_mae - mae
+            if edge < 0:
+                score *= math.exp(1.5 * edge)
+
+        raw_scores[name] = max(score, 1e-9)
+
+    raw_total = sum(raw_scores.values())
+    adaptive = {name: score / raw_total for name, score in raw_scores.items()}
+
+    sample_count = min(int(metric["samples"]) for metric in metrics.values())
+    progress = min(
+        1.0,
+        max(
+            0.0,
+            (sample_count - ADAPTIVE_MIN_SAMPLES)
+            / max(1, ADAPTIVE_FULL_SAMPLES - ADAPTIVE_MIN_SAMPLES),
+        ),
+    )
+    blend = 0.25 + (ADAPTIVE_MAX_BLEND - 0.25) * progress
+
+    blended = {
+        name: (1.0 - blend) * prior[name] + blend * adaptive[name]
+        for name in model_names
+    }
+
+    complex_maes = [
+        float(metrics[name]["mae_pct"])
+        for name in model_names
+        if name != "persistence" and metrics[name]["mae_pct"] is not None
+    ]
+    persistence_fallback = False
+    if (
+        persistence_mae is not None
+        and complex_maes
+        and float(np.mean(complex_maes)) >= persistence_mae
+        and "persistence" in blended
+    ):
+        blended["persistence"] += PERSISTENCE_FALLBACK_BOOST
+        persistence_fallback = True
+
+    final = _bounded_normalize(blended)
+
+    diagnostics = {
+        "mode": "adaptive",
+        "source": source,
+        "horizon": f"{hour}h",
+        "regime": regime,
+        "blend_factor": round(blend, 4),
+        "sample_count": sample_count,
+        "persistence_fallback": persistence_fallback,
+        "persistence_mae_pct": round(persistence_mae, 6)
+        if persistence_mae is not None
+        else None,
+        "models": {},
+    }
+    for name, metric in metrics.items():
+        mae = float(metric["mae_pct"])
+        diagnostics["models"][name] = {
+            **{
+                key: round(value, 6) if isinstance(value, float) else value
+                for key, value in metric.items()
+            },
+            "prior_weight": round(prior[name], 6),
+            "raw_score": round(raw_scores[name], 8),
+            "adaptive_weight": round(adaptive[name], 6),
+            "final_weight": round(final[name], 6),
+            "edge_vs_persistence_mae_pct": (
+                round(persistence_mae - mae, 6)
+                if persistence_mae is not None
+                else None
+            ),
+        }
+
+    return final, diagnostics
 
 
 def empirical_calibration_multiplier(
@@ -311,14 +597,33 @@ def ensemble_forecast(
     model_predictions: dict[str, dict[str, dict[str, float]]],
     regime: str,
     calibration: dict[str, tuple[float, int, float | None]],
-) -> tuple[dict[str, dict[str, float]], dict[str, float]]:
+    history: list[dict[str, Any]],
+    actual_by_timestamp: dict[int, float],
+    adaptive_weights_enabled: bool = True,
+) -> tuple[
+    dict[str, dict[str, float | str]],
+    dict[str, dict[str, float]],
+    dict[str, dict[str, Any]],
+]:
     names = list(model_predictions)
-    weights = model_weights(names, regime)
     current_price = float(data.closes[-1])
-    predictions: dict[str, dict[str, float]] = {}
+    predictions: dict[str, dict[str, float | str]] = {}
+    weights_by_horizon: dict[str, dict[str, float]] = {}
+    weighting_diagnostics: dict[str, dict[str, Any]] = {}
 
     for hour in TARGET_HOURS:
         key = f"{hour}h"
+        weights, diagnostics = adaptive_model_weights(
+            names,
+            regime,
+            hour,
+            history,
+            actual_by_timestamp,
+            enabled=adaptive_weights_enabled,
+        )
+        weights_by_horizon[key] = weights
+        weighting_diagnostics[key] = diagnostics
+
         log_changes: list[float] = []
         model_prices: list[float] = []
         model_ws: list[float] = []
@@ -342,7 +647,9 @@ def ensemble_forecast(
         normalized /= normalized.sum()
         ensemble_log_change = float(np.dot(normalized, np.asarray(log_changes)))
         price = current_price * math.exp(ensemble_log_change)
-        dispersion = float(math.sqrt(np.dot(normalized, (np.asarray(model_prices) - price) ** 2)))
+        dispersion = float(
+            math.sqrt(np.dot(normalized, (np.asarray(model_prices) - price) ** 2))
+        )
         tf_width = float(np.mean(timesfm_half_widths)) if timesfm_half_widths else 0.0
         base_half_width = max(tf_width, dispersion * 1.5, current_price * 0.0005)
 
@@ -351,7 +658,10 @@ def ensemble_forecast(
         q10 = max(0.01, price - half_width)
         q90 = price + half_width
 
-        moves = [1 if p > current_price else -1 if p < current_price else 0 for p in model_prices]
+        moves = [
+            1 if p > current_price else -1 if p < current_price else 0
+            for p in model_prices
+        ]
         agreement = max(moves.count(1), moves.count(-1), moves.count(0)) / len(moves)
         predictions[key] = {
             "price_usd": round(price, 2),
@@ -360,6 +670,8 @@ def ensemble_forecast(
             "q50_usd": round(price, 2),
             "q90_usd": round(q90, 2),
             "model_agreement": round(agreement, 4),
+            "weighting_mode": str(diagnostics["mode"]),
+            "weighting_samples": int(diagnostics["sample_count"]),
             "interval_calibration_multiplier": round(multiplier, 4),
             "calibration_samples": sample_count,
             "empirical_q10_q90_coverage": (
@@ -367,13 +679,14 @@ def ensemble_forecast(
             ),
         }
 
-    return predictions, weights
+    return predictions, weights_by_horizon, weighting_diagnostics
 
 
 def build_forecast(
     model: TimesFM3Evaluator,
     data: MarketData,
     history: list[dict[str, Any]] | None = None,
+    adaptive_weights_enabled: bool = True,
 ) -> dict[str, Any]:
     history = history or []
     features = market_features(data)
@@ -385,16 +698,30 @@ def build_forecast(
         f"{hour}h": empirical_calibration_multiplier(history, actuals, hour)
         for hour in TARGET_HOURS
     }
-    predictions, weights = ensemble_forecast(data, models, regime, calibration)
+    predictions, weights, weighting_diagnostics = ensemble_forecast(
+        data,
+        models,
+        regime,
+        calibration,
+        history,
+        actuals,
+        adaptive_weights_enabled=adaptive_weights_enabled,
+    )
 
     return {
         "model": MODEL_ID,
-        "forecast_method": "log-return multi-context ensemble",
-        "latest_close_at": datetime.fromtimestamp(data.timestamps[-1], tz=timezone.utc).isoformat(),
+        "forecast_method": "log-return multi-context adaptive ensemble",
+        "latest_close_at": datetime.fromtimestamp(
+            data.timestamps[-1], tz=timezone.utc
+        ).isoformat(),
         "latest_close_usd": round(float(data.closes[-1]), 2),
         "market_features": features,
         "regime": regime,
-        "model_weights": {k: round(v, 4) for k, v in weights.items()},
+        "model_weights": {
+            horizon: {name: round(weight, 4) for name, weight in horizon_weights.items()}
+            for horizon, horizon_weights in weights.items()
+        },
+        "weighting_diagnostics": weighting_diagnostics,
         "model_predictions": {
             model_name: {
                 horizon: {
