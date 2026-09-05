@@ -180,11 +180,21 @@ def _instrument_forecast(observer: PipelineObserver, btc_forecast: Any) -> None:
     btc_forecast.ForecastHistoryStore = ObservedForecastHistoryStore
 
 
+def _activate_correlation_policy(target: Any) -> None:
+    """Install the correlation-aware wrapper without coupling core modules to it."""
+    from correlation_weighting import correlation_aware_model_weights
+
+    target.forecast_engine.adaptive_model_weights = correlation_aware_model_weights
+    if hasattr(target, "adaptive_model_weights"):
+        target.adaptive_model_weights = correlation_aware_model_weights
+
+
 def run_forecast(argv: list[str]) -> None:
     if argv:
         raise SystemExit("forecast does not accept positional arguments")
     import btc_forecast
 
+    _activate_correlation_policy(btc_forecast)
     observer = PipelineObserver(run_type="production_forecast")
     _instrument_forecast(observer, btc_forecast)
     try:
@@ -200,6 +210,7 @@ def run_forecast(argv: list[str]) -> None:
 def _patch_backtest_fetch() -> Any:
     import backtest
 
+    _activate_correlation_policy(backtest)
     original_fetch = backtest.fetch_binance_history
 
     def fetch_validated(days: int):
