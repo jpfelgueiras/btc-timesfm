@@ -390,3 +390,7 @@ python post_to_x.py
 This is an experiment, not a trading signal or financial advice. Backtesting is required before interpreting direction accuracy or forecast errors as useful predictive skill.
 
 TimesFM 3 pretrained weights have their own license terms; verify the model license before production or commercial use.
+
+## Interval calibration
+
+Prediction intervals use finite-sample conformal calibration once enough matured history exists, with the previous empirical multiplier as the sparse-history fallback. See `CONFORMAL_CALIBRATION.md` for configuration and diagnostics.
