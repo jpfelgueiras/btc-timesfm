@@ -8,7 +8,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from promotion_policy import PromotionPolicy, build_decision_report, evaluate_promotion, policy_identity
+from promotion_policy import (
+    PromotionPolicy,
+    build_decision_report,
+    evaluate_promotion,
+    policy_identity,
+)
 
 
 HORIZONS = ("2h", "4h", "8h", "16h")
@@ -52,8 +57,7 @@ def _candidate(
             }
         },
         "persistence_by_horizon": {
-            horizon: {"samples": samples, "mae_pct": persistence_mae}
-            for horizon in HORIZONS
+            horizon: {"samples": samples, "mae_pct": persistence_mae} for horizon in HORIZONS
         },
         "folds": [
             {"fold": index, "mae_pct": fold_mae}
@@ -76,12 +80,8 @@ def _report(
         "selected": challenger,
         "comparison": {
             "significance": {
-                "candidate_vs_production": {
-                    "mae_pct": {"conclusion": production_conclusion}
-                },
-                "candidate_vs_persistence": {
-                    "mae_pct": {"conclusion": persistence_conclusion}
-                },
+                "candidate_vs_production": {"mae_pct": {"conclusion": production_conclusion}},
+                "candidate_vs_persistence": {"mae_pct": {"conclusion": persistence_conclusion}},
             }
         },
         "candidates": [production, challenger],
@@ -141,9 +141,7 @@ class PromotionPolicyTests(unittest.TestCase):
         )
         decision = evaluate_promotion(_report(challenger), health=_health())
         self.assertEqual(decision["decision"], "reject")
-        self.assertFalse(
-            decision["checks"]["hard_veto"]["no_material_persistence_regression"]
-        )
+        self.assertFalse(decision["checks"]["hard_veto"]["no_material_persistence_regression"])
 
     def test_severe_drift_or_open_circuit_rejects_promotion(self) -> None:
         challenger = _candidate("good", mae=0.95, fold_maes=(0.95, 0.95, 0.95))

@@ -59,9 +59,12 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def _float(value: object, name: str) -> float:
-    if value is None:
-        raise ValueError(f"Missing numeric value for {name}")
-    return float(value)
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError(f"Missing or invalid numeric value for {name}")
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise ValueError(f"Invalid numeric value for {name}: {value!r}") from exc
 
 
 def _candidate_pair(report: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -75,7 +78,9 @@ def _candidate_pair(report: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str
     alternatives = [item for item in normalized if item.get("name") != "production"]
     if not alternatives:
         raise ValueError("optimizer report has no challenger candidate")
-    challenger = min(alternatives, key=lambda item: _float(item.get("objective_mae_pct"), "objective_mae_pct"))
+    challenger = min(
+        alternatives, key=lambda item: _float(item.get("objective_mae_pct"), "objective_mae_pct")
+    )
     return production, challenger
 
 
@@ -83,7 +88,9 @@ def _relative_improvement(candidate: float, baseline: float) -> float:
     return (baseline - candidate) / baseline if baseline > 0 else 0.0
 
 
-def _horizon_changes(candidate: Mapping[str, Any], production: Mapping[str, Any]) -> dict[str, float]:
+def _horizon_changes(
+    candidate: Mapping[str, Any], production: Mapping[str, Any]
+) -> dict[str, float]:
     result: dict[str, float] = {}
     for horizon in HORIZONS:
         candidate_metric = candidate.get("by_horizon", {}).get(horizon, {})
@@ -199,7 +206,9 @@ def health_snapshot(path: Path) -> dict[str, Any]:
     payload = _read_json(path)
     signals = payload.get("current_signals")
     stages = payload.get("stages")
-    drift = str(signals.get("drift_severity", "unknown")) if isinstance(signals, dict) else "unknown"
+    drift = (
+        str(signals.get("drift_severity", "unknown")) if isinstance(signals, dict) else "unknown"
+    )
     open_circuits: list[str] = []
     degraded = False
     if isinstance(stages, dict):
@@ -260,7 +269,8 @@ def evaluate_promotion(
         open_circuits = []
 
     hard_veto_checks = {
-        "no_material_horizon_regression": worst_horizon >= -active.maximum_horizon_relative_degradation,
+        "no_material_horizon_regression": worst_horizon
+        >= -active.maximum_horizon_relative_degradation,
         "no_material_regime_regression": (
             worst_regime is None
             or worst_regime >= -active.maximum_regime_horizon_relative_degradation
@@ -286,7 +296,8 @@ def evaluate_promotion(
     }
     review_requirements = {
         "enough_samples": int(challenger.get("samples", 0)) >= active.minimum_samples,
-        "material_mae_improvement": relative_mae_improvement >= active.minimum_relative_mae_improvement,
+        "material_mae_improvement": relative_mae_improvement
+        >= active.minimum_relative_mae_improvement,
         "statistically_supported_vs_production": (
             not active.require_significant_improvement_vs_production
             or production_significance == "candidate_better"
@@ -424,7 +435,9 @@ def build_decision_report(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate optimizer output against promotion policy")
+    parser = argparse.ArgumentParser(
+        description="Evaluate optimizer output against promotion policy"
+    )
     parser.add_argument("--optimizer-report", type=Path, default=DEFAULT_OPTIMIZER_REPORT)
     parser.add_argument("--health-state", type=Path, default=DEFAULT_HEALTH_STATE)
     parser.add_argument("--output", type=Path, default=DEFAULT_DECISION_PATH)
