@@ -11,11 +11,13 @@ from typing import Any
 import numpy as np
 
 from forecast_engine import TARGET_HOURS, build_forecast, fetch_kraken_hourly, load_timesfm
+from history_store import DEFAULT_DB_PATH, ForecastHistoryStore
 
 
 OUTPUT_PATH = Path("forecast.json")
 TWEET_PATH = Path("tweet.txt")
 STATE_PATH = Path(".state/previous_forecast.json")
+HISTORY_DB_PATH = DEFAULT_DB_PATH
 HISTORY_LIMIT = 72
 
 
@@ -182,10 +184,13 @@ def performance_summary(
 
 
 def save_forecast_history(history: list[dict[str, Any]], output: dict[str, Any]) -> None:
+    """Keep a small rolling cache for the scheduler; durable data lives in SQLite."""
     snapshot = {
         "generated_at": output["generated_at"],
         "latest_close_at": output["latest_close_at"],
         "latest_close_usd": output["latest_close_usd"],
+        "source": output.get("source"),
+        "pair": output.get("pair"),
         "regime": output["regime"],
         "market_features": output["market_features"],
         "model_weights": output["model_weights"],
@@ -267,9 +272,21 @@ def main() -> None:
         f"{datetime.fromtimestamp(data.timestamps[-1], tz=timezone.utc).isoformat()}"
     )
 
-    history = load_forecast_history()
+    actuals = dict(zip(data.timestamps, map(float, data.closes), strict=True))
+    rolling_history = load_forecast_history()
+
+    # Bootstrap/migrate the durable database from any rolling cache that predates
+    # issue #5, then use the durable copy as the source of truth for weighting.
+    store = ForecastHistoryStore(HISTORY_DB_PATH)
+    migration = store.ingest_snapshots(rolling_history, actuals)
+    durable_history = store.load_snapshots()
+    history = durable_history or rolling_history
+
     reliability = score_forecast_history(history, data.closes, data.timestamps)
-    summary = performance_summary(history, data.closes, data.timestamps)
+    summary = store.performance_summary()
+    if not summary:
+        # Local/first-run fallback before any matured durable records exist.
+        summary = performance_summary(history, data.closes, data.timestamps)
 
     model = load_timesfm()
     engine_output = build_forecast(model, data, history)
@@ -283,13 +300,24 @@ def main() -> None:
         "previous_forecast_reliability": reliability.get("2h"),
     }
 
+    # The scheduler still gets a tiny fast cache, while the SQLite store keeps
+    # every logical forecast indefinitely and matures any exact target candles.
+    save_forecast_history(rolling_history, output)
+    persisted = store.ingest_snapshot(output, actuals)
+    store.verify()
+    output["history_store"] = {
+        **store.stats(),
+        "rolling_cache_migration": migration,
+        "latest_ingest": persisted,
+    }
+
     OUTPUT_PATH.write_text(json.dumps(output, indent=2) + "\n")
-    save_forecast_history(history, output)
     tweet = build_tweet(output)
     TWEET_PATH.write_text(tweet + "\n")
 
     print(f"\nRegime: {output['regime']}")
     print(f"Model weights: {output['model_weights']}")
+    print(f"Durable history: {output['history_store']}")
     print("\nBTC/USD ensemble forecast")
     print("-" * 78)
     print(f"{'Horizon':<9}{'Forecast':>16}{'Change':>12}{'Q10':>16}{'Q90':>16}{'Agree':>9}")
