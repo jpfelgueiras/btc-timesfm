@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -112,9 +112,30 @@ def _migration_2_add_migration_audit(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migration_3_add_experiment_manifests(connection: sqlite3.Connection) -> None:
+    columns = {
+        str(row[1]) for row in connection.execute("PRAGMA table_info(forecast_origins)").fetchall()
+    }
+    additions = (
+        ("experiment_run_id", "TEXT"),
+        ("configuration_id", "TEXT"),
+        ("experiment_manifest_json", "TEXT"),
+    )
+    for name, sql_type in additions:
+        if name not in columns:
+            connection.execute(f"ALTER TABLE forecast_origins ADD COLUMN {name} {sql_type}")
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_forecast_origins_configuration
+            ON forecast_origins(configuration_id, origin_at)
+        """
+    )
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial_history_schema", _migration_1_initial_history_schema),
     Migration(2, "add_migration_audit", _migration_2_add_migration_audit),
+    Migration(3, "add_experiment_manifests", _migration_3_add_experiment_manifests),
 )
 
 

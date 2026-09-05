@@ -186,6 +186,32 @@ class HistoryStoreTests(unittest.TestCase):
         self.assertEqual(item["model_predictions"]["timesfm_168h"]["4h"]["price_usd"], 104.0)
         self.assertAlmostEqual(item["model_weights"]["2h"]["timesfm_168h"], 0.6)
 
+    def test_experiment_manifest_is_first_write_wins_and_round_trips(self) -> None:
+        snapshot = make_snapshot(self.origin)
+        snapshot["experiment_manifest"] = {
+            "manifest_version": 1,
+            "run_id": "production_forecast-1",
+            "configuration_id": "cfg-abc",
+            "data_id": "data-123",
+        }
+        self.store.ingest_snapshot(snapshot)
+
+        rerun = make_snapshot(self.origin, generated_offset_minutes=20, ensemble_2h=150.0)
+        rerun["experiment_manifest"] = {
+            "manifest_version": 1,
+            "run_id": "production_forecast-2",
+            "configuration_id": "cfg-different",
+        }
+        self.store.ingest_snapshot(rerun)
+
+        loaded = self.store.load_snapshots()[0]["experiment_manifest"]
+        self.assertEqual(loaded["run_id"], "production_forecast-1")
+        self.assertEqual(loaded["configuration_id"], "cfg-abc")
+        row = self.store.export_rows()[0]
+        self.assertEqual(row["experiment_run_id"], "production_forecast-1")
+        self.assertEqual(row["configuration_id"], "cfg-abc")
+        self.assertEqual(json.loads(row["experiment_manifest_json"])["data_id"], "data-123")
+
     def test_performance_summary_uses_all_matured_rows(self) -> None:
         second_origin = self.origin + timedelta(hours=6)
         self.store.ingest_snapshot(make_snapshot(self.origin))

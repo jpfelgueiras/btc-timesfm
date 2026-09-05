@@ -21,6 +21,7 @@ import requests
 
 import forecast_engine
 from adaptive_weighting import DEFAULT_HISTORY_LIMIT, adaptive_model_weights
+from experiment_manifest import build_experiment_manifest, seed_everything
 from forecast_engine import (
     MarketData,
     TARGET_HOURS,
@@ -191,6 +192,7 @@ def main() -> None:
     parser.add_argument("--samples", type=int, default=60)
     args = parser.parse_args()
 
+    seed_everything()
     data = fetch_binance_history(args.days)
     first = 513
     last = len(data.closes) - max(TARGET_HOURS) - 1
@@ -225,9 +227,25 @@ def main() -> None:
             f"({forecast['regime']}; {','.join(modes)})"
         )
 
+    generated_at = datetime.now(timezone.utc)
+    data_source = "Binance BTCUSDT 1h (historical proxy for BTC/USD)"
+    experiment_manifest = build_experiment_manifest(
+        run_type="backtest",
+        data=data,
+        data_source=data_source,
+        data_pair="BTC/USDT",
+        run_parameters={
+            "days_requested": args.days,
+            "samples_requested": args.samples,
+            "adaptive_history_limit": DEFAULT_HISTORY_LIMIT,
+        },
+        model_names=sorted(samples[-1]["forecast"]["model_predictions"]) if samples else [],
+        created_at=generated_at,
+    )
     report = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "data_source": "Binance BTCUSDT 1h (historical proxy for BTC/USD)",
+        "generated_at": generated_at.isoformat(),
+        "data_source": data_source,
+        "experiment_manifest": experiment_manifest,
         "adaptive_history_limit": DEFAULT_HISTORY_LIMIT,
         "days_requested": args.days,
         "samples": len(samples),

@@ -12,6 +12,7 @@ import numpy as np
 
 import forecast_engine
 from adaptive_weighting import adaptive_model_weights, attach_persisted_outcomes
+from experiment_manifest import build_experiment_manifest, seed_everything
 from forecast_engine import TARGET_HOURS, build_forecast, load_timesfm
 from market_data_sources import fetch_redundant_hourly
 from history_store import DEFAULT_DB_PATH, ForecastHistoryStore
@@ -205,6 +206,7 @@ def save_forecast_history(history: list[dict[str, Any]], output: dict[str, Any])
         "pair": output.get("pair"),
         "source_pair": output.get("source_pair"),
         "market_data_provenance": output.get("market_data_provenance"),
+        "experiment_manifest": output.get("experiment_manifest"),
         "regime": output["regime"],
         "market_features": output["market_features"],
         "model_weights": output["model_weights"],
@@ -217,7 +219,7 @@ def save_forecast_history(history: list[dict[str, Any]], output: dict[str, Any])
     deduplicated.append(snapshot)
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     STATE_PATH.write_text(
-        json.dumps({"version": 3, "forecasts": deduplicated[-HISTORY_LIMIT:]}, indent=2) + "\n"
+        json.dumps({"version": 4, "forecasts": deduplicated[-HISTORY_LIMIT:]}, indent=2) + "\n"
     )
 
 
@@ -281,6 +283,7 @@ def print_reliability(reliability: dict[str, dict[str, Any]]) -> None:
 
 
 def main() -> None:
+    seed_everything()
     selection = fetch_redundant_hourly(512)
     data = selection.data
     print(f"Market data source: {selection.source} ({selection.source_pair})")
@@ -311,8 +314,18 @@ def main() -> None:
 
     model = load_timesfm()
     engine_output = build_forecast(model, data, history)
+    generated_at = datetime.now(timezone.utc)
+    experiment_manifest = build_experiment_manifest(
+        run_type="production_forecast",
+        data=data,
+        data_source=selection.source,
+        data_pair=selection.source_pair,
+        run_parameters={"rolling_history_limit": HISTORY_LIMIT},
+        model_names=sorted(engine_output.get("model_predictions", {})),
+        created_at=generated_at,
+    )
     output: dict[str, Any] = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": generated_at.isoformat(),
         "pair": "BTC/USD",
         "source": selection.source,
         "source_pair": selection.source_pair,
@@ -322,6 +335,7 @@ def main() -> None:
             "source_pair": selection.source_pair,
             "comparison": selection.comparison,
         },
+        "experiment_manifest": experiment_manifest,
         **engine_output,
         "forecast_reliability": reliability,
         "performance_summary": summary,
