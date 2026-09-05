@@ -14,7 +14,11 @@ on:
     - cron: "37 * * * *"
 
 permissions:
-  contents: read
+  # Read the source and update the dedicated forecast-history Release assets.
+  contents: write
+
+env:
+  HISTORY_RELEASE_TAG: forecast-history-v1
 
 concurrency:
   group: btc-timesfm-forecast
@@ -47,6 +51,26 @@ jobs:
           echo '## Forecast skipped' >> "$GITHUB_STEP_SUMMARY"
           echo '${{ steps.due.outputs.reason }}' >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Restore durable forecast database
+        if: steps.due.outputs.run_forecast == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p .state
+          if gh release view "$HISTORY_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release download "$HISTORY_RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern 'forecast_history.sqlite.gz' \
+              --dir .state
+            gzip -df .state/forecast_history.sqlite.gz
+            cp .state/forecast_history.sqlite .state/forecast_history.previous.sqlite
+            touch .state/history_restored_from_release
+            echo "Restored durable history from release $HISTORY_RELEASE_TAG"
+          else
+            echo "No durable history release exists yet; the first forecast will create it."
+          fi
+
       - name: Set up Python
         if: steps.due.outputs.run_forecast == 'true'
         uses: actions/setup-python@v5
@@ -69,7 +93,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Forecast BTC and score matured predictions
+      - name: Forecast BTC and persist matured predictions
         if: steps.due.outputs.run_forecast == 'true'
         run: python btc_forecast.py
 
@@ -77,12 +101,60 @@ jobs:
         if: steps.due.outputs.run_forecast == 'true'
         run: python format_tweet.py
 
+      - name: Verify and export durable history
+        if: steps.due.outputs.run_forecast == 'true'
+        run: |
+          set -euo pipefail
+          python history_store.py --db .state/forecast_history.sqlite verify
+          python history_store.py --db .state/forecast_history.sqlite export \
+            --format csv --output .state/forecast_history.csv
+          gzip -c .state/forecast_history.sqlite > .state/forecast_history.sqlite.gz
+          gzip -c .state/forecast_history.csv > .state/forecast_history.csv.gz
+          if [ -f .state/forecast_history.previous.sqlite ]; then
+            gzip -c .state/forecast_history.previous.sqlite \
+              > .state/forecast_history.previous.sqlite.gz
+          fi
+
+      - name: Publish durable forecast history
+        if: steps.due.outputs.run_forecast == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          assets=(
+            .state/forecast_history.sqlite.gz
+            .state/forecast_history.csv.gz
+          )
+          if [ -f .state/forecast_history.previous.sqlite.gz ]; then
+            assets+=(.state/forecast_history.previous.sqlite.gz)
+          fi
+
+          if [ -f .state/history_restored_from_release ]; then
+            # We only overwrite a release that was successfully restored in
+            # this same run. If restore failed transiently, this guard prevents
+            # a fresh empty database from clobbering an existing history.
+            gh release upload "$HISTORY_RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$HISTORY_RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title 'BTC forecast history datastore' \
+              --notes 'Machine-managed durable history for production BTC forecasts. Do not edit assets manually.' \
+              --latest=false
+          fi
+
       - name: Add forecast to job summary
         if: steps.due.outputs.run_forecast == 'true'
         run: |
           echo '## BTC TimesFM 3 forecast' >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
           cat forecast.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo '## Durable history' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          python history_store.py --db .state/forecast_history.sqlite stats >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo '' >> "$GITHUB_STEP_SUMMARY"
           echo '## X post' >> "$GITHUB_STEP_SUMMARY"
