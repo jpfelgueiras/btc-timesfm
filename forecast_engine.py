@@ -53,6 +53,8 @@ class MarketData:
 
 
 def fetch_kraken_hourly(limit: int = 512) -> MarketData:
+    # N hourly returns require N+1 closes. Keep enough candles for the largest context.
+    limit = max(limit, max(CONTEXT_WINDOWS) + 1)
     response = requests.get(
         KRAKEN_OHLC_URL,
         params={"pair": PAIR, "interval": INTERVAL_MINUTES},
