@@ -4,7 +4,7 @@ A small experiment using Google's **TimesFM 3** to forecast BTC/USD from complet
 
 ## Forecast horizons
 
-Every run forecasts:
+Every forecast produces:
 
 - +2 hours
 - +4 hours
@@ -15,17 +15,21 @@ The output also includes TimesFM's 10th, 50th and 90th percentile estimates.
 
 ## Schedule
 
-GitHub Actions runs every 2 hours, at minute `17` UTC:
+GitHub Actions wakes up every hour at minute `37` UTC:
 
 ```text
-00:17
-02:17
-04:17
+00:37
+01:37
+02:37
 ...
-22:17
+23:37
 ```
 
-Scheduled runs post the forecast to X automatically. Manual runs can optionally post by enabling the `post_to_x` workflow input.
+The hourly trigger is intentional. GitHub's scheduled workflows are best-effort and can be delayed or occasionally dropped, so the workflow restores the latest forecast history first and runs the expensive TimesFM forecast only when at least **two completed hourly candles** have elapsed since the last saved forecast.
+
+In the normal case this still produces one forecast roughly every 2 hours. If GitHub misses one cron event, the next hourly trigger can recover instead of waiting for the next fixed 2-hour slot.
+
+Skipped hourly checks do not install the model dependencies, restore the large Hugging Face model cache, post to X, or create a forecast artifact. Manual `workflow_dispatch` runs always execute and can optionally post by enabling the `post_to_x` input.
 
 ## Multi-horizon forecast reliability
 
@@ -92,7 +96,7 @@ Treat these cookies like a password and never commit them.
 
 ## Forecast state
 
-`.state/previous_forecast.json` now stores a versioned rolling forecast history rather than only one previous run. Keeping the existing path allows the first multi-horizon run to import the previous single-forecast cache automatically.
+`.state/previous_forecast.json` stores a versioned rolling forecast history. The scheduler guard reads the most recent `latest_close_at` from this state before deciding whether a scheduled forecast is due.
 
 The state is saved with `actions/cache/save`, so generated forecast history is not committed to the repository.
 
@@ -110,7 +114,7 @@ google/timesfm-3.0-pytorch
 
 The project uses `timesfm[torch]==3.0.1` and runs inference on CPU so it works on a standard GitHub-hosted Ubuntu runner.
 
-The Hugging Face model directory is cached between runs.
+The Hugging Face model directory is cached between forecast runs.
 
 ## Run locally
 
