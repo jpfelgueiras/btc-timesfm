@@ -33,6 +33,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Initialize forecast observability
+        run: python3 observability.py init --run-type production_forecast
+
       - name: Restore forecast history
         uses: actions/cache/restore@v6
         with:
@@ -47,9 +50,12 @@ jobs:
 
       - name: Explain skipped schedule
         if: steps.due.outputs.run_forecast != 'true'
+        env:
+          SKIP_REASON: ${{ steps.due.outputs.reason }}
         run: |
+          python3 observability.py skip --reason "$SKIP_REASON"
           echo '## Forecast skipped' >> "$GITHUB_STEP_SUMMARY"
-          echo '${{ steps.due.outputs.reason }}' >> "$GITHUB_STEP_SUMMARY"
+          echo "$SKIP_REASON" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Restore durable forecast database
         if: steps.due.outputs.run_forecast == 'true'
@@ -191,7 +197,11 @@ jobs:
         if: steps.due.outputs.run_forecast == 'true' && (github.event_name == 'schedule' || inputs.post_to_x)
         env:
           X_COOKIES_JSON: ${{ secrets.X_COOKIES_JSON }}
-        run: python post_to_x.py
+        run: |
+          python observability.py run-stage \
+            --stage x_post \
+            --success-counter successful_posts \
+            -- python post_to_x.py
 
       - name: Add X posting status to job summary
         if: always() && steps.due.outputs.run_forecast == 'true' && hashFiles('x_post_status.json') != ''
@@ -201,6 +211,18 @@ jobs:
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
           cat x_post_status.json >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Finalize observability and add summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ "$JOB_STATUS" = "failure" ]; then
+            python3 observability.py finalize --status failed
+          else
+            python3 observability.py finalize --status success --preserve-terminal
+          fi
+          python3 observability.py summary --append "$GITHUB_STEP_SUMMARY"
 
       - name: Upload forecast
         if: always() && steps.due.outputs.run_forecast == 'true'
@@ -213,5 +235,7 @@ jobs:
             x_post_status.json
             market_data_validation.json
             market_data_source.json
+            forecast_observability.json
+            forecast_observability.jsonl
           if-no-files-found: warn
           retention-days: 7
