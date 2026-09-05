@@ -19,17 +19,17 @@ show_error_codes = true
 [tool.coverage.run]
 branch = true
 source = [
-  "adaptive_weighting",
-  "history_store",
-  "market_data_validation",
-  "schedule_guard",
-  "format_tweet",
-  "post_to_x",
-  "twikit_compat",
+    "adaptive_weighting",
+    "history_store",
+    "market_data_validation",
+    "schedule_guard",
+    "format_tweet",
+    "post_to_x",
+    "twikit_compat",
 ]
 
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
 precision = 1
-fail_under = 70
+fail_under = 75
