@@ -19,6 +19,8 @@ from typing import Any
 import numpy as np
 import requests
 
+import forecast_engine
+from adaptive_weighting import DEFAULT_HISTORY_LIMIT, adaptive_model_weights
 from forecast_engine import (
     MarketData,
     TARGET_HOURS,
@@ -30,6 +32,11 @@ from forecast_engine import (
 
 BINANCE_KLINES = "https://api.binance.com/api/v3/klines"
 REPORT_PATH = Path("backtest_report.json")
+
+# Use the same issue #6 adaptive policy as production. During walk-forward tests
+# there is no durable DB; only target candles already visible at each simulated
+# origin can mature prior forecasts, which preserves no-look-ahead behavior.
+forecast_engine.adaptive_model_weights = adaptive_model_weights
 
 
 def fetch_binance_history(days: int) -> MarketData:
@@ -206,7 +213,7 @@ def main() -> None:
             }
         )
         history.append(history_snapshot(forecast))
-        history = history[-72:]
+        history = history[-DEFAULT_HISTORY_LIMIT:]
         modes = sorted({str(p["weighting_mode"]) for p in forecast["predictions"].values()})
         print(
             f"Backtest {number}/{len(indices)}: {samples[-1]['origin_at']} "
@@ -216,6 +223,7 @@ def main() -> None:
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "data_source": "Binance BTCUSDT 1h (historical proxy for BTC/USD)",
+        "adaptive_history_limit": DEFAULT_HISTORY_LIMIT,
         "days_requested": args.days,
         "samples": len(samples),
         "summary": summarize(samples),

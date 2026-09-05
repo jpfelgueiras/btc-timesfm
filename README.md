@@ -73,15 +73,22 @@ The adaptive score uses:
 - recent MAE % as the main signal
 - direction accuracy as a smaller reward
 - signed bias as a penalty
+- Q10-Q90 coverage as a small calibration penalty when a model exposes quantiles
 - performance relative to the persistence baseline
 
-The current market regime is preferred when there are enough matching samples. If regime-specific history is sparse, the system can use all recent regimes. With fewer than 6 matured samples per current model it falls back to the original static regime prior.
+Production weighting consumes the **matured outcomes stored in the durable SQLite history**, so observations remain usable after their Kraken candles have fallen outside the recent OHLC API window. During walk-forward backtests there is no durable outcome shortcut: a previous forecast can only be scored once its target candle is already visible at the current simulated origin.
+
+The current market regime is preferred when there are enough matching samples. If regime-specific history is sparse, the system falls back to recent observations from all regimes. With fewer than 6 matured samples per current model it uses the static regime prior.
+
+The rolling sample limit defaults to **200 relevant matured observations per model/horizon/regime** and applies *after* regime filtering, rather than simply slicing the latest 200 forecast origins. It can be changed without code changes:
+
+```bash
+export BTC_ADAPTIVE_HISTORY_LIMIT=300
+```
 
 Adaptation is deliberately gradual. The learned distribution is blended with the static prior and reaches at most 80% of the final decision after enough observations. Every active model is constrained to a 3% minimum and 55% maximum weight, preventing one short lucky streak from taking over the ensemble.
 
 If the non-persistence models are collectively failing to beat persistence, the weighting logic explicitly boosts the persistence baseline before the final bounded normalization.
-
-Only target prices already present in completed historical candles are used when computing weights. Future outcomes are never consulted, avoiding look-ahead leakage in production and walk-forward tests.
 
 `forecast.json` exposes the result per horizon:
 
@@ -93,9 +100,9 @@ model_weights.16h
 weighting_diagnostics.<horizon>
 ```
 
-The diagnostics include static prior weight, recent sample count, MAE, direction accuracy, signed bias, raw adaptive score, learned weight, final weight, persistence edge, blend factor and whether the persistence fallback was activated.
+The diagnostics include adaptive/static mode, selected history source, configured history limit, per-model sample count, MAE, direction accuracy, signed bias, Q10-Q90 coverage and interval sample count, durable-vs-current-candle outcome counts, raw adaptive score, learned weight, final weight, persistence edge, blend factor and whether the persistence fallback was activated.
 
-Production adaptive weighting now loads its snapshots from the durable SQLite history database. On the first run after this feature is deployed, the existing rolling Actions cache is migrated into SQLite so the observations already collected are not lost.
+This makes the weighting reproducible and observable while preserving strict no-look-ahead behavior. Sparse samples shrink toward the existing prior; sufficient samples can move each horizon and regime to a different learned model mix.
 
 ## Durable production history
 
@@ -286,7 +293,7 @@ Run locally:
 python backtest.py --days 90 --samples 60
 ```
 
-The backtest feeds only prior forecast snapshots into each new forecast, so adaptive weights can learn during the walk-forward run without seeing future targets.
+The backtest feeds only prior forecast snapshots into each new forecast, so adaptive weights can learn during the walk-forward run without seeing future targets. It uses the same adaptive scoring policy and configured history limit as production.
 
 The result is written to `backtest_report.json` with MAE %, mean signed error, direction accuracy, ensemble interval coverage and adaptive ensemble performance by regime.
 
@@ -301,7 +308,7 @@ pip install -r requirements-test.txt
 python -m unittest discover -s . -p 'test_*.py' -v
 ```
 
-The history-store tests cover schema verification, idempotent manual reruns, first-write-wins predictions, exact-target maturation, write-once outcomes, rolling-cache migration, adaptive-history reconstruction and CSV/JSONL export.
+The adaptive tests cover sparse-history fallback, current-regime/all-regime selection, durable outcomes beyond the recent candle window, configurable rolling limits, interval-coverage scoring, persistence fallback and strict weight floors/caps. The history-store tests cover schema verification, idempotent manual reruns, first-write-wins predictions, exact-target maturation, write-once outcomes, rolling-cache migration, adaptive-history reconstruction and CSV/JSONL export.
 
 ## Production output
 

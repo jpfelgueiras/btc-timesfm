@@ -10,6 +10,8 @@ from typing import Any
 
 import numpy as np
 
+import forecast_engine
+from adaptive_weighting import adaptive_model_weights, attach_persisted_outcomes
 from forecast_engine import TARGET_HOURS, build_forecast, fetch_kraken_hourly, load_timesfm
 from history_store import DEFAULT_DB_PATH, ForecastHistoryStore
 
@@ -19,6 +21,11 @@ TWEET_PATH = Path("tweet.txt")
 STATE_PATH = Path(".state/previous_forecast.json")
 HISTORY_DB_PATH = DEFAULT_DB_PATH
 HISTORY_LIMIT = 72
+
+# build_forecast resolves this function from forecast_engine's module globals.
+# Install the issue #6 policy once so production uses the durable-history-aware
+# weighting implementation while keeping the engine API stable.
+forecast_engine.adaptive_model_weights = adaptive_model_weights
 
 
 def load_forecast_history() -> list[dict[str, Any]]:
@@ -280,7 +287,10 @@ def main() -> None:
     store = ForecastHistoryStore(HISTORY_DB_PATH)
     migration = store.ingest_snapshots(rolling_history, actuals)
     durable_history = store.load_snapshots()
-    history = durable_history or rolling_history
+    if durable_history:
+        history = attach_persisted_outcomes(durable_history, store.export_rows())
+    else:
+        history = rolling_history
 
     reliability = score_forecast_history(history, data.closes, data.timestamps)
     summary = store.performance_summary()
