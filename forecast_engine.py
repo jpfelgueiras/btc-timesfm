@@ -304,7 +304,12 @@ def _bounded_normalize(
     floor: float = ADAPTIVE_MIN_WEIGHT,
     cap: float = ADAPTIVE_MAX_WEIGHT,
 ) -> dict[str, float]:
-    """Normalize weights while respecting per-model floors and caps."""
+    """Normalize positive weights while strictly respecting floors and caps.
+
+    The result is the clipped proportional distribution ``scale * raw_weight``.
+    A monotonic bisection solves for the scale that makes the clipped weights sum
+    to one. This avoids renormalizing after clipping, which can re-violate a cap.
+    """
     names = list(weights)
     if not names:
         return {}
@@ -312,42 +317,41 @@ def _bounded_normalize(
         raise ValueError("Weight floor/cap cannot produce a normalized distribution")
 
     raw = {name: max(float(weights[name]), 1e-12) for name in names}
-    result: dict[str, float] = {}
-    remaining = set(names)
-    remaining_mass = 1.0
 
-    while remaining:
-        raw_total = sum(raw[name] for name in remaining)
-        proposed = {
-            name: remaining_mass * raw[name] / raw_total
-            for name in remaining
-        }
-        low = [name for name, value in proposed.items() if value < floor - 1e-12]
-        high = [name for name, value in proposed.items() if value > cap + 1e-12]
+    def clipped_total(scale: float) -> float:
+        return sum(min(cap, max(floor, scale * raw[name])) for name in names)
 
-        if not low and not high:
-            result.update(proposed)
-            break
+    low = 0.0
+    high = 1.0
+    while clipped_total(high) < 1.0:
+        high *= 2.0
 
-        fixed = False
-        for name in low:
-            result[name] = floor
-            remaining.remove(name)
-            remaining_mass -= floor
-            fixed = True
-        for name in high:
-            if name not in remaining:
-                continue
-            result[name] = cap
-            remaining.remove(name)
-            remaining_mass -= cap
-            fixed = True
-        if not fixed:
-            result.update(proposed)
-            break
+    for _ in range(100):
+        mid = (low + high) / 2.0
+        if clipped_total(mid) < 1.0:
+            low = mid
+        else:
+            high = mid
 
-    total = sum(result.values())
-    return {name: value / total for name, value in result.items()}
+    result = {
+        name: min(cap, max(floor, high * raw[name]))
+        for name in names
+    }
+
+    # Bisection is already within machine precision. Correct any final rounding
+    # residue using a weight that still has room without violating its bounds.
+    residue = 1.0 - sum(result.values())
+    if abs(residue) > 1e-12:
+        candidates = [
+            name
+            for name, value in result.items()
+            if (residue > 0 and value < cap) or (residue < 0 and value > floor)
+        ]
+        if candidates:
+            name = candidates[0]
+            result[name] = min(cap, max(floor, result[name] + residue))
+
+    return result
 
 
 def _score_history_for_model(
