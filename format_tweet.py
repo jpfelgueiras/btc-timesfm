@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
-"""Render a compact, emoji-rich X post from forecast.json."""
+"""Render the direction-first B1 X post from forecast.json."""
 
 from __future__ import annotations
 
 import json
+import math
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
 FORECAST_PATH = Path("forecast.json")
 TWEET_PATH = Path("tweet.txt")
-
-REGIME_LABELS = {
-    "range": "↔️ Range",
-    "trending": "📈 Trending",
-    "high_volatility": "⚡ High volatility",
-}
+HORIZONS = ("2h", "4h", "8h", "16h")
 
 
 def format_price(value: float) -> str:
@@ -29,7 +26,17 @@ def direction_icon(change_pct: float) -> str:
     return "→"
 
 
+def direction_signal(change_pct: float) -> tuple[str, str]:
+    """Return the visual signal used by the B1 horizon rows."""
+    if change_pct > 0.005:
+        return "🟢", "UP"
+    if change_pct < -0.005:
+        return "🔴", "DOWN"
+    return "⚪", "FLAT"
+
+
 def horizon_text(horizon: str, prediction: dict[str, Any]) -> str:
+    """Retain the legacy horizon formatter for callers outside the tweet layout."""
     change = float(prediction["change_pct"])
     return (
         f"{horizon} {direction_icon(change)} {format_price(float(prediction['price_usd']))} "
@@ -37,52 +44,125 @@ def horizon_text(horizon: str, prediction: dict[str, Any]) -> str:
     )
 
 
-def build_visual_tweet(output: dict[str, Any]) -> str:
+def _format_number(value: float, decimals: int = 2) -> str:
+    """Format signed percentages compactly, including pathological large values."""
+    if not math.isfinite(value):
+        return f"{value:+g}"
+    if abs(value) >= 1000:
+        return f"{value:+.1e}"
+    return f"{value:+.{decimals}f}"
+
+
+def format_move(value: float, decimals: int = 2) -> str:
+    return f"{_format_number(value, decimals)}%"
+
+
+def format_delta(value: float, decimals: int = 2) -> str:
+    return f"{_format_number(value, decimals)}pp"
+
+
+def previous_outcome_text(score: dict[str, Any] | None, *, compact: bool = False) -> str:
+    """Render previous predicted move, actual move and actual-predicted delta."""
+    if not score:
+        return "Prev …" if not compact else "…"
+
+    try:
+        predicted = float(score["predicted_change_pct"])
+        actual = float(score["actual_change_pct"])
+    except (KeyError, TypeError, ValueError):
+        return "Prev …" if not compact else "…"
+
+    delta = actual - predicted
+    direction_correct = score.get("direction_correct")
+    if direction_correct is None:
+        direction_correct = (
+            (predicted > 0) == (actual > 0) if predicted and actual else predicted == actual
+        )
+    mark = "✅" if bool(direction_correct) else "❌"
+    decimals = 1 if compact else 2
+
+    if compact:
+        return (
+            f"{mark} P{format_move(predicted, decimals)} "
+            f"A{format_move(actual, decimals)} Δ{format_delta(delta, decimals)}"
+        )
+    return (
+        f"Prev {mark} P{format_move(predicted, decimals)} "
+        f"A{format_move(actual, decimals)} Δ{format_delta(delta, decimals)}"
+    )
+
+
+def signal_row(
+    horizon: str,
+    prediction: dict[str, Any],
+    score: dict[str, Any] | None,
+    *,
+    compact: bool = False,
+) -> str:
+    change = float(prediction["change_pct"])
+    emoji, label = direction_signal(change)
+    decimals = 1 if compact else 2
+    current = format_move(change, decimals)
+
+    if compact:
+        return f"{horizon} {emoji}{current} | {previous_outcome_text(score, compact=True)}"
+    return f"{horizon} {emoji} {label} {current} | {previous_outcome_text(score)}"
+
+
+def consensus_text(predictions: dict[str, Any]) -> str:
+    labels = [direction_signal(float(predictions[h]["change_pct"]))[1] for h in HORIZONS]
+    counts = Counter(labels)
+    best_count = max(counts.values())
+    winners = [label for label, count in counts.items() if count == best_count]
+
+    if len(winners) != 1:
+        return "🤝 mixed outlook"
+
+    label = winners[0]
+    description = {"UP": "bullish", "DOWN": "bearish", "FLAT": "neutral"}[label]
+    return f"🤝 {best_count}/4 {description}"
+
+
+def _render_tweet(
+    output: dict[str, Any],
+    *,
+    compact: bool,
+    include_consensus: bool,
+    include_price: bool,
+) -> str:
     predictions = output["predictions"]
     reliability = output.get("forecast_reliability", {})
-    regime = str(output.get("regime", "range"))
-    regime_text = REGIME_LABELS.get(regime, f"🧭 {regime.replace('_', ' ').title()}")
 
-    agreements = [
-        float(predictions[h].get("model_agreement", 0.0))
-        for h in ("2h", "4h", "8h", "16h")
-        if h in predictions
-    ]
-    average_agreement = sum(agreements) / len(agreements) if agreements else 0.0
+    lines = ["₿ BTC SIGNAL"]
+    lines.extend(
+        signal_row(horizon, predictions[horizon], reliability.get(horizon), compact=compact)
+        for horizon in HORIZONS
+    )
+    if include_consensus:
+        lines.append(consensus_text(predictions))
 
-    errors: list[str] = []
-    for horizon in ("2h", "4h", "8h", "16h"):
-        score = reliability.get(horizon)
-        errors.append(
-            f"{horizon} {float(score['absolute_error_pct']):.2f}%" if score else f"{horizon} —"
-        )
+    if include_price:
+        lines.append(f"💰 {format_price(float(output['latest_close_usd']))} • ⚠️ Experimental • NFA")
+    else:
+        lines.append("⚠️ Experimental • NFA")
+    return "\n".join(lines)
 
-    lines = [
-        "₿ BTC/USD • Ensemble",
-        f"💰 Now {format_price(float(output['latest_close_usd']))} • {regime_text}",
-        "⏱ " + " | ".join(horizon_text(h, predictions[h]) for h in ("2h", "4h")),
-        "🔭 " + " | ".join(horizon_text(h, predictions[h]) for h in ("8h", "16h")),
-        f"🤝 Models {average_agreement * 100:.0f}% agree",
-        "🎯 Error: " + " | ".join(errors),
-        "⚠️ Experimental • NFA",
-    ]
 
-    tweet = "\n".join(lines)
+def build_visual_tweet(output: dict[str, Any]) -> str:
+    """Build the selected B1 direction-first template with deterministic fallbacks."""
+    attempts = (
+        dict(compact=False, include_consensus=True, include_price=True),
+        dict(compact=False, include_consensus=False, include_price=True),
+        dict(compact=False, include_consensus=False, include_price=False),
+        dict(compact=True, include_consensus=False, include_price=False),
+    )
 
-    # Keep graceful fallbacks in case larger BTC prices or future labels make the post longer.
-    if len(tweet) > 280:
-        lines.pop(4)  # remove model-agreement line first
-        tweet = "\n".join(lines)
-    if len(tweet) > 280:
-        lines[1] = f"💰 {format_price(float(output['latest_close_usd']))} • {regime_text}"
-        tweet = "\n".join(lines)
-    if len(tweet) > 280:
-        lines[-2] = "🎯 Error: " + " | ".join(errors[:2])
-        tweet = "\n".join(lines)
-    if len(tweet) > 280:
-        raise RuntimeError(f"Generated X post is too long: {len(tweet)} characters")
+    for options in attempts:
+        tweet = _render_tweet(output, **options)
+        if len(tweet) <= 280:
+            return tweet
 
-    return tweet
+    raise RuntimeError("Generated X post is too long even after compact fallback")
 
 
 def main() -> None:
