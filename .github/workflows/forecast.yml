@@ -78,6 +78,10 @@ jobs:
           python-version: "3.11"
           cache: pip
 
+      - name: Migrate and verify durable history schema
+        if: steps.due.outputs.run_forecast == 'true'
+        run: python history_store.py --db .state/forecast_history.sqlite verify
+
       - name: Cache Hugging Face model
         if: steps.due.outputs.run_forecast == 'true'
         uses: actions/cache@v4
