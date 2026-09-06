@@ -72,37 +72,37 @@ jobs:
         continue-on-error: true
         run: |
           mypy --follow-imports=skip \
-            champion_challenger.py \
-            champion_challenger_intervals.py \
-            conformal_calibration.py \
-            correlation_backtest.py \
-            correlation_weighting.py \
-            cross_asset_ablation.py \
-            cross_asset_signals.py \
-            derivatives_ablation.py \
-            derivatives_signals.py \
-            diversified_model.py \
-            drift_detection.py \
-            experiment_manifest.py \
-            forecast_confidence.py \
-            history_audit.py \
-            history_backup.py \
-            history_migrations.py \
-            history_store.py \
-            market_data_sources.py \
-            market_data_validation.py \
-            microstructure_ablation.py \
-            microstructure_signals.py \
-            observability.py \
-            performance_dashboard.py \
-            pipeline_health.py \
-            post_to_x.py \
-            promotion_policy.py \
-            regime_backtest.py \
-            regime_detection.py \
-            schedule_guard.py \
-            statistical_significance.py \
-            x_post_registry.py
+            src/btc_timesfm/research/champion_challenger.py \
+            src/btc_timesfm/research/champion_challenger_intervals.py \
+            src/btc_timesfm/forecasting/conformal_calibration.py \
+            src/btc_timesfm/research/correlation_backtest.py \
+            src/btc_timesfm/forecasting/correlation_weighting.py \
+            src/btc_timesfm/research/cross_asset_ablation.py \
+            src/btc_timesfm/data/cross_asset_signals.py \
+            src/btc_timesfm/research/derivatives_ablation.py \
+            src/btc_timesfm/data/derivatives_signals.py \
+            src/btc_timesfm/forecasting/diversified_model.py \
+            src/btc_timesfm/ops/drift_detection.py \
+            src/btc_timesfm/forecasting/experiment_manifest.py \
+            src/btc_timesfm/forecasting/forecast_confidence.py \
+            src/btc_timesfm/history/history_audit.py \
+            src/btc_timesfm/history/history_backup.py \
+            src/btc_timesfm/history/history_migrations.py \
+            src/btc_timesfm/history/history_store.py \
+            src/btc_timesfm/data/market_data_sources.py \
+            src/btc_timesfm/data/market_data_validation.py \
+            src/btc_timesfm/research/microstructure_ablation.py \
+            src/btc_timesfm/data/microstructure_signals.py \
+            src/btc_timesfm/ops/observability.py \
+            src/btc_timesfm/research/performance_dashboard.py \
+            src/btc_timesfm/ops/pipeline_health.py \
+            src/btc_timesfm/x/post_to_x.py \
+            src/btc_timesfm/ops/promotion_policy.py \
+            src/btc_timesfm/research/regime_backtest.py \
+            src/btc_timesfm/data/regime_detection.py \
+            src/btc_timesfm/ops/schedule_guard.py \
+            src/btc_timesfm/forecasting/statistical_significance.py \
+            src/btc_timesfm/x/x_post_registry.py
 
       - name: Enforce quality gates
         if: always()
