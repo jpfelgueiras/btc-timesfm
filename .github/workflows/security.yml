@@ -7,7 +7,7 @@ on:
       - "requirements*.txt"
       - ".github/workflows/**"
       - ".github/dependabot.yml"
-      - "security_audit.py"
+      - "src/btc_timesfm/ops/security_audit.py"
   schedule:
     - cron: "23 6 * * 1"
 
