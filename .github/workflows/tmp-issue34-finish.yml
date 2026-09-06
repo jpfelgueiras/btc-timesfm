@@ -37,7 +37,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm issue34_finish.py
+          git rm issue34_finish.py derivatives_runtime.py
           git add btc_forecast.py derivatives_signals.py derivatives_ablation.py test_derivatives_signals.py test_derivatives_ablation.py test_derivatives_history_integration.py DERIVATIVES_SIGNALS.md
           git commit -m "Integrate derivatives signals into production history"
           git push origin HEAD:feature/crypto-derivatives-signals-final
