@@ -1,0 +1,53 @@
+name: Temporary open branch cleanup
+
+on:
+  push:
+    branches:
+      - cleanup/open-branches-20260906
+    paths:
+      - maintenance_branch_cleanup.py
+      - .github/workflows/tmp-open-branch-cleanup.yml
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: cleanup/open-branches-20260906
+          fetch-depth: 0
+      - name: Refresh roadmap
+        run: python maintenance_branch_cleanup.py
+      - name: Commit roadmap refresh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ROADMAP.md
+          if git diff --cached --quiet; then
+            echo "No roadmap changes"
+          else
+            git commit -m "Refresh roadmap after completed branches"
+            git push origin HEAD:cleanup/open-branches-20260906
+          fi
+      - name: Delete obsolete remote branches
+        run: |
+          for branch in \
+            backup/issue34-pre-rebase \
+            chore/roadmap-after-issue34 \
+            feature/crypto-derivatives-signals \
+            feature/crypto-derivatives-signals-final \
+            feature/crypto-derivatives-signals-rebased \
+            feature/crypto-derivatives-signals-v2 \
+            feature/statistical-confidence-explanations
+          do
+            if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+              echo "Deleting $branch"
+              git push origin --delete "$branch"
+            else
+              echo "$branch already absent"
+            fi
+          done
