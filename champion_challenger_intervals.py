@@ -58,12 +58,8 @@ def causal_interval_diagnostic(
         "minimum_history": min_history,
         "window": window,
         "evaluated_samples": len(covered),
-        "interval_coverage": (
-            round(sum(covered) / len(covered), 6) if covered else None
-        ),
-        "average_interval_width_pct": (
-            round(sum(widths) / len(widths), 6) if widths else None
-        ),
+        "interval_coverage": (round(sum(covered) / len(covered), 6) if covered else None),
+        "average_interval_width_pct": (round(sum(widths) / len(widths), 6) if widths else None),
         "mean_calibration_half_width_pct": (
             round(sum(thresholds) / len(thresholds), 6) if thresholds else None
         ),
@@ -82,31 +78,23 @@ def augment_optimizer_report(report: dict[str, Any]) -> dict[str, Any]:
         target = 0.80
         if isinstance(parameters, dict):
             raw_target = parameters.get("target_interval_coverage", 0.80)
-            if isinstance(raw_target, (int, float)) and not isinstance(
-                raw_target, bool
-            ):
+            if isinstance(raw_target, (int, float)) and not isinstance(raw_target, bool):
                 target = float(raw_target)
 
         paired = candidate.get("paired_metrics")
         by_horizon = candidate.get("by_horizon")
         if not isinstance(paired, dict) or not isinstance(by_horizon, dict):
-            raise ValueError(
-                f"candidate {candidate.get('name')} lacks paired horizon metrics"
-            )
+            raise ValueError(f"candidate {candidate.get('name')} lacks paired horizon metrics")
         paired_horizons = paired.get("by_horizon")
         if not isinstance(paired_horizons, dict):
-            raise ValueError(
-                f"candidate {candidate.get('name')} lacks paired horizon errors"
-            )
+            raise ValueError(f"candidate {candidate.get('name')} lacks paired horizon errors")
 
         diagnostics: dict[str, Any] = {}
         for horizon in HORIZONS:
             errors = paired_horizons.get(horizon)
             metric = by_horizon.get(horizon)
             if not isinstance(errors, list) or not isinstance(metric, dict):
-                raise ValueError(
-                    f"candidate {candidate.get('name')} lacks {horizon} metrics"
-                )
+                raise ValueError(f"candidate {candidate.get('name')} lacks {horizon} metrics")
             numeric_errors = [float(value) for value in errors]
             diagnostic = causal_interval_diagnostic(
                 numeric_errors,
@@ -115,13 +103,9 @@ def augment_optimizer_report(report: dict[str, Any]) -> dict[str, Any]:
             diagnostics[horizon] = diagnostic
             if metric.get("interval_coverage") is None:
                 metric["interval_coverage"] = diagnostic["interval_coverage"]
-                metric["average_interval_width_pct"] = diagnostic[
-                    "average_interval_width_pct"
-                ]
+                metric["average_interval_width_pct"] = diagnostic["average_interval_width_pct"]
                 metric["interval_coverage_source"] = diagnostic["method"]
-                metric["interval_evaluated_samples"] = diagnostic[
-                    "evaluated_samples"
-                ]
+                metric["interval_evaluated_samples"] = diagnostic["evaluated_samples"]
         candidate["interval_diagnostics"] = diagnostics
 
     report["champion_challenger_interval_diagnostics"] = {
@@ -135,9 +119,7 @@ def augment_optimizer_report(report: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Attach champion/challenger interval diagnostics"
-    )
+    parser = argparse.ArgumentParser(description="Attach champion/challenger interval diagnostics")
     parser.add_argument(
         "--report",
         type=Path,

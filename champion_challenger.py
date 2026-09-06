@@ -33,9 +33,7 @@ def _read_json(path: Path) -> dict[str, Any]:
     return payload
 
 
-def configuration_manifest(
-    candidate: Mapping[str, Any], role: str
-) -> dict[str, Any]:
+def configuration_manifest(candidate: Mapping[str, Any], role: str) -> dict[str, Any]:
     parameters = candidate.get("parameters")
     if not isinstance(parameters, dict):
         parameters = {}
@@ -55,16 +53,10 @@ def configuration_manifest(
 def _origins(candidate: Mapping[str, Any]) -> list[str]:
     paired = candidate.get("paired_metrics")
     if not isinstance(paired, dict):
-        raise ValueError(
-            f"candidate {candidate.get('name')} is missing paired_metrics"
-        )
+        raise ValueError(f"candidate {candidate.get('name')} is missing paired_metrics")
     origins = paired.get("origins")
-    if not isinstance(origins, list) or not all(
-        isinstance(value, str) for value in origins
-    ):
-        raise ValueError(
-            f"candidate {candidate.get('name')} is missing forecast origins"
-        )
+    if not isinstance(origins, list) or not all(isinstance(value, str) for value in origins):
+        raise ValueError(f"candidate {candidate.get('name')} is missing forecast origins")
     return [str(value) for value in origins]
 
 
@@ -81,9 +73,7 @@ def _candidate_pair(
     )
     if champion is None:
         raise ValueError("optimizer report is missing production champion")
-    challengers = [
-        item for item in normalized if item.get("name") != "production"
-    ]
+    challengers = [item for item in normalized if item.get("name") != "production"]
     if not challengers:
         raise ValueError("optimizer report has no challenger")
     challenger = min(
@@ -117,10 +107,7 @@ def validate_identical_origins(
     ]
     if mismatches:
         names = ", ".join(mismatches)
-        raise ValueError(
-            "champion/challengers were not evaluated on identical origins: "
-            f"{names}"
-        )
+        raise ValueError(f"champion/challengers were not evaluated on identical origins: {names}")
     return {
         "pairing_key": "forecast_origin",
         "identical_origins": True,
@@ -144,9 +131,7 @@ def _metric_block(candidate: Mapping[str, Any]) -> dict[str, Any]:
         "by_horizon": by_horizon if isinstance(by_horizon, dict) else {},
         "by_regime": by_regime if isinstance(by_regime, dict) else {},
         "folds": folds if isinstance(folds, list) else [],
-        "persistence_by_horizon": (
-            persistence if isinstance(persistence, dict) else {}
-        ),
+        "persistence_by_horizon": (persistence if isinstance(persistence, dict) else {}),
         "interval_diagnostics": intervals if isinstance(intervals, dict) else {},
     }
 
@@ -167,9 +152,7 @@ def _policy_decision(
             "reasons": ["promotion_decision_not_available"],
         }
     candidate = promotion_decision.get("candidate")
-    policy_candidate = (
-        candidate.get("name") if isinstance(candidate, dict) else None
-    )
+    policy_candidate = candidate.get("name") if isinstance(candidate, dict) else None
     if policy_candidate != challenger_name:
         raise ValueError(
             f"promotion decision candidate {policy_candidate!r} does not match "
@@ -288,17 +271,12 @@ def render_summary(report: Mapping[str, Any]) -> str:
             "Challenger bias | Champion direction | Challenger direction | "
             "Champion coverage | Challenger coverage | Persistence MAE |"
         ),
-        (
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
-            "---: | ---: |"
-        ),
+        ("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"),
     ]
     for horizon in HORIZONS:
         current = champion_metrics["by_horizon"].get(horizon, {})
         candidate = challenger_metrics["by_horizon"].get(horizon, {})
-        persistence = challenger_metrics["persistence_by_horizon"].get(
-            horizon, {}
-        )
+        persistence = challenger_metrics["persistence_by_horizon"].get(horizon, {})
         lines.append(
             f"| {horizon} | {_fmt(current.get('mae_pct'))}% | "
             f"{_fmt(candidate.get('mae_pct'))}% | "
@@ -367,19 +345,12 @@ def render_summary(report: Mapping[str, Any]) -> str:
     if isinstance(significance, dict) and significance:
         vs_production = significance.get("candidate_vs_production", {})
         vs_persistence = significance.get("candidate_vs_persistence", {})
-        production_mae = (
-            vs_production.get("mae_pct", {})
-            if isinstance(vs_production, dict)
-            else {}
-        )
+        production_mae = vs_production.get("mae_pct", {}) if isinstance(vs_production, dict) else {}
         persistence_mae = (
-            vs_persistence.get("mae_pct", {})
-            if isinstance(vs_persistence, dict)
-            else {}
+            vs_persistence.get("mae_pct", {}) if isinstance(vs_persistence, dict) else {}
         )
         lines.append(
-            "- Challenger vs champion MAE: "
-            f"**{production_mae.get('conclusion', 'inconclusive')}**"
+            f"- Challenger vs champion MAE: **{production_mae.get('conclusion', 'inconclusive')}**"
         )
         lines.append(
             "- Challenger vs persistence MAE: "
@@ -410,9 +381,7 @@ def render_summary(report: Mapping[str, Any]) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Build champion-vs-challenger evaluation report"
-    )
+    parser = argparse.ArgumentParser(description="Build champion-vs-challenger evaluation report")
     parser.add_argument(
         "--optimizer-report",
         type=Path,
@@ -429,9 +398,7 @@ def main() -> None:
 
     optimizer_report = _read_json(args.optimizer_report)
     promotion_decision = (
-        _read_json(args.promotion_decision)
-        if args.promotion_decision.exists()
-        else None
+        _read_json(args.promotion_decision) if args.promotion_decision.exists() else None
     )
     report = build_report(optimizer_report, promotion_decision)
     args.report.write_text(

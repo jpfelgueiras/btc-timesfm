@@ -34,18 +34,13 @@ def _candidate(name: str, mae: float, coverage: float) -> dict:
     }
     return {
         "name": name,
-        "parameters": {
-            "history_limit": 200 if name == "production" else 300
-        },
+        "parameters": {"history_limit": 200 if name == "production" else 300},
         "samples": 3,
         "objective_mae_pct": mae,
         "mean_direction_accuracy": 2 / 3,
         "by_horizon": by_horizon,
         "by_regime": {"range": copy.deepcopy(by_horizon)},
-        "persistence_by_horizon": {
-            horizon: {"samples": 3, "mae_pct": 1.2}
-            for horizon in HORIZONS
-        },
+        "persistence_by_horizon": {horizon: {"samples": 3, "mae_pct": 1.2} for horizon in HORIZONS},
         "folds": [
             {"fold": 1, "mae_pct": mae},
             {"fold": 2, "mae_pct": mae + 0.01},
@@ -55,9 +50,7 @@ def _candidate(name: str, mae: float, coverage: float) -> dict:
             "origins": origins,
             "mae_pct": [mae, mae, mae],
             "direction_accuracy": [1.0, 0.0, 1.0],
-            "by_horizon": {
-                horizon: [mae, mae, mae] for horizon in HORIZONS
-            },
+            "by_horizon": {horizon: [mae, mae, mae] for horizon in HORIZONS},
             "persistence_mae_pct": [1.2, 1.2, 1.2],
         },
     }

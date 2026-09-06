@@ -36,12 +36,8 @@ class ChampionChallengerIntervalTests(unittest.TestCase):
         candidate = {
             "name": "production",
             "parameters": {"target_interval_coverage": 0.8},
-            "paired_metrics": {
-                "by_horizon": {horizon: list(errors) for horizon in HORIZONS}
-            },
-            "by_horizon": {
-                horizon: {"mae_pct": 1.0} for horizon in HORIZONS
-            },
+            "paired_metrics": {"by_horizon": {horizon: list(errors) for horizon in HORIZONS}},
+            "by_horizon": {horizon: {"mae_pct": 1.0} for horizon in HORIZONS},
         }
         candidate["by_horizon"]["2h"]["interval_coverage"] = 0.77
         report = augment_optimizer_report({"candidates": [candidate]})
