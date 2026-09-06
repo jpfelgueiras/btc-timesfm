@@ -14,13 +14,13 @@ from typing import Any
 
 import numpy as np
 
-from adaptive_weighting import (
+from btc_timesfm.forecasting.adaptive_weighting import (
     COVERAGE_PENALTY,
     DEFAULT_HISTORY_LIMIT,
     MIN_COVERAGE_SAMPLES,
     TARGET_INTERVAL_COVERAGE,
 )
-from forecast_engine import (
+from btc_timesfm.forecasting.forecast_engine import (
     ADAPTIVE_DIRECTION_REWARD,
     ADAPTIVE_FULL_SAMPLES,
     ADAPTIVE_MAE_LAMBDA,

@@ -13,8 +13,8 @@ from typing import Any
 
 import numpy as np
 
-from microstructure_signals import MICROSTRUCTURE_FEATURE_NAMES
-from statistical_significance import paired_bootstrap_comparison
+from btc_timesfm.data.microstructure_signals import MICROSTRUCTURE_FEATURE_NAMES
+from btc_timesfm.forecasting.statistical_significance import paired_bootstrap_comparison
 
 REPORT_PATH = Path("microstructure_ablation_report.json")
 SUMMARY_PATH = Path("microstructure_ablation_summary.md")

@@ -97,7 +97,7 @@ jobs:
 
       - name: Migrate and verify durable history schema
         if: steps.due.outputs.run_forecast == 'true'
-        run: python history_store.py --db .state/forecast_history.sqlite verify
+        run: PYTHONPATH=src python -m btc_timesfm.history.history_store --db .state/forecast_history.sqlite verify
 
       - name: Cache Hugging Face model
         if: steps.due.outputs.run_forecast == 'true'
@@ -117,7 +117,7 @@ jobs:
       - name: Validate market data and forecast BTC
         id: forecast_run
         if: steps.due.outputs.run_forecast == 'true'
-        run: python validated_entrypoints.py forecast
+        run: PYTHONPATH=src python -m btc_timesfm.ops.validated_entrypoints forecast
 
       - name: Observe forecast and data health
         if: always() && steps.due.outputs.run_forecast == 'true'
@@ -147,7 +147,7 @@ jobs:
 
       - name: Format visual X post
         if: steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success'
-        run: python format_tweet.py
+        run: PYTHONPATH=src python -m btc_timesfm.x.format_tweet
 
       - name: Preliminary publication health gate
         id: health_pre
@@ -159,7 +159,7 @@ jobs:
         if: steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success' && (github.event_name == 'schedule' || inputs.post_to_x) && steps.health_pre.outputs.allow == 'true'
         env:
           X_COOKIES_JSON: ${{ secrets.X_COOKIES_JSON }}
-        run: python post_to_x.py prepare
+        run: PYTHONPATH=src python -m btc_timesfm.x.post_to_x prepare
 
       - name: Observe X preflight health
         if: always() && steps.due.outputs.run_forecast == 'true' && (github.event_name == 'schedule' || inputs.post_to_x) && hashFiles('x_post_status.json') != ''
@@ -169,8 +169,8 @@ jobs:
         if: steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success'
         run: |
           set -euo pipefail
-          python history_store.py --db .state/forecast_history.sqlite verify
-          python history_store.py --db .state/forecast_history.sqlite export \
+          PYTHONPATH=src python -m btc_timesfm.history.history_store --db .state/forecast_history.sqlite verify
+          PYTHONPATH=src python -m btc_timesfm.history.history_store --db .state/forecast_history.sqlite export \
             --format csv --output .state/forecast_history.csv
           gzip -c .state/forecast_history.sqlite > .state/forecast_history.sqlite.gz
           gzip -c .state/forecast_history.csv > .state/forecast_history.csv.gz
@@ -182,7 +182,7 @@ jobs:
           fi
 
           if [ -f .state/forecast_history.previous.sqlite ]; then
-            python history_backup.py create \
+            PYTHONPATH=src python -m btc_timesfm.history.history_backup create \
               --source .state/forecast_history.previous.sqlite \
               --output .state/forecast_history.previous.sqlite.gz \
               --max-bytes "$HISTORY_BACKUP_MAX_BYTES"
@@ -226,7 +226,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --pattern "$backup_name" \
               --dir .state/backup_verify
-            python history_backup.py verify \
+            PYTHONPATH=src python -m btc_timesfm.history.history_backup verify \
               --archive ".state/backup_verify/${backup_name}" \
               --max-bytes "$HISTORY_BACKUP_MAX_BYTES" \
               > .state/uploaded_backup_verification.json
@@ -239,7 +239,7 @@ jobs:
             gh api "repos/$GITHUB_REPOSITORY/releases/tags/$HISTORY_RELEASE_TAG" \
               --jq '.assets | map({id: .id, name: .name, size: .size, created_at: .created_at})' \
               > .state/release_assets.json
-            python history_backup.py retention-plan \
+            PYTHONPATH=src python -m btc_timesfm.history.history_backup retention-plan \
               --assets-json .state/release_assets.json \
               --keep "$HISTORY_BACKUP_KEEP" \
               --max-total-bytes "$HISTORY_BACKUP_MAX_TOTAL_BYTES" \
@@ -298,7 +298,7 @@ jobs:
           echo '' >> "$GITHUB_STEP_SUMMARY"
           echo '## Durable history' >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
-          python history_store.py --db .state/forecast_history.sqlite stats >> "$GITHUB_STEP_SUMMARY"
+          PYTHONPATH=src python -m btc_timesfm.history.history_store --db .state/forecast_history.sqlite stats >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           if [ -f .state/uploaded_backup_verification.json ]; then
             echo '' >> "$GITHUB_STEP_SUMMARY"
@@ -331,10 +331,10 @@ jobs:
         env:
           X_COOKIES_JSON: ${{ secrets.X_COOKIES_JSON }}
         run: |
-          python observability.py run-stage \
+          PYTHONPATH=src python -m btc_timesfm.ops.observability run-stage \
             --stage x_post \
             --success-counter successful_posts \
-            -- python post_to_x.py publish
+            -- PYTHONPATH=src python -m btc_timesfm.x.post_to_x publish
 
       - name: Observe X publication health
         if: always() && steps.due.outputs.run_forecast == 'true' && (github.event_name == 'schedule' || inputs.post_to_x) && steps.x_publish.outcome != 'skipped' && hashFiles('x_post_status.json') != ''

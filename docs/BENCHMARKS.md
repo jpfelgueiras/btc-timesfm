@@ -31,7 +31,7 @@ All benchmark inputs are restricted to the market context available at the simul
 Run the normal walk-forward backtest to produce `backtest_report.json`:
 
 ```bash
-python backtest.py --days 90 --samples 60
+PYTHONPATH=src python -m btc_timesfm.research.backtest --days 90 --samples 60
 ```
 
 The report exposes benchmark results under `summary.<horizon>.benchmarks` and regime-segmented results under `summary.<horizon>.benchmarks_by_regime`.

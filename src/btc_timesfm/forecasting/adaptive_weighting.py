@@ -16,7 +16,7 @@ from typing import Any, Iterable
 
 import numpy as np
 
-from forecast_engine import (
+from btc_timesfm.forecasting.forecast_engine import (
     ADAPTIVE_DIRECTION_REWARD,
     ADAPTIVE_FULL_SAMPLES,
     ADAPTIVE_MAE_LAMBDA,

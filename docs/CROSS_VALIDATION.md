@@ -24,7 +24,7 @@ The defaults are:
 Example:
 
 ```bash
-python backtest.py \
+PYTHONPATH=src python -m btc_timesfm.research.backtest \
   --days 120 \
   --samples 72 \
   --cv-folds 4 \

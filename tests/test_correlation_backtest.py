@@ -6,7 +6,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from correlation_backtest import compare_frozen_samples
+from btc_timesfm.research.correlation_backtest import compare_frozen_samples
 
 
 class CorrelationBacktestTests(unittest.TestCase):

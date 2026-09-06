@@ -12,8 +12,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import post_to_x
-from x_post_registry import XPostRegistry
+from btc_timesfm.x import post_to_x
+from btc_timesfm.x.x_post_registry import XPostRegistry
 
 
 class FakeClient:

@@ -24,15 +24,15 @@ from typing import Any, Iterator
 
 import numpy as np
 
-import adaptive_weighting as aw
-from backtest import fetch_binance_history, slice_market
-from statistical_significance import (
+from btc_timesfm.forecasting import adaptive_weighting as aw
+from btc_timesfm.research.backtest import fetch_binance_history, slice_market
+from btc_timesfm.forecasting.statistical_significance import (
     DEFAULT_BOOTSTRAP_ITERATIONS,
     DEFAULT_CONFIDENCE,
     DEFAULT_MIN_PAIRED_SAMPLES,
     paired_bootstrap_comparison,
 )
-from forecast_engine import (
+from btc_timesfm.forecasting.forecast_engine import (
     TARGET_HOURS,
     baseline_forecasts,
     detect_regime,

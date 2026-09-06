@@ -46,7 +46,7 @@ jobs:
 
       - name: Run timestamp-safe cross-asset ablation
         run: |
-          python cross_asset_ablation.py \
+          PYTHONPATH=src python -m btc_timesfm.research.cross_asset_ablation \
             --samples "${{ inputs.samples || '96' }}" \
             --min-train "${{ inputs.min_train || '32' }}"
 

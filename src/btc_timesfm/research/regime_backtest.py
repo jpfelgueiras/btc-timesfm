@@ -17,9 +17,9 @@ from typing import Any
 
 import numpy as np
 
-from correlation_weighting import correlation_aware_model_weights
-from forecast_engine import TARGET_HOURS
-from regime_detection import (
+from btc_timesfm.forecasting.correlation_weighting import correlation_aware_model_weights
+from btc_timesfm.forecasting.forecast_engine import TARGET_HOURS
+from btc_timesfm.data.regime_detection import (
     compare_regime_methods,
     heuristic_regime,
     transition_churn,

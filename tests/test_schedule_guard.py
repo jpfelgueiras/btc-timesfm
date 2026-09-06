@@ -9,7 +9,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from schedule_guard import (
+from btc_timesfm.ops.schedule_guard import (
     completed_hour,
     latest_forecast_close,
     parse_timestamp,

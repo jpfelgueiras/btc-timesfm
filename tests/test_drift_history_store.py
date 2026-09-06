@@ -8,7 +8,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from history_store import ForecastHistoryStore
+from btc_timesfm.history.history_store import ForecastHistoryStore
 
 
 class DriftHistoryStoreTests(unittest.TestCase):

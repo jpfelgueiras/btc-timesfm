@@ -11,7 +11,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from history_store import ENSEMBLE_MODEL, ForecastHistoryStore, SCHEMA_VERSION
+from btc_timesfm.history.history_store import ENSEMBLE_MODEL, ForecastHistoryStore, SCHEMA_VERSION
 
 
 def make_snapshot(

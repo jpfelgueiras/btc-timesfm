@@ -17,9 +17,9 @@ from typing import Any
 
 import numpy as np
 
-from adaptive_weighting import adaptive_model_weights
-from correlation_weighting import correlation_aware_model_weights
-from forecast_engine import TARGET_HOURS
+from btc_timesfm.forecasting.adaptive_weighting import adaptive_model_weights
+from btc_timesfm.forecasting.correlation_weighting import correlation_aware_model_weights
+from btc_timesfm.forecasting.forecast_engine import TARGET_HOURS
 
 
 def _weighted_ensemble_price(

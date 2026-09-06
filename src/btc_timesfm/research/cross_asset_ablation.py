@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from cross_asset_signals import (
+from btc_timesfm.data.cross_asset_signals import (
     CROSS_ASSET_FEATURE_NAMES,
     ETH_PAIR,
     US10Y_SERIES,
@@ -21,8 +21,8 @@ from cross_asset_signals import (
     fetch_kraken_pair_hourly,
     snapshot_from_inputs,
 )
-from forecast_engine import MarketData, detect_regime, market_features
-from statistical_significance import paired_bootstrap_comparison
+from btc_timesfm.forecasting.forecast_engine import MarketData, detect_regime, market_features
+from btc_timesfm.forecasting.statistical_significance import paired_bootstrap_comparison
 
 BTC_PAIR = "XBTUSD"
 REPORT_PATH = Path("cross_asset_ablation_report.json")

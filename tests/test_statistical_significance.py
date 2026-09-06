@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import unittest
 
-from statistical_significance import paired_bootstrap_comparison
+from btc_timesfm.forecasting.statistical_significance import paired_bootstrap_comparison
 
 
 class StatisticalSignificanceTests(unittest.TestCase):

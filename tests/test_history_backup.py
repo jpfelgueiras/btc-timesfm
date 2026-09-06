@@ -4,20 +4,20 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from history_backup import (
+from btc_timesfm.history.history_backup import (
     backup_asset_name,
     create_archive,
     restore_archive,
     retention_plan,
     verify_archive,
 )
-from history_migrations import (
+from btc_timesfm.history.history_migrations import (
     CURRENT_SCHEMA_VERSION,
     MIGRATIONS,
     migrate_database,
     validate_database,
 )
-from history_store import ForecastHistoryStore
+from btc_timesfm.history.history_store import ForecastHistoryStore
 
 
 class HistoryBackupTests(unittest.TestCase):

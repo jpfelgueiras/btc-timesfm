@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import unittest
 
-from format_tweet import (
+from btc_timesfm.x.format_tweet import (
     build_visual_tweet,
     consensus_text,
     direction_icon,

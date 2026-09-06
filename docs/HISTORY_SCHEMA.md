@@ -51,8 +51,8 @@ Current code supports every schema version represented by the migration registry
 Use:
 
 ```bash
-python history_store.py --db .state/forecast_history.sqlite verify
-python history_store.py --db .state/forecast_history.sqlite stats
+PYTHONPATH=src python -m btc_timesfm.history.history_store --db .state/forecast_history.sqlite verify
+PYTHONPATH=src python -m btc_timesfm.history.history_store --db .state/forecast_history.sqlite stats
 ```
 
 Both commands expose the current schema version. `stats` also exposes durable drift-event count and the latest persisted drift severity/origin. Migration-specific diagnostics, including the ordered audit trail, are available through `history_migrations.schema_diagnostics()` and are validated by `history_migrations.validate_database()`.

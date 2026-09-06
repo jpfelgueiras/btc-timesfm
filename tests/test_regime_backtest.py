@@ -6,7 +6,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from regime_backtest import compare_detectors_out_of_sample
+from btc_timesfm.research.regime_backtest import compare_detectors_out_of_sample
 
 
 def feature_row(i: int) -> dict:

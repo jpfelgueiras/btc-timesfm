@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from history_migrations import migrate_database, validate_database
+from btc_timesfm.history.history_migrations import migrate_database, validate_database
 
 BACKUP_PREFIX = "forecast_history.backup-"
 BACKUP_SUFFIX = ".sqlite.gz"

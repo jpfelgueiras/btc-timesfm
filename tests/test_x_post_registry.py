@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from x_post_registry import XPostRegistry, idempotency_key
+from btc_timesfm.x.x_post_registry import XPostRegistry, idempotency_key
 
 
 class XPostRegistryTests(unittest.TestCase):

@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from history_store import DEFAULT_DB_PATH, ENSEMBLE_MODEL, ForecastHistoryStore
+from btc_timesfm.history.history_store import DEFAULT_DB_PATH, ENSEMBLE_MODEL, ForecastHistoryStore
 
 DEFAULT_HORIZONS = (2, 4, 8, 16)
 DEFAULT_ROLLING_DAYS = (7, 30, 90)

@@ -6,7 +6,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from correlation_weighting import (
+from btc_timesfm.forecasting.correlation_weighting import (
     CORRELATION_MIN_SAMPLES,
     correlation_aware_model_weights,
     correlation_penalties,

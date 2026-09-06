@@ -8,7 +8,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from history_store import ForecastHistoryStore
+from btc_timesfm.history.history_store import ForecastHistoryStore
 
 
 class DerivativesHistoryIntegrationTests(unittest.TestCase):

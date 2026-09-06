@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from diversified_model import (
+from btc_timesfm.forecasting.diversified_model import (
     DEFAULT_INITIAL_PRIOR_WEIGHT,
     MAX_INITIAL_PRIOR_WEIGHT,
     MAX_LAG,

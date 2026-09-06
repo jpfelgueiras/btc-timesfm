@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from history_migrations import CURRENT_SCHEMA_VERSION
+from btc_timesfm.history.history_migrations import CURRENT_SCHEMA_VERSION
 
 
 DEFAULT_DB_PATH = Path(".state/forecast_history.sqlite")

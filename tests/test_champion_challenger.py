@@ -6,7 +6,7 @@ from __future__ import annotations
 import copy
 import unittest
 
-from champion_challenger import (
+from btc_timesfm.research.champion_challenger import (
     build_report,
     configuration_manifest,
     render_summary,

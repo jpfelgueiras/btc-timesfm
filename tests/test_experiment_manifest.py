@@ -9,16 +9,16 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-from unit_test_stubs import install_timesfm_stub
+from tests.support.unit_test_stubs import install_timesfm_stub
 
 install_timesfm_stub()
 
-from experiment_manifest import (  # noqa: E402
+from btc_timesfm.forecasting.experiment_manifest import (  # noqa: E402
     build_experiment_manifest,
     market_data_identity,
     seed_everything,
 )
-from forecast_engine import MarketData  # noqa: E402
+from btc_timesfm.forecasting.forecast_engine import MarketData  # noqa: E402
 
 
 def make_data(last_close: float = 103.0) -> MarketData:

@@ -10,8 +10,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from history_audit import audit_database, load_actuals
-from history_migrations import CURRENT_SCHEMA_VERSION
+from btc_timesfm.history.history_audit import audit_database, load_actuals
+from btc_timesfm.history.history_migrations import CURRENT_SCHEMA_VERSION
 
 
 SCHEMA_SQL = """

@@ -22,7 +22,7 @@ Warnings for missing matured outcomes do not fail the automated workflow by defa
 ## Dry-run audit
 
 ```bash
-python history_audit.py \
+PYTHONPATH=src python -m btc_timesfm.history.history_audit \
   --db .state/forecast_history.sqlite \
   --report .state/history_audit.json
 ```
@@ -34,7 +34,7 @@ The command prints the same JSON report to stdout. Use `--fail-on warning` to ma
 Repair mode only changes deterministic derived fields. It never deletes duplicates, orphan rows or otherwise ambiguous historical records.
 
 ```bash
-python history_audit.py \
+PYTHONPATH=src python -m btc_timesfm.history.history_audit \
   --db .state/forecast_history.sqlite \
   --repair \
   --report .state/history_audit.json
@@ -68,7 +68,7 @@ The audit deliberately does not invent or approximate missing actual prices. Pro
 Then run:
 
 ```bash
-python history_audit.py \
+PYTHONPATH=src python -m btc_timesfm.history.history_audit \
   --db .state/forecast_history.sqlite \
   --actuals exact_actuals.json \
   --repair \

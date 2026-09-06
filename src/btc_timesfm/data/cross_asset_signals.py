@@ -24,7 +24,7 @@ from typing import Any, Iterable
 import numpy as np
 import requests
 
-from forecast_engine import INTERVAL_MINUTES, MarketData
+from btc_timesfm.forecasting.forecast_engine import INTERVAL_MINUTES, MarketData
 
 KRAKEN_OHLC_URL = "https://api.kraken.com/0/public/OHLC"
 FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"

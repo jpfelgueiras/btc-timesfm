@@ -12,11 +12,11 @@ from unittest.mock import patch
 
 import numpy as np
 
-from unit_test_stubs import install_timesfm_stub
+from tests.support.unit_test_stubs import install_timesfm_stub
 
 install_timesfm_stub()
 
-import btc_forecast  # noqa: E402
+from btc_timesfm.cli import btc_forecast  # noqa: E402
 
 
 class ForecastScoringTests(unittest.TestCase):

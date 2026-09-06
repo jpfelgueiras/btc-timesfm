@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from cross_asset_ablation import eligible_training_rows, evaluate_rows
+from btc_timesfm.research.cross_asset_ablation import eligible_training_rows, evaluate_rows
 
 
 def _row(index: int) -> dict:

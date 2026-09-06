@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import unittest
 
-from forecast_confidence import build_forecast_confidence, horizon_confidence
+from btc_timesfm.forecasting.forecast_confidence import build_forecast_confidence, horizon_confidence
 
 
 def _prediction(width_pct: float = 2.0) -> dict:

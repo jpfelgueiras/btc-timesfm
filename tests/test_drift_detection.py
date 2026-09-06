@@ -8,7 +8,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from drift_detection import (
+from btc_timesfm.ops.drift_detection import (
     DriftConfig,
     adaptive_confidence_for_severity,
     evaluate_drift,

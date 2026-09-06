@@ -36,7 +36,7 @@ jobs:
       - name: Unit tests
         id: unit
         continue-on-error: true
-        run: coverage run -m unittest discover -s tests -p 'test_*.py' -v
+        run: PYTHONPATH=src coverage run -m unittest discover -s tests -p 'test_*.py' -v
 
       - name: Coverage floor
         id: coverage

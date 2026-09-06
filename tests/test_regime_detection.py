@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import unittest
 
-from regime_detection import (
+from btc_timesfm.data.regime_detection import (
     compare_regime_methods,
     heuristic_regime,
     prototype_regime,

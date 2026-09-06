@@ -20,8 +20,8 @@ from typing import Any, Protocol
 import numpy as np
 import requests
 
-from forecast_engine import CONTEXT_WINDOWS, INTERVAL_MINUTES, MarketData, fetch_kraken_hourly
-from market_data_validation import (
+from btc_timesfm.forecasting.forecast_engine import CONTEXT_WINDOWS, INTERVAL_MINUTES, MarketData, fetch_kraken_hourly
+from btc_timesfm.data.market_data_validation import (
     MarketDataValidationError,
     ValidationConfig,
     ValidationReport,

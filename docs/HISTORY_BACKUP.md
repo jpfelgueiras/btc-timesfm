@@ -51,7 +51,7 @@ The very first production run has no previous canonical database, so it creates 
 ## Local backup verification
 
 ```bash
-python history_backup.py verify \
+PYTHONPATH=src python -m btc_timesfm.history.history_backup verify \
   --archive forecast_history.backup-20260905T220000Z-123.sqlite.gz
 ```
 
@@ -70,7 +70,7 @@ gh release download forecast-history-v1 \
 Restore atomically:
 
 ```bash
-python history_backup.py restore \
+PYTHONPATH=src python -m btc_timesfm.history.history_backup restore \
   --archive forecast_history.backup.sqlite.gz \
   --output .state/forecast_history.sqlite
 ```
@@ -78,7 +78,7 @@ python history_backup.py restore \
 Then verify the restored database with the normal history tooling:
 
 ```bash
-python history_store.py --db .state/forecast_history.sqlite verify
+PYTHONPATH=src python -m btc_timesfm.history.history_store --db .state/forecast_history.sqlite verify
 ```
 
 `restore` verifies the archive before replacement, restores through a temporary file, validates the restored SQLite database again, and only then atomically replaces the requested destination. A corrupt or incompatible backup cannot silently overwrite an existing destination.
@@ -92,7 +92,7 @@ Do not overwrite the Release first. Restore and verify locally, keep a local cop
 The workflow obtains the Release asset inventory and feeds it to:
 
 ```bash
-python history_backup.py retention-plan \
+PYTHONPATH=src python -m btc_timesfm.history.history_backup retention-plan \
   --assets-json release_assets.json \
   --keep 7 \
   --max-total-bytes 262144000

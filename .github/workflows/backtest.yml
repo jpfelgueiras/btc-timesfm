@@ -46,7 +46,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Validate historical data and run walk-forward backtest
-        run: python validated_entrypoints.py backtest --days "${{ inputs.days }}" --samples "${{ inputs.samples }}"
+        run: PYTHONPATH=src python -m btc_timesfm.ops.validated_entrypoints backtest --days "${{ inputs.days }}" --samples "${{ inputs.samples }}"
 
       - name: Add validation to summary
         if: always() && hashFiles('market_data_validation.json') != ''

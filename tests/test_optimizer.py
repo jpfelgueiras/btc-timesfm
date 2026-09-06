@@ -6,12 +6,12 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from unit_test_stubs import install_timesfm_stub
+from tests.support.unit_test_stubs import install_timesfm_stub
 
 install_timesfm_stub()
 
-import adaptive_weighting as aw  # noqa: E402
-import optimizer  # noqa: E402
+from btc_timesfm.forecasting import adaptive_weighting as aw  # noqa: E402
+from btc_timesfm.research import optimizer  # noqa: E402
 
 
 class OptimizerTests(unittest.TestCase):

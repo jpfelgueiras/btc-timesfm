@@ -10,11 +10,11 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from unit_test_stubs import install_timesfm_stub
+from tests.support.unit_test_stubs import install_timesfm_stub
 
 install_timesfm_stub()
 
-from forecast_engine import (  # noqa: E402
+from btc_timesfm.forecasting.forecast_engine import (  # noqa: E402
     CONTEXT_WINDOWS,
     MarketData,
     _forecast_prices_from_return_path,

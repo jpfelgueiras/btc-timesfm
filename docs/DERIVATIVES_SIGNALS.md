@@ -40,7 +40,7 @@ For every simulated origin, a training row is eligible only when its target time
 Run locally with:
 
 ```bash
-python derivatives_ablation.py --days 30 --samples 96 --min-train 48
+PYTHONPATH=src python -m btc_timesfm.research.derivatives_ablation --days 30 --samples 96 --min-train 48
 ```
 
 The scheduled/manual GitHub Actions workflow publishes `derivatives_ablation_report.json` and `derivatives_ablation_summary.md`. This research result is evidence for later feature-selection work; it does not automatically alter production.

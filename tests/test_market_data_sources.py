@@ -10,19 +10,19 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from unit_test_stubs import install_timesfm_stub
+from tests.support.unit_test_stubs import install_timesfm_stub
 
 install_timesfm_stub()
 
-from forecast_engine import MarketData  # noqa: E402
-from market_data_sources import (  # noqa: E402
+from btc_timesfm.forecasting.forecast_engine import MarketData  # noqa: E402
+from btc_timesfm.data.market_data_sources import (  # noqa: E402
     NoHealthyMarketDataProvider,
     ProviderConfig,
     ProviderDisagreementError,
     fetch_bitstamp_hourly,
     select_market_data,
 )
-from market_data_validation import ValidationConfig  # noqa: E402
+from btc_timesfm.data.market_data_validation import ValidationConfig  # noqa: E402
 
 
 NOW = datetime(2026, 9, 5, 18, tzinfo=timezone.utc)
@@ -169,7 +169,7 @@ class MarketDataSourceTests(unittest.TestCase):
         with self.assertRaises(ProviderDisagreementError):
             self.select(primary, secondary)
 
-    @patch("market_data_sources.requests.get")
+    @patch("btc_timesfm.data.market_data_sources.requests.get")
     def test_bitstamp_hourly_parses_completed_candles(self, mock_get: Mock) -> None:
         first = int(datetime(2026, 9, 1, tzinfo=timezone.utc).timestamp())
         rows = []

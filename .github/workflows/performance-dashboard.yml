@@ -33,12 +33,12 @@ jobs:
           gzip -dc .state/forecast_history.sqlite.gz > .state/forecast_history.sqlite
 
       - name: Verify durable history
-        run: python history_store.py --db .state/forecast_history.sqlite verify
+        run: PYTHONPATH=src python -m btc_timesfm.history.history_store --db .state/forecast_history.sqlite verify
 
       - name: Generate dashboard
         run: |
           mkdir -p dashboard
-          python performance_dashboard.py \
+          PYTHONPATH=src python -m btc_timesfm.research.performance_dashboard \
             --db .state/forecast_history.sqlite \
             --json dashboard/performance_dashboard.json \
             --markdown dashboard/performance_dashboard.md \

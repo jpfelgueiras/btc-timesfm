@@ -12,8 +12,8 @@ from typing import Any
 
 from twikit import Client
 
-from twikit_compat import apply_twikit_compat
-from x_post_registry import DEFAULT_REGISTRY_PATH, XPostRegistry, idempotency_key
+from btc_timesfm.x.twikit_compat import apply_twikit_compat
+from btc_timesfm.x.x_post_registry import DEFAULT_REGISTRY_PATH, XPostRegistry, idempotency_key
 
 
 TWEET_PATH = Path("tweet.txt")

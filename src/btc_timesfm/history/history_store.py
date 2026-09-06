@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, TextIO
 
-from history_migrations import (
+from btc_timesfm.history.history_migrations import (
     CURRENT_SCHEMA_VERSION,
     migrate_database,
     schema_diagnostics,

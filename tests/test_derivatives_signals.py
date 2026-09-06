@@ -6,7 +6,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timezone
 
-from derivatives_signals import DERIVATIVE_FEATURE_NAMES, snapshot_from_rows
+from btc_timesfm.data.derivatives_signals import DERIVATIVE_FEATURE_NAMES, snapshot_from_rows
 
 
 class DerivativesSignalTests(unittest.TestCase):

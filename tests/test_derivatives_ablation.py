@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import unittest
 
-from unit_test_stubs import install_timesfm_stub
+from tests.support.unit_test_stubs import install_timesfm_stub
 
 install_timesfm_stub()
 
-from derivatives_ablation import eligible_training_rows, walk_forward_ablation  # noqa: E402
+from btc_timesfm.research.derivatives_ablation import eligible_training_rows, walk_forward_ablation  # noqa: E402
 
 
 class DerivativesAblationTests(unittest.TestCase):

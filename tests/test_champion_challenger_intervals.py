@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import unittest
 
-from champion_challenger_intervals import (
+from btc_timesfm.research.champion_challenger_intervals import (
     augment_optimizer_report,
     causal_interval_diagnostic,
 )

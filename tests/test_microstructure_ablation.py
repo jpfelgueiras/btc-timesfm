@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from microstructure_ablation import eligible_training_rows, evaluate_rows
+from btc_timesfm.research.microstructure_ablation import eligible_training_rows, evaluate_rows
 
 
 def _row(index: int, horizon: int, *, target: float, micro_scale: float = 1.0) -> dict:

@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from pipeline_health import HealthConfig, PipelineHealth, notify_webhook
+from btc_timesfm.ops.pipeline_health import HealthConfig, PipelineHealth, notify_webhook
 
 
 UTC = timezone.utc

@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from forecast_engine import FORECAST_HOURS, MarketData, baseline_forecasts
+from btc_timesfm.forecasting.forecast_engine import FORECAST_HOURS, MarketData, baseline_forecasts
 
 
 BENCHMARK_NAMES = (

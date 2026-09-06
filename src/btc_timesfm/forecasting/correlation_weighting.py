@@ -14,7 +14,7 @@ from typing import Any
 
 import numpy as np
 
-from adaptive_weighting import (
+from btc_timesfm.forecasting.adaptive_weighting import (
     ADAPTIVE_MAX_WEIGHT,
     ADAPTIVE_MIN_WEIGHT,
     _bounded_normalize,

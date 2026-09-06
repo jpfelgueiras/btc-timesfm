@@ -6,14 +6,14 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from cross_asset_signals import (
+from btc_timesfm.data.cross_asset_signals import (
     CROSS_ASSET_FEATURE_NAMES,
     VIX_SERIES,
     fetch_cross_asset_snapshot,
     parse_fred_csv,
     snapshot_from_inputs,
 )
-from forecast_engine import MarketData
+from btc_timesfm.forecasting.forecast_engine import MarketData
 
 
 def _market(start: int, closes: list[float]) -> MarketData:
@@ -82,8 +82,8 @@ class CrossAssetSignalTests(unittest.TestCase):
         self.assertEqual(set(snapshot["features"]), set(CROSS_ASSET_FEATURE_NAMES))
         self.assertTrue(snapshot["available"])
 
-    @patch("cross_asset_signals.fetch_fred_series")
-    @patch("cross_asset_signals.fetch_kraken_pair_hourly")
+    @patch("btc_timesfm.data.cross_asset_signals.fetch_fred_series")
+    @patch("btc_timesfm.data.cross_asset_signals.fetch_kraken_pair_hourly")
     def test_provider_failures_degrade_without_breaking(self, kraken: Mock, fred: Mock) -> None:
         import requests
 

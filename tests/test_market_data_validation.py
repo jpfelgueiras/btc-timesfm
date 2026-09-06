@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from market_data_validation import (
+from btc_timesfm.data.market_data_validation import (
     MarketDataValidationError,
     ValidationConfig,
     trim_incomplete_trailing_candles,

@@ -8,8 +8,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import twikit_compat
-from twikit_compat import _extract_create_tweet_id, _normalize_user_data
+from btc_timesfm.x import twikit_compat
+from btc_timesfm.x.twikit_compat import _extract_create_tweet_id, _normalize_user_data
 
 
 class TwikitCompatTests(unittest.TestCase):

@@ -33,7 +33,7 @@ These warnings are descriptive; they do not alter forecasts or adaptive weights.
 ## Generate locally
 
 ```bash
-python performance_dashboard.py \
+PYTHONPATH=src python -m btc_timesfm.research.performance_dashboard \
   --db .state/forecast_history.sqlite \
   --json performance_dashboard.json \
   --markdown performance_dashboard.md \

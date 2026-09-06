@@ -6,15 +6,15 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from unit_test_stubs import install_timesfm_stub
+from tests.support.unit_test_stubs import install_timesfm_stub
 
 install_timesfm_stub()
 
-from adaptive_weighting import (  # noqa: E402
+from btc_timesfm.forecasting.adaptive_weighting import (  # noqa: E402
     attach_persisted_outcomes,
     adaptive_model_weights,
 )
-from forecast_engine import (  # noqa: E402
+from btc_timesfm.forecasting.forecast_engine import (  # noqa: E402
     ADAPTIVE_MAX_WEIGHT,
     ADAPTIVE_MIN_WEIGHT,
     _bounded_normalize,

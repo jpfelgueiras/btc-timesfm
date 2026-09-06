@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from observability import PipelineObserver, run_stage, stable_run_id
+from btc_timesfm.ops.observability import PipelineObserver, run_stage, stable_run_id
 
 
 class ObservabilityTests(unittest.TestCase):

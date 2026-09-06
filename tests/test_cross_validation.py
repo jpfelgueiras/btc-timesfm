@@ -6,7 +6,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from cross_validation import (
+from btc_timesfm.forecasting.cross_validation import (
     assert_no_fold_leakage,
     build_purged_walk_forward_folds,
     fold_definition,

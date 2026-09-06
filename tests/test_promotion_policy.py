@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from promotion_policy import (
+from btc_timesfm.ops.promotion_policy import (
     PromotionPolicy,
     build_decision_report,
     evaluate_promotion,

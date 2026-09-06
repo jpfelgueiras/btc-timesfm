@@ -6,12 +6,12 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from unit_test_stubs import install_timesfm_stub
+from tests.support.unit_test_stubs import install_timesfm_stub
 
 install_timesfm_stub()
 
-from adaptive_weighting import adaptive_model_weights  # noqa: E402
-from forecast_engine import static_model_weights  # noqa: E402
+from btc_timesfm.forecasting.adaptive_weighting import adaptive_model_weights  # noqa: E402
+from btc_timesfm.forecasting.forecast_engine import static_model_weights  # noqa: E402
 
 
 MODELS = ["timesfm_168h", "timesfm_336h", "persistence", "drift_7d", "ar1"]

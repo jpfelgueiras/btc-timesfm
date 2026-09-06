@@ -7,13 +7,13 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-from unit_test_stubs import install_timesfm_stub
+from tests.support.unit_test_stubs import install_timesfm_stub
 
 install_timesfm_stub()
 
-from backtest import evaluate_cross_validation, summarize  # noqa: E402
-from benchmarks import BENCHMARK_NAMES  # noqa: E402
-from cross_validation import build_purged_walk_forward_folds  # noqa: E402
+from btc_timesfm.research.backtest import evaluate_cross_validation, summarize  # noqa: E402
+from btc_timesfm.forecasting.benchmarks import BENCHMARK_NAMES  # noqa: E402
+from btc_timesfm.forecasting.cross_validation import build_purged_walk_forward_folds  # noqa: E402
 
 
 def horizon_prices(price: float) -> dict[str, dict[str, float]]:
@@ -87,7 +87,7 @@ class BacktestSummaryTests(unittest.TestCase):
         self.assertIn("adaptive_minus_persistence_mae_pct", comparison)
         self.assertIn("adaptive_minus_best_benchmark_mae_pct", comparison)
 
-    @patch("backtest.adaptive_model_weights")
+    @patch("btc_timesfm.research.backtest.adaptive_model_weights")
     def test_cross_validation_reports_fold_metrics_and_dispersion(self, weights) -> None:
         weights.return_value = ({"persistence": 1.0}, {"mode": "test"})
         start = datetime(2026, 1, 1, tzinfo=timezone.utc)

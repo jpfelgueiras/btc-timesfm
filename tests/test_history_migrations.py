@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from history_migrations import (
+from btc_timesfm.history.history_migrations import (
     CURRENT_SCHEMA_VERSION,
     MIGRATIONS,
     Migration,
@@ -17,7 +17,7 @@ from history_migrations import (
     schema_diagnostics,
     validate_database,
 )
-from history_store import ForecastHistoryStore
+from btc_timesfm.history.history_store import ForecastHistoryStore
 
 
 V1_SCHEMA = """

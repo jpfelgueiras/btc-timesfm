@@ -67,7 +67,7 @@ For a report created with the standard CLI, use the recorded Git SHA and the val
 ```bash
 git checkout <experiment_manifest.code.git_sha>
 pip install -r requirements.txt
-python backtest.py --days <days_requested> --samples <samples_requested>
+PYTHONPATH=src python -m btc_timesfm.research.backtest --days <days_requested> --samples <samples_requested>
 ```
 
 Then compare the new report's `configuration_id` and `data_id` with the historical report. A matching configuration ID with a different data ID means the provider returned different historical OHLCV values or a different input window.

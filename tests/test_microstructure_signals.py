@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch
 
-from microstructure_signals import (
+from btc_timesfm.data.microstructure_signals import (
     MICROSTRUCTURE_FEATURE_NAMES,
     fetch_microstructure_snapshot,
     snapshot_from_book,
@@ -59,7 +59,7 @@ class MicrostructureSignalTests(unittest.TestCase):
         self.assertEqual(crossed["status"], "unavailable")
         self.assertIn("crossed_book", crossed["quality"]["errors"])
 
-    @patch("microstructure_signals.requests.get")
+    @patch("btc_timesfm.data.microstructure_signals.requests.get")
     def test_provider_failure_falls_back_to_bitstamp(self, get: Mock) -> None:
         kraken = Mock()
         kraken.raise_for_status.side_effect = Exception("boom")
@@ -77,7 +77,7 @@ class MicrostructureSignalTests(unittest.TestCase):
         self.assertTrue(snapshot["available"])
         self.assertIn("kraken:RequestException", snapshot["quality"]["errors"])
 
-    @patch("microstructure_signals.requests.get")
+    @patch("btc_timesfm.data.microstructure_signals.requests.get")
     def test_both_providers_down_degrades_without_raising(self, get: Mock) -> None:
         import requests
 
