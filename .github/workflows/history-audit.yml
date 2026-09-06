@@ -43,7 +43,7 @@ jobs:
       - name: Audit durable history
         if: steps.restore.outputs.available == 'true'
         run: |
-          python history_audit.py \
+          PYTHONPATH=src python -m btc_timesfm.history.history_audit \
             --db .state/forecast_history.sqlite \
             --report .state/history_audit.json \
             --fail-on error

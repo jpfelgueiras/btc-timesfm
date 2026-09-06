@@ -38,7 +38,7 @@ jobs:
           pip-audit -r requirements.txt --progress-spinner off
 
       - name: Check repository for credential leakage
-        run: python security_audit.py
+        run: PYTHONPATH=src python -m btc_timesfm.ops.security_audit
 
       - name: Write summary
         if: always()

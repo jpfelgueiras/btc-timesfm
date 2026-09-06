@@ -53,11 +53,11 @@ jobs:
             --pattern 'forecast_history.sqlite.gz' \
             --dir .state
           gzip -df .state/forecast_history.sqlite.gz
-          python history_store.py --db .state/forecast_history.sqlite verify
+          PYTHONPATH=src python -m btc_timesfm.history.history_store --db .state/forecast_history.sqlite verify
 
       - name: Run leakage-safe microstructure ablation
         run: |
-          python microstructure_ablation.py \
+          PYTHONPATH=src python -m btc_timesfm.research.microstructure_ablation \
             --db .state/forecast_history.sqlite \
             --min-train "${{ inputs.min_train || '24' }}"
 

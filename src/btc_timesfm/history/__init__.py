@@ -1,0 +1,1 @@
+"""Forecast history utilities."""

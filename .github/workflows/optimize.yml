@@ -70,21 +70,21 @@ jobs:
 
       - name: Validate historical data and run bounded optimization
         run: |
-          python validated_entrypoints.py optimizer \
+          PYTHONPATH=src python -m btc_timesfm.ops.validated_entrypoints optimizer \
             --days "${{ inputs.days || '120' }}" \
             --samples "${{ inputs.samples || '48' }}"
 
       - name: Attach leakage-safe interval diagnostics
         if: hashFiles('optimizer_report.json') != ''
-        run: python champion_challenger_intervals.py
+        run: PYTHONPATH=src python -m btc_timesfm.research.champion_challenger_intervals
 
       - name: Evaluate formal promotion policy
         if: hashFiles('optimizer_report.json') != ''
-        run: python promotion_policy.py
+        run: PYTHONPATH=src python -m btc_timesfm.ops.promotion_policy
 
       - name: Build champion-vs-challenger report
         if: hashFiles('optimizer_report.json') != ''
-        run: python champion_challenger.py
+        run: PYTHONPATH=src python -m btc_timesfm.research.champion_challenger
 
       - name: Add market data validation summary
         if: always() && hashFiles('market_data_validation.json') != ''

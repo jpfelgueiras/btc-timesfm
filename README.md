@@ -211,18 +211,18 @@ After obtaining the SQLite asset, analysis does not need to scrape Actions runs 
 Verify and inspect the database:
 
 ```bash
-python history_store.py --db forecast_history.sqlite verify
-python history_store.py --db forecast_history.sqlite stats
-python history_store.py --db forecast_history.sqlite summary
+PYTHONPATH=src python -m btc_timesfm.history.history_store --db forecast_history.sqlite verify
+PYTHONPATH=src python -m btc_timesfm.history.history_store --db forecast_history.sqlite stats
+PYTHONPATH=src python -m btc_timesfm.history.history_store --db forecast_history.sqlite summary
 ```
 
 Export to CSV or JSON Lines:
 
 ```bash
-python history_store.py --db forecast_history.sqlite export \
+PYTHONPATH=src python -m btc_timesfm.history.history_store --db forecast_history.sqlite export \
   --format csv --output forecast_history.csv
 
-python history_store.py --db forecast_history.sqlite export \
+PYTHONPATH=src python -m btc_timesfm.history.history_store --db forecast_history.sqlite export \
   --format jsonl --output forecast_history.jsonl
 ```
 
@@ -290,7 +290,7 @@ Historical backtesting uses Binance BTCUSDT hourly candles because Kraken's publ
 Run locally:
 
 ```bash
-python backtest.py --days 90 --samples 60
+PYTHONPATH=src python -m btc_timesfm.research.backtest --days 90 --samples 60
 ```
 
 The backtest feeds only prior forecast snapshots into each new forecast, so adaptive weights can learn during the walk-forward run without seeing future targets. It uses the same adaptive scoring policy and configured history limit as production.
@@ -344,7 +344,7 @@ Both files are uploaded as a GitHub Actions artifact for 90 days. Because the re
 Run the same optimizer manually:
 
 ```bash
-python optimizer.py --days 120 --samples 48
+PYTHONPATH=src python -m btc_timesfm.research.optimizer --days 120 --samples 48
 ```
 
 The promotion policy is intentionally manual for now. A `candidate_worth_review` result is evidence to inspect and rerun with a larger sample, not authorization to deploy it. Automatic parameter PR creation should only be considered after the weekly optimizer has shown stable recommendations over multiple independent runs.
@@ -355,7 +355,7 @@ Run the complete unit-test suite:
 
 ```bash
 pip install -r requirements-test.txt
-python -m unittest discover -s . -p 'test_*.py' -v
+PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
 The adaptive tests cover sparse-history fallback, current-regime/all-regime selection, durable outcomes beyond the recent candle window, configurable rolling limits, interval-coverage scoring, persistence fallback and strict weight floors/caps. The history-store tests cover schema verification, idempotent manual reruns, first-write-wins predictions, exact-target maturation, write-once outcomes, rolling-cache migration, adaptive-history reconstruction and CSV/JSONL export. Optimizer tests cover bounded/reproducible candidate generation, temporary parameter isolation, chronological folds, strict origin-time outcome visibility and promotion guardrails.
@@ -374,15 +374,15 @@ Python 3.11:
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python -m unittest discover -s . -p 'test_*.py' -v
-python btc_forecast.py
+PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py' -v
+PYTHONPATH=src python -m btc_timesfm.cli.btc_forecast
 ```
 
 To post the generated `tweet.txt` locally:
 
 ```bash
 export X_COOKIES_JSON="$(cat x_cookies.json)"
-python post_to_x.py
+PYTHONPATH=src python -m btc_timesfm.x.post_to_x
 ```
 
 ## Important

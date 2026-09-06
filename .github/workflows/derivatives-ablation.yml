@@ -52,7 +52,7 @@ jobs:
 
       - name: Run leakage-safe derivatives ablation
         run: |
-          python derivatives_ablation.py \
+          PYTHONPATH=src python -m btc_timesfm.research.derivatives_ablation \
             --days "${{ inputs.days || '30' }}" \
             --samples "${{ inputs.samples || '96' }}" \
             --min-train "${{ inputs.min_train || '48' }}"
