@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
-import requests
+from btc_timesfm._requests import requests
 
 
 BINANCE_FUNDING_URL = "https://fapi.binance.com/fapi/v1/fundingRate"

@@ -1,1 +1,2 @@
+# Keep the dependency-audit workflow path-triggered on PRs.
 pip-audit>=2.10.1,<3

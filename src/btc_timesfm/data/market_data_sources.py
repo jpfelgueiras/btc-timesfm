@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import numpy as np
-import requests
+
+from btc_timesfm._requests import requests
 
 from btc_timesfm.forecasting.forecast_engine import (
     CONTEXT_WINDOWS,

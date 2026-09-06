@@ -238,9 +238,9 @@ CI checks run on every pull request. Enforcing every check as a mandatory merge 
 
 The roadmap is split into five phases. Dependencies are intentional: later work should not be started when it depends on an unfinished foundation unless the work can safely proceed in parallel.
 
-**Completed roadmap items:** #17, #18, #19, #20, #21, #22, #23, #24, #25, #26, #27, #28, #29, #30, #31, #32, #33, #34, #35, #38, #39, #40, #41, #42, and #44.
+**Completed roadmap items:** #17, #18, #19, #20, #21, #22, #23, #24, #25, #26, #27, #28, #29, #30, #31, #32, #33, #34, #35, #37, #38, #39, #40, #41, #42, #43, and #44.
 
-**Highest-value currently unblocked work:** #36 (cross-asset/macro signals), which is the final dependency needed to unlock the P1 #37 feature-ablation pipeline. #43 (safe optimizer-generated PRs) is already fully unblocked and can proceed in parallel.
+**Highest-value currently unblocked work:** #36 (cross-asset/macro signals), which is the remaining dependency for the Phase 3 feature-set work.
 
 ## Phase 1 — Foundation & Data
 
@@ -309,7 +309,7 @@ Goal: determine whether crypto-native and cross-market information adds real out
 | [#34](https://github.com/jpfelgueiras/btc-timesfm/issues/34) | ✅ Funding, open interest and liquidation signals | #17, #18, #19 | P1 |
 | [#35](https://github.com/jpfelgueiras/btc-timesfm/issues/35) | ✅ Order-book and microstructure features | #17, #18 | P2 |
 | [#36](https://github.com/jpfelgueiras/btc-timesfm/issues/36) | Cross-asset and macro signals | #17, #18, #19 | P2 |
-| [#37](https://github.com/jpfelgueiras/btc-timesfm/issues/37) | Automated feature ablation and selection | #27, #34, #35, #36 | P1 |
+| [#37](https://github.com/jpfelgueiras/btc-timesfm/issues/37) | ✅ Automated feature ablation and selection | #27, #34, #35, #36 | P1 |
 
 ### Phase 3 definition of done
 
@@ -351,7 +351,7 @@ Goal: automate repetitive model-selection work without allowing the research sys
 |---|---|---|---|
 | [#41](https://github.com/jpfelgueiras/btc-timesfm/issues/41) | ✅ Optimizer promotion policy and safety guardrails | #7, #28, #33 | P0 |
 | [#42](https://github.com/jpfelgueiras/btc-timesfm/issues/42) | ✅ Champion-vs-challenger evaluation reports | #7, #26, #28, #41 | P1 |
-| [#43](https://github.com/jpfelgueiras/btc-timesfm/issues/43) | Automatically open safe parameter-change PRs | #21, #41, #42 | P2 |
+| [#43](https://github.com/jpfelgueiras/btc-timesfm/issues/43) | ✅ Automatically open safe parameter-change PRs | #21, #41, #42 | P2 |
 
 ### Phase 5 definition of done
 
@@ -431,7 +431,7 @@ The highest-value sequence is:
    Add a small reproducible set of related-market features with strict completed-hour alignment and graceful outages.
 
 2. **#37 — Automated feature ablation and selection (P1)**  
-   Once #36 is complete, evaluate derivatives, microstructure and cross-asset feature families together and promote only stable out-of-sample contributors.
+   Evaluate derivatives, microstructure and cross-asset feature families together and promote only stable out-of-sample contributors.
 
 3. **#43 — Safe optimizer-generated parameter PRs (P2)**  
    This is fully unblocked by #21, #41 and #42 and can proceed in parallel, while remaining review-only and never auto-merging.
@@ -464,7 +464,7 @@ Outcome: better regime awareness, less correlated ensemble behavior, a genuinely
 ## Stage D — Richer market information
 
 Target issues: **#34, #35, #36, #37**  
-Completed: **#34, #35**. Remaining: **#36, #37**.
+Completed: **#34, #35, #37**. Remaining: **#36**.
 
 Outcome: crypto-native and cross-market features are added only where ablation proves value.
 
@@ -478,7 +478,7 @@ Outcome: production can run unattended with usable monitoring, safer X publishin
 ## Stage F — Controlled research automation
 
 Target issues: **#41, #42, #43**  
-Completed: **#41, #42**. Remaining: **#43**.
+Completed: **#41, #42, #43**. Remaining: **none**.
 
 Outcome: the research loop can recommend and prepare improvements automatically while preserving human review and CI gates.
 

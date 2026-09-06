@@ -22,7 +22,8 @@ from datetime import date, datetime, time as dt_time, timedelta, timezone
 from typing import Any, Iterable
 
 import numpy as np
-import requests
+
+from btc_timesfm._requests import requests
 
 from btc_timesfm.forecasting.forecast_engine import INTERVAL_MINUTES, MarketData
 

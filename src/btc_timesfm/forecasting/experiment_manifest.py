@@ -150,6 +150,7 @@ def build_experiment_manifest(
     data_pair: str,
     run_parameters: dict[str, Any] | None = None,
     model_names: list[str] | None = None,
+    feature_set_version: str | None = None,
     seed: int = DEFAULT_SEED,
     created_at: datetime | None = None,
     git_sha: str | None = None,
@@ -179,6 +180,7 @@ def build_experiment_manifest(
         "forecast": forecast_configuration(model_names),
         "run_parameters": run_parameters or {},
         "dependencies": dependencies,
+        "feature_set_version": feature_set_version,
         "seed": seed,
     }
     configuration_hash = _sha256(configuration)
