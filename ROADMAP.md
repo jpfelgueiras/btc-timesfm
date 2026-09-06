@@ -50,6 +50,7 @@ The project has moved beyond a TimesFM experiment into a small forecasting platf
 - **Optional diversified non-TimesFM model** evaluated walk-forward before any production participation.
 - **Champion-vs-challenger evaluation reports** with identical-origin pairing, statistical evidence, and policy recommendations.
 - **Timestamp-safe crypto derivatives context** covering funding, open interest and liquidations, with durable feature persistence and leakage-safe ablation.
+- **Prospectively captured order-book microstructure context** with Kraken primary, Bitstamp fallback, bounded capture lag, durable feature persistence, and leakage-safe horizon-specific ablation.
 - **Evidence-grounded forecast confidence explanations** based on matured performance, calibration, sample depth and drift rather than raw model agreement.
 
 Relevant completed roadmap/foundation issues:
@@ -80,6 +81,7 @@ Relevant completed roadmap/foundation issues:
 - [#31 Conformal interval calibration](https://github.com/jpfelgueiras/btc-timesfm/issues/31)
 - [#32 Diversified non-TimesFM forecasting model](https://github.com/jpfelgueiras/btc-timesfm/issues/32)
 - [#34 Crypto derivatives signals](https://github.com/jpfelgueiras/btc-timesfm/issues/34)
+- [#35 Order-book and market microstructure features](https://github.com/jpfelgueiras/btc-timesfm/issues/35)
 - [#42 Champion-vs-challenger evaluation reports](https://github.com/jpfelgueiras/btc-timesfm/issues/42)
 - [#44 Statistically grounded confidence explanations](https://github.com/jpfelgueiras/btc-timesfm/issues/44)
 
@@ -200,7 +202,7 @@ These are the main reasons the current forecast should still be considered exper
 
 ### Data breadth
 
-Production now captures timestamp-safe funding, open-interest and liquidation context alongside validated spot OHLCV. Order-book microstructure and cross-asset/macro information are still not integrated, and derivatives signals remain passive until their walk-forward ablation demonstrates defensible out-of-sample value.
+Production now captures timestamp-safe funding, open-interest, liquidation and prospectively observed order-book microstructure context alongside validated spot OHLCV. Cross-asset/macro information is still not integrated, and external signals remain passive until their walk-forward ablations demonstrate defensible out-of-sample value.
 
 ### Model concentration
 
@@ -236,9 +238,9 @@ CI checks run on every pull request. Enforcing every check as a mandatory merge 
 
 The roadmap is split into five phases. Dependencies are intentional: later work should not be started when it depends on an unfinished foundation unless the work can safely proceed in parallel.
 
-**Completed roadmap items:** #17, #18, #19, #20, #21, #22, #23, #24, #25, #26, #27, #28, #29, #30, #31, #32, #33, #34, #38, #39, #40, #41, #42, and #44.
+**Completed roadmap items:** #17, #18, #19, #20, #21, #22, #23, #24, #25, #26, #27, #28, #29, #30, #31, #32, #33, #34, #35, #38, #39, #40, #41, #42, and #44.
 
-**Highest-value currently unblocked work:** #35 (order-book/microstructure features) and #36 (cross-asset/macro signals) to unlock the P1 #37 feature-ablation pipeline. #43 (safe optimizer-generated PRs) is also fully unblocked and can proceed in parallel.
+**Highest-value currently unblocked work:** #36 (cross-asset/macro signals), which is the final dependency needed to unlock the P1 #37 feature-ablation pipeline. #43 (safe optimizer-generated PRs) is already fully unblocked and can proceed in parallel.
 
 ## Phase 1 — Foundation & Data
 
@@ -305,7 +307,7 @@ Goal: determine whether crypto-native and cross-market information adds real out
 | Issue | Improvement | Depends on | Priority |
 |---|---|---|---|
 | [#34](https://github.com/jpfelgueiras/btc-timesfm/issues/34) | ✅ Funding, open interest and liquidation signals | #17, #18, #19 | P1 |
-| [#35](https://github.com/jpfelgueiras/btc-timesfm/issues/35) | Order-book and microstructure features | #17, #18 | P2 |
+| [#35](https://github.com/jpfelgueiras/btc-timesfm/issues/35) | ✅ Order-book and microstructure features | #17, #18 | P2 |
 | [#36](https://github.com/jpfelgueiras/btc-timesfm/issues/36) | Cross-asset and macro signals | #17, #18, #19 | P2 |
 | [#37](https://github.com/jpfelgueiras/btc-timesfm/issues/37) | Automated feature ablation and selection | #27, #34, #35, #36 | P1 |
 
@@ -397,7 +399,7 @@ Goal: automate repetitive model-selection work without allowing the research sys
 #17 ✅ ──► #18 ✅
    │          │
    │          ├──► #34 ✅ derivatives signals ─┐
-   │          ├──► #35 order-book signals ─┼──► #37 feature ablation
+   │          ├──► #35 ✅ order-book signals ─┼──► #37 feature ablation
    │          └──► #36 cross-asset signals ─┘
    │
    └──► #22 ✅ ──► #38 ✅
@@ -421,20 +423,17 @@ Goal: automate repetitive model-selection work without allowing the research sys
 
 # Recommended next execution order
 
-The core modeling/evaluation path through **#29, #30, #31, #32, #33**, the first external signal family **#34**, champion/challenger review **#42**, and evidence-grounded public confidence **#44** is complete. The remaining roadmap is concentrated in richer market inputs, automated feature selection, and safe research automation.
+The core modeling/evaluation path through **#29, #30, #31, #32, #33**, external signal families **#34 and #35**, champion/challenger review **#42**, and evidence-grounded public confidence **#44** is complete. The remaining roadmap is concentrated in cross-asset inputs, automated feature selection, and safe research automation.
 
 The highest-value sequence is:
 
-1. **#35 — Order-book and market microstructure features (P2)**  
-   Add timestamp-safe liquidity, spread, depth and imbalance context, with independent 2h/4h/8h/16h evaluation.
-
-2. **#36 — Cross-asset and macro signals (P2)**  
+1. **#36 — Cross-asset and macro signals (P2)**  
    Add a small reproducible set of related-market features with strict completed-hour alignment and graceful outages.
 
-3. **#37 — Automated feature ablation and selection (P1)**  
-   Once #35 and #36 are complete, evaluate all external feature families together and promote only stable out-of-sample contributors.
+2. **#37 — Automated feature ablation and selection (P1)**  
+   Once #36 is complete, evaluate derivatives, microstructure and cross-asset feature families together and promote only stable out-of-sample contributors.
 
-4. **#43 — Safe optimizer-generated parameter PRs (P2)**  
+3. **#43 — Safe optimizer-generated parameter PRs (P2)**  
    This is fully unblocked by #21, #41 and #42 and can proceed in parallel, while remaining review-only and never auto-merging.
 
 ---
@@ -465,7 +464,7 @@ Outcome: better regime awareness, less correlated ensemble behavior, a genuinely
 ## Stage D — Richer market information
 
 Target issues: **#34, #35, #36, #37**  
-Completed: **#34**. Remaining: **#35, #36, #37**.
+Completed: **#34, #35**. Remaining: **#36, #37**.
 
 Outcome: crypto-native and cross-market features are added only where ablation proves value.
 
