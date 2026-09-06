@@ -46,15 +46,16 @@ def _as_utc(value: datetime) -> datetime:
 def _float(value: object) -> float | None:
     if value is None or isinstance(value, bool):
         return None
+    if not isinstance(value, (str, int, float)):
+        return None
     try:
         return float(value)
-    except (TypeError, ValueError):
+    except ValueError:
         return None
 
 
 def _timestamp_seconds(row: dict[str, Any]) -> int | None:
-    value = row.get("time")
-    numeric = _float(value)
+    numeric = _float(row.get("time"))
     if numeric is None:
         return None
     timestamp = int(numeric)
@@ -213,7 +214,11 @@ def fetch_derivatives_snapshot(origin_at: datetime) -> dict[str, Any]:
     try:
         response = requests.get(
             BINANCE_FUNDING_URL,
-            params={"symbol": BINANCE_SYMBOL, "endTime": origin_ms, "limit": 16},
+            params=(
+                ("symbol", BINANCE_SYMBOL),
+                ("endTime", origin_ms),
+                ("limit", 16),
+            ),
             timeout=15,
         )
         response.raise_for_status()
@@ -228,13 +233,13 @@ def fetch_derivatives_snapshot(origin_at: datetime) -> dict[str, Any]:
     try:
         response = requests.get(
             GATE_CONTRACT_STATS_URL,
-            params={
-                "contract": GATE_CONTRACT,
-                "from": origin_s - 26 * 3600,
-                "to": origin_s,
-                "interval": "1h",
-                "limit": 100,
-            },
+            params=(
+                ("contract", GATE_CONTRACT),
+                ("from", origin_s - 26 * 3600),
+                ("to", origin_s),
+                ("interval", "1h"),
+                ("limit", 100),
+            ),
             timeout=15,
         )
         response.raise_for_status()
@@ -265,12 +270,12 @@ def fetch_derivatives_history(
     end_s = int(end.timestamp())
     funding_response = requests.get(
         BINANCE_FUNDING_URL,
-        params={
-            "symbol": BINANCE_SYMBOL,
-            "startTime": start_s * 1000,
-            "endTime": end_s * 1000,
-            "limit": 1000,
-        },
+        params=(
+            ("symbol", BINANCE_SYMBOL),
+            ("startTime", start_s * 1000),
+            ("endTime", end_s * 1000),
+            ("limit", 1000),
+        ),
         timeout=30,
     )
     funding_response.raise_for_status()
@@ -278,13 +283,13 @@ def fetch_derivatives_history(
 
     stats_response = requests.get(
         GATE_CONTRACT_STATS_URL,
-        params={
-            "contract": GATE_CONTRACT,
-            "from": start_s,
-            "to": end_s,
-            "interval": "1h",
-            "limit": 1000,
-        },
+        params=(
+            ("contract", GATE_CONTRACT),
+            ("from", start_s),
+            ("to", end_s),
+            ("interval", "1h"),
+            ("limit", 1000),
+        ),
         timeout=30,
     )
     stats_response.raise_for_status()
@@ -300,12 +305,15 @@ def fetch_derivatives_history(
 
 def signal_manifest(snapshot: dict[str, Any]) -> dict[str, Any]:
     """Small provenance payload suitable for reproducible experiment manifests."""
-    quality = snapshot.get("quality") if isinstance(snapshot.get("quality"), dict) else {}
+    quality_value = snapshot.get("quality")
+    quality: dict[str, Any] = quality_value if isinstance(quality_value, dict) else {}
+    features_value = snapshot.get("features")
+    features: dict[str, Any] = features_value if isinstance(features_value, dict) else {}
     return {
         "schema_version": snapshot.get("schema_version"),
         "status": snapshot.get("status"),
         "providers": snapshot.get("providers", {}),
         "stale_sources": quality.get("stale_sources", []),
         "missing_features": quality.get("missing_features", []),
-        "feature_names": sorted(snapshot.get("features", {})),
+        "feature_names": sorted(features),
     }
