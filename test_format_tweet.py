@@ -34,6 +34,13 @@ def sample_output() -> dict:
             "8h": {"price_usd": 80_004.0, "change_pct": 0.34, "model_agreement": 0.8},
             "16h": {"price_usd": 80_307.0, "change_pct": 0.72, "model_agreement": 0.8},
         },
+        "forecast_confidence": {
+            "status": "available",
+            "label": "moderate",
+            "score": 61.0,
+            "minimum_evidence_samples": 28,
+            "minimum_edge_vs_persistence_pct": 4.2,
+        },
         "forecast_reliability": {
             "2h": _score(0.12, 0.07, True),
             "4h": _score(0.15, 0.22, True),
@@ -72,7 +79,7 @@ class VisualTweetTests(unittest.TestCase):
         self.assertEqual(previous_outcome_text(None), "Prev …")
         self.assertEqual(previous_outcome_text({"absolute_error_pct": 0.2}), "Prev …")
 
-    def test_b1_tweet_contains_direction_and_accountability(self) -> None:
+    def test_b1_tweet_contains_direction_accountability_and_confidence(self) -> None:
         tweet = build_visual_tweet(sample_output())
         self.assertLessEqual(len(tweet), 280)
         self.assertIn("₿ BTC SIGNAL", tweet)
@@ -80,7 +87,9 @@ class VisualTweetTests(unittest.TestCase):
         self.assertIn("4h 🟢 UP +0.18% | Prev ✅ P+0.15% A+0.22% Δ+0.07pp", tweet)
         self.assertIn("8h 🟢 UP +0.34% | Prev ❌ P+0.20% A-0.11% Δ-0.31pp", tweet)
         self.assertIn("16h 🟢 UP +0.72% | Prev …", tweet)
-        self.assertIn("🤝 4/4 bullish", tweet)
+        self.assertIn("📊", tweet)
+        self.assertIn("edge", tweet)
+        self.assertNotIn("🤝 4/4 bullish", tweet)
         self.assertIn("💰 $79,733 • ⚠️ Experimental • NFA", tweet)
 
     def test_bearish_neutral_and_mixed_current_signals(self) -> None:
@@ -93,9 +102,17 @@ class VisualTweetTests(unittest.TestCase):
         tweet = build_visual_tweet(output)
         self.assertIn("2h 🔴 DOWN -0.20%", tweet)
         self.assertIn("8h ⚪ FLAT +0.00%", tweet)
-        self.assertIn("🤝 mixed outlook", tweet)
+        self.assertNotIn("mixed outlook", tweet)
+        self.assertIn("📊", tweet)
 
-    def test_consensus_reports_dominant_direction(self) -> None:
+    def test_insufficient_evidence_suppresses_confidence_claim(self) -> None:
+        output = sample_output()
+        output["forecast_confidence"] = {"status": "insufficient_evidence"}
+        tweet = build_visual_tweet(output)
+        self.assertNotIn("Confidence", tweet)
+        self.assertNotIn("📊 Conf", tweet)
+
+    def test_consensus_reports_dominant_direction_for_legacy_callers(self) -> None:
         predictions = sample_output()["predictions"]
         predictions["16h"]["change_pct"] = -0.1
         self.assertEqual(consensus_text(predictions), "🤝 3/4 bullish")

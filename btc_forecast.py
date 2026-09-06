@@ -12,6 +12,7 @@ import numpy as np
 
 import forecast_engine
 from adaptive_weighting import adaptive_model_weights, attach_persisted_outcomes
+from forecast_confidence import build_forecast_confidence
 from conformal_calibration import conformal_calibration_multiplier, evaluation_report
 from drift_detection import evaluate_drift, persist_drift_report
 from derivatives_signals import fetch_derivatives_snapshot, signal_manifest
@@ -359,6 +360,12 @@ def main() -> None:
     interval_calibration_evaluation = evaluation_report(
         history, actuals, regime=str(engine_output["regime"])
     )
+    forecast_confidence = build_forecast_confidence(
+        engine_output["predictions"],
+        summary,
+        interval_calibration_evaluation,
+        drift_report,
+    )
     generated_at = datetime.now(timezone.utc)
     experiment_manifest = build_experiment_manifest(
         run_type="production_forecast",
@@ -396,6 +403,7 @@ def main() -> None:
         "derivatives_signals": derivatives_snapshot,
         "drift_detection": drift_report,
         "interval_calibration_evaluation": interval_calibration_evaluation,
+        "forecast_confidence": forecast_confidence,
         **engine_output,
         "forecast_reliability": reliability,
         "performance_summary": summary,

@@ -82,6 +82,7 @@ jobs:
             diversified_model.py \
             drift_detection.py \
             experiment_manifest.py \
+            forecast_confidence.py \
             history_audit.py \
             history_backup.py \
             history_migrations.py \
