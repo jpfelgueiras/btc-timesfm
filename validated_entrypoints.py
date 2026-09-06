@@ -207,6 +207,13 @@ def _activate_diversified_model(target: Any, *, research: bool) -> None:
     engine._ridge_model_enabled = enabled
 
 
+def _activate_validated_regime_detector(target: Any) -> None:
+    """Replace the legacy heuristic with the reproducible validated state detector."""
+    from regime_detection import validated_regime
+
+    target.forecast_engine.detect_regime = validated_regime
+
+
 def run_forecast(argv: list[str]) -> None:
     if argv:
         raise SystemExit("forecast does not accept positional arguments")
@@ -214,6 +221,7 @@ def run_forecast(argv: list[str]) -> None:
 
     _activate_correlation_policy(btc_forecast)
     _activate_diversified_model(btc_forecast, research=False)
+    _activate_validated_regime_detector(btc_forecast)
     observer = PipelineObserver(run_type="production_forecast")
     _instrument_forecast(observer, btc_forecast)
     try:
@@ -231,6 +239,7 @@ def _patch_backtest_fetch() -> Any:
 
     _activate_correlation_policy(backtest)
     _activate_diversified_model(backtest, research=True)
+    _activate_validated_regime_detector(backtest)
     original_fetch = backtest.fetch_binance_history
 
     def fetch_validated(days: int):
