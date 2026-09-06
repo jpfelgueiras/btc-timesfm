@@ -43,18 +43,14 @@ def features(
 
 class RegimeDetectionTests(unittest.TestCase):
     def test_legacy_heuristic_is_preserved_as_explicit_benchmark(self) -> None:
-        self.assertEqual(
-            heuristic_regime(features(vol24=1.5, vol7d=0.8)), "high_volatility"
-        )
+        self.assertEqual(heuristic_regime(features(vol24=1.5, vol7d=0.8)), "high_volatility")
         self.assertEqual(heuristic_regime(features(mom24=3.0, rsi=72.0)), "trending")
         self.assertEqual(heuristic_regime(features()), "range")
 
     def test_validated_detector_covers_all_stable_labels(self) -> None:
         self.assertEqual(validated_regime(features()), "range")
         self.assertEqual(
-            validated_regime(
-                features(vol6=1.8, vol24=1.5, vol7d=0.65, range24=2.0, volume_z=2.5)
-            ),
+            validated_regime(features(vol6=1.8, vol24=1.5, vol7d=0.65, range24=2.0, volume_z=2.5)),
             "high_volatility",
         )
         self.assertEqual(
