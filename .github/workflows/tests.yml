@@ -116,6 +116,7 @@ jobs:
           done
           exit "$failed"
 
+  # Compatibility aliases retained for the required status-check names on main.
   unit-tests-required-compat:
     name: Unit tests
     needs: quality-gates
