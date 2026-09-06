@@ -87,9 +87,7 @@ def compare_frozen_samples(
     history_limit: int = 200,
 ) -> dict[str, Any]:
     """Replay both weighting policies sequentially on identical frozen origins."""
-    current_scores: dict[str, list[dict[str, float]]] = {
-        f"{hour}h": [] for hour in TARGET_HOURS
-    }
+    current_scores: dict[str, list[dict[str, float]]] = {f"{hour}h": [] for hour in TARGET_HOURS}
     correlation_scores: dict[str, list[dict[str, float]]] = {
         f"{hour}h": [] for hour in TARGET_HOURS
     }
