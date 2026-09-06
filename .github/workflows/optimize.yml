@@ -74,9 +74,17 @@ jobs:
             --days "${{ inputs.days || '120' }}" \
             --samples "${{ inputs.samples || '48' }}"
 
+      - name: Attach leakage-safe interval diagnostics
+        if: hashFiles('optimizer_report.json') != ''
+        run: python champion_challenger_intervals.py
+
       - name: Evaluate formal promotion policy
         if: hashFiles('optimizer_report.json') != ''
         run: python promotion_policy.py
+
+      - name: Build champion-vs-challenger report
+        if: hashFiles('optimizer_report.json') != ''
+        run: python champion_challenger.py
 
       - name: Add market data validation summary
         if: always() && hashFiles('market_data_validation.json') != ''
@@ -94,6 +102,10 @@ jobs:
         if: always() && hashFiles('promotion_summary.md') != ''
         run: cat promotion_summary.md >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Add champion-vs-challenger summary
+        if: always() && hashFiles('champion_challenger_summary.md') != ''
+        run: cat champion_challenger_summary.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload optimizer report
         if: always()
         uses: actions/upload-artifact@v7
@@ -106,5 +118,18 @@ jobs:
             promotion_summary.md
             market_data_validation.json
             .state/pipeline_health.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Retain champion-vs-challenger report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: btc-champion-challenger-${{ github.run_id }}
+          path: |
+            champion_challenger_report.json
+            champion_challenger_summary.md
+            optimizer_report.json
+            promotion_decision.json
           if-no-files-found: warn
           retention-days: 90
