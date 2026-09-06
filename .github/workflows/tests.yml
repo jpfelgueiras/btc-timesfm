@@ -89,6 +89,8 @@ jobs:
             history_store.py \
             market_data_sources.py \
             market_data_validation.py \
+            microstructure_ablation.py \
+            microstructure_signals.py \
             observability.py \
             performance_dashboard.py \
             pipeline_health.py \
