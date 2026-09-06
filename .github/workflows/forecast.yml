@@ -330,11 +330,12 @@ jobs:
         if: steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success' && (github.event_name == 'schedule' || inputs.post_to_x) && steps.x_prepare.outputs.publish == 'true' && steps.health_persist.outcome == 'success' && steps.health_gate.outputs.allow == 'true'
         env:
           X_COOKIES_JSON: ${{ secrets.X_COOKIES_JSON }}
+          PYTHONPATH: src
         run: |
-          PYTHONPATH=src python -m btc_timesfm.ops.observability run-stage \
+          python -m btc_timesfm.ops.observability run-stage \
             --stage x_post \
             --success-counter successful_posts \
-            -- PYTHONPATH=src python -m btc_timesfm.x.post_to_x publish
+            -- python -m btc_timesfm.x.post_to_x publish
 
       - name: Observe X publication health
         if: always() && steps.due.outputs.run_forecast == 'true' && (github.event_name == 'schedule' || inputs.post_to_x) && steps.x_publish.outcome != 'skipped' && hashFiles('x_post_status.json') != ''
