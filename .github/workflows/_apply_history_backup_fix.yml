@@ -1,0 +1,31 @@
+name: Apply history backup schema fix
+
+on:
+  push:
+    branches:
+      - fix/history-backup-schema-upgrade
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/history-backup-schema-upgrade
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Apply fix
+        run: python3 _apply_history_backup_fix.py
+      - name: Validate focused tests
+        run: python -m unittest test_history_backup.py -v
+      - name: Commit fix
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "Handle legacy-schema history backups"
+          git push origin HEAD:fix/history-backup-schema-upgrade
