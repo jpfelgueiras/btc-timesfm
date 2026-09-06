@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from pathlib import Path
 
+# Triggered after the temporary workflow was present on the branch.
+
 
 def replace_once(path: str, old: str, new: str) -> None:
     file = Path(path)
