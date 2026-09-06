@@ -1,0 +1,70 @@
+name: Patch issue 35 production integration
+
+on:
+  push:
+    branches: [feature/microstructure-signals]
+    paths: ['.github/workflows/_patch_issue35.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/microstructure-signals
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Integrate microstructure snapshot
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('btc_forecast.py')
+          text = path.read_text()
+          replacements = [
+              (
+                  'from derivatives_signals import fetch_derivatives_snapshot, signal_manifest\n',
+                  'from derivatives_signals import (\n    fetch_derivatives_snapshot,\n    signal_manifest as derivatives_manifest,\n)\nfrom microstructure_signals import (\n    fetch_microstructure_snapshot,\n    signal_manifest as microstructure_manifest,\n)\n',
+              ),
+              (
+                  'DERIVATIVES_PATH = Path("derivatives_signal.json")\n',
+                  'DERIVATIVES_PATH = Path("derivatives_signal.json")\nMICROSTRUCTURE_PATH = Path("microstructure_signal.json")\n',
+              ),
+              (
+                  '        "derivatives_signals": output.get("derivatives_signals"),\n',
+                  '        "derivatives_signals": output.get("derivatives_signals"),\n        "microstructure_signals": output.get("microstructure_signals"),\n',
+              ),
+              (
+                  '    print(\n        f"Derivatives signals: {derivatives_snapshot[\'status\']} | "\n        f"features={len(derivatives_snapshot.get(\'features\', {}))}"\n    )\n\n    actuals = dict(zip(data.timestamps, map(float, data.closes), strict=True))\n',
+                  '    print(\n        f"Derivatives signals: {derivatives_snapshot[\'status\']} | "\n        f"features={len(derivatives_snapshot.get(\'features\', {}))}"\n    )\n    microstructure_snapshot = fetch_microstructure_snapshot(forecast_origin)\n    MICROSTRUCTURE_PATH.write_text(\n        json.dumps(microstructure_snapshot, indent=2, sort_keys=True) + "\\n",\n        encoding="utf-8",\n    )\n    print(\n        f"Microstructure signals: {microstructure_snapshot[\'status\']} | "\n        f"features={len(microstructure_snapshot.get(\'features\', {}))}"\n    )\n\n    actuals = dict(zip(data.timestamps, map(float, data.closes), strict=True))\n',
+              ),
+              (
+                  '    derivative_features = derivatives_snapshot.get("features", {})\n    market_features = engine_output.get("market_features")\n    if isinstance(market_features, dict) and isinstance(derivative_features, dict):\n        for name, value in derivative_features.items():\n            if (\n                isinstance(name, str)\n                and isinstance(value, (int, float))\n                and not isinstance(value, bool)\n            ):\n                market_features[name] = float(value)\n',
+                  '    derivative_features = derivatives_snapshot.get("features", {})\n    microstructure_features = microstructure_snapshot.get("features", {})\n    market_features = engine_output.get("market_features")\n    if isinstance(market_features, dict):\n        for feature_group in (derivative_features, microstructure_features):\n            if not isinstance(feature_group, dict):\n                continue\n            for name, value in feature_group.items():\n                if (\n                    isinstance(name, str)\n                    and isinstance(value, (int, float))\n                    and not isinstance(value, bool)\n                ):\n                    market_features[name] = float(value)\n',
+              ),
+              (
+                  '            "derivatives_signals": signal_manifest(derivatives_snapshot),\n',
+                  '            "derivatives_signals": derivatives_manifest(derivatives_snapshot),\n            "microstructure_signals": microstructure_manifest(microstructure_snapshot),\n',
+              ),
+              (
+                  '        "derivatives_signals": derivatives_snapshot,\n',
+                  '        "derivatives_signals": derivatives_snapshot,\n        "microstructure_signals": microstructure_snapshot,\n',
+              ),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected one match, found {text.count(old)} for {old[:80]!r}')
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+          python -m pip install 'ruff==0.16.6'
+          ruff format btc_forecast.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add btc_forecast.py
+          git commit -m 'Integrate microstructure signals into production context'
+          git push origin HEAD:feature/microstructure-signals
