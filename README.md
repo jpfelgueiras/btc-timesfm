@@ -26,6 +26,8 @@ A second foundation model is intentionally not part of the scheduled ensemble ye
 
 Every production run forecasts +2h, +4h, +8h and +16h. The main `predictions` block is the ensemble result. `model_predictions` contains each underlying model/context separately.
 
+For a full step-by-step explanation, see [`docs/FORECAST_WORKS.md`](docs/FORECAST_WORKS.md).
+
 ## Why forecast returns instead of raw price?
 
 The model receives hourly log returns:
