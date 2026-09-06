@@ -75,6 +75,7 @@ jobs:
             conformal_calibration.py \
             correlation_backtest.py \
             correlation_weighting.py \
+            diversified_model.py \
             drift_detection.py \
             experiment_manifest.py \
             history_audit.py \

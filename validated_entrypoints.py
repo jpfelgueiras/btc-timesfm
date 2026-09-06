@@ -189,12 +189,31 @@ def _activate_correlation_policy(target: Any) -> None:
         target.adaptive_model_weights = correlation_aware_model_weights
 
 
+def _activate_diversified_model(target: Any, *, research: bool) -> None:
+    """Add the ridge member in research, or in production only after explicit approval."""
+    from diversified_model import augment_baselines, production_enabled
+
+    engine = target.forecast_engine
+    if getattr(engine, "_ridge_baselines_wrapped", False):
+        return
+    enabled = research or production_enabled()
+    original_baselines = engine.baseline_forecasts
+
+    def baselines_with_optional_ridge(data: Any):
+        return augment_baselines(original_baselines, data, enabled=enabled)
+
+    engine.baseline_forecasts = baselines_with_optional_ridge
+    engine._ridge_baselines_wrapped = True
+    engine._ridge_model_enabled = enabled
+
+
 def run_forecast(argv: list[str]) -> None:
     if argv:
         raise SystemExit("forecast does not accept positional arguments")
     import btc_forecast
 
     _activate_correlation_policy(btc_forecast)
+    _activate_diversified_model(btc_forecast, research=False)
     observer = PipelineObserver(run_type="production_forecast")
     _instrument_forecast(observer, btc_forecast)
     try:
@@ -211,6 +230,7 @@ def _patch_backtest_fetch() -> Any:
     import backtest
 
     _activate_correlation_policy(backtest)
+    _activate_diversified_model(backtest, research=True)
     original_fetch = backtest.fetch_binance_history
 
     def fetch_validated(days: int):
