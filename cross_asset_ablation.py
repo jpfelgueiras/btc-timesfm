@@ -118,11 +118,7 @@ def eligible_training_rows(
     rows: list[dict[str, Any]], current_origin_s: int, horizon: int
 ) -> list[dict[str, Any]]:
     """A training target is usable only after its exact forecast horizon matured."""
-    return [
-        row
-        for row in rows
-        if int(row["origin_s"]) + horizon * 3600 <= current_origin_s
-    ]
+    return [row for row in rows if int(row["origin_s"]) + horizon * 3600 <= current_origin_s]
 
 
 def _ridge_predict(train_x: np.ndarray, train_y: np.ndarray, test_x: np.ndarray) -> float:
@@ -138,7 +134,9 @@ def _ridge_predict(train_x: np.ndarray, train_y: np.ndarray, test_x: np.ndarray)
     return float(np.dot(np.concatenate([[1.0], test_standardized]), coefficients))
 
 
-def evaluate_rows(rows: list[dict[str, Any]], *, min_train: int = DEFAULT_MIN_TRAIN) -> dict[str, Any]:
+def evaluate_rows(
+    rows: list[dict[str, Any]], *, min_train: int = DEFAULT_MIN_TRAIN
+) -> dict[str, Any]:
     report: dict[str, Any] = {"min_train": min_train, "horizons": {}}
     ordered = sorted(rows, key=lambda row: int(row["origin_s"]))
     for horizon in HORIZONS:

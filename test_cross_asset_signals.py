@@ -31,8 +31,7 @@ def _market(start: int, closes: list[float]) -> MarketData:
 
 def _macro_rows(days: int, *, start_day: int = 1, base: float = 20.0) -> list[dict]:
     return [
-        {"date": f"2026-08-{start_day + index:02d}", "value": base + index}
-        for index in range(days)
+        {"date": f"2026-08-{start_day + index:02d}", "value": base + index} for index in range(days)
     ]
 
 
@@ -96,7 +95,9 @@ class CrossAssetSignalTests(unittest.TestCase):
         snapshot = fetch_cross_asset_snapshot(origin, btc)
         self.assertEqual(snapshot["status"], "unavailable")
         self.assertFalse(snapshot["available"])
-        self.assertEqual(set(snapshot["quality"]["provider_errors"]), {"kraken_eth", "fred_vix", "fred_us10y"})
+        self.assertEqual(
+            set(snapshot["quality"]["provider_errors"]), {"kraken_eth", "fred_vix", "fred_us10y"}
+        )
 
 
 if __name__ == "__main__":
