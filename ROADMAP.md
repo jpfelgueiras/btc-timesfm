@@ -44,6 +44,13 @@ The project has moved beyond a TimesFM experiment into a small forecasting platf
 - **Durable X publication idempotency and session-health preflight** with two-phase reservations, duplicate suppression, and persisted post metadata.
 - **Persistent pipeline health and circuit breakers** with fail-closed publication gates, consecutive-failure tracking, deterministic recovery, and optional notifications.
 - **Machine-readable optimizer promotion policy** with statistical, horizon, regime, persistence, and production-health guardrails; decisions remain review-only.
+- **Validated regime detection** with controlled transition churn and out-of-sample comparison against the legacy heuristic.
+- **Correlation-aware ensemble weighting** that penalizes redundant matured residual patterns while preserving sparse-history safeguards.
+- **Conformal-style interval calibration** using matured historical nonconformity scores with safe sparse-history fallback.
+- **Optional diversified non-TimesFM model** evaluated walk-forward before any production participation.
+- **Champion-vs-challenger evaluation reports** with identical-origin pairing, statistical evidence, and policy recommendations.
+- **Timestamp-safe crypto derivatives context** covering funding, open interest and liquidations, with durable feature persistence and leakage-safe ablation.
+- **Evidence-grounded forecast confidence explanations** based on matured performance, calibration, sample depth and drift rather than raw model agreement.
 
 Relevant completed roadmap/foundation issues:
 
@@ -68,6 +75,13 @@ Relevant completed roadmap/foundation issues:
 - [#39 Pipeline alerts, health checks and circuit breakers](https://github.com/jpfelgueiras/btc-timesfm/issues/39)
 - [#40 Automated dependency and security scanning](https://github.com/jpfelgueiras/btc-timesfm/issues/40)
 - [#41 Optimizer promotion policy and safety guardrails](https://github.com/jpfelgueiras/btc-timesfm/issues/41)
+- [#29 Improved market regime detection](https://github.com/jpfelgueiras/btc-timesfm/issues/29)
+- [#30 Correlation-aware ensemble weighting](https://github.com/jpfelgueiras/btc-timesfm/issues/30)
+- [#31 Conformal interval calibration](https://github.com/jpfelgueiras/btc-timesfm/issues/31)
+- [#32 Diversified non-TimesFM forecasting model](https://github.com/jpfelgueiras/btc-timesfm/issues/32)
+- [#34 Crypto derivatives signals](https://github.com/jpfelgueiras/btc-timesfm/issues/34)
+- [#42 Champion-vs-challenger evaluation reports](https://github.com/jpfelgueiras/btc-timesfm/issues/42)
+- [#44 Statistically grounded confidence explanations](https://github.com/jpfelgueiras/btc-timesfm/issues/44)
 
 ---
 
@@ -186,15 +200,15 @@ These are the main reasons the current forecast should still be considered exper
 
 ### Data breadth
 
-Production has validation and automatic Kraken → Bitstamp failover, but both inputs are still spot-market OHLCV sources. Funding, open interest, liquidations, order-book microstructure, and cross-asset information are not yet integrated.
+Production now captures timestamp-safe funding, open-interest and liquidation context alongside validated spot OHLCV. Order-book microstructure and cross-asset/macro information are still not integrated, and derivatives signals remain passive until their walk-forward ablation demonstrates defensible out-of-sample value.
 
 ### Model concentration
 
-Three TimesFM contexts provide diversity in lookback length, but they are still the same underlying model family. Their errors can remain highly correlated.
+Three TimesFM contexts still share one model family, but production research now measures residual correlation and can penalize redundant model influence. A materially different optional model is available for validation before production participation.
 
 ### Regime detection
 
-The current regime classifier is heuristic. Since regime labels influence adaptive-history selection and priors, a weak classifier can make the ensemble adapt to the wrong historical conditions.
+Regime detection now uses a validated, reproducible detector with measured transition churn and an explicit legacy-heuristic benchmark. Regime labels still remain an important model-risk surface and should continue to be monitored as market structure changes.
 
 ### Evidence quantity
 
@@ -202,7 +216,7 @@ Evaluation is now leakage-aware and statistically explicit, but evidence quality
 
 ### Prediction-interval calibration
 
-Current intervals use empirical calibration, but conformal calibration has not yet been implemented. Coverage should therefore still be treated as experimental, especially during regime shifts.
+Intervals now use conformal-style calibration from matured historical errors with sparse-history fallback. Coverage remains experimental during regime shifts and low-sample conditions, so observed coverage and width should continue to be monitored.
 
 ### Social publishing
 
@@ -222,9 +236,9 @@ CI checks run on every pull request. Enforcing every check as a mandatory merge 
 
 The roadmap is split into five phases. Dependencies are intentional: later work should not be started when it depends on an unfinished foundation unless the work can safely proceed in parallel.
 
-**Completed roadmap items:** #17, #18, #19, #20, #21, #22, #23, #24, #25, #26, #27, #28, #33, #38, #39, #40, and #41.
+**Completed roadmap items:** #17, #18, #19, #20, #21, #22, #23, #24, #25, #26, #27, #28, #29, #30, #31, #32, #33, #34, #38, #39, #40, #41, #42, and #44.
 
-**Highest-value currently unblocked work:** #31 (conformal interval calibration), #30 (correlation-aware weighting), #29 (improved regimes), and #32 (diversified model). #42 (champion-vs-challenger reporting) is now also unblocked by completion of #41.
+**Highest-value currently unblocked work:** #35 (order-book/microstructure features) and #36 (cross-asset/macro signals) to unlock the P1 #37 feature-ablation pipeline. #43 (safe optimizer-generated PRs) is also fully unblocked and can proceed in parallel.
 
 ## Phase 1 — Foundation & Data
 
@@ -265,10 +279,10 @@ Goal: make model improvements statistically defensible and increase ensemble div
 | [#26](https://github.com/jpfelgueiras/btc-timesfm/issues/26) | ✅ Expanded benchmark suite | #5, #9, #21 | P0 |
 | [#27](https://github.com/jpfelgueiras/btc-timesfm/issues/27) | ✅ Purged walk-forward cross-validation | #26 | P0 |
 | [#28](https://github.com/jpfelgueiras/btc-timesfm/issues/28) | ✅ Statistical significance and uncertainty testing | #27 | P0 |
-| [#29](https://github.com/jpfelgueiras/btc-timesfm/issues/29) | Improved market regime detection | #5, #27, #28 | P1 |
-| [#30](https://github.com/jpfelgueiras/btc-timesfm/issues/30) | Correlation-aware ensemble weighting | #6, #26, #28 | P1 |
-| [#31](https://github.com/jpfelgueiras/btc-timesfm/issues/31) | Conformal calibration for forecast intervals | #5, #27 | P1 |
-| [#32](https://github.com/jpfelgueiras/btc-timesfm/issues/32) | Diversified non-TimesFM forecasting model | #26, #27, #28 | P1 |
+| [#29](https://github.com/jpfelgueiras/btc-timesfm/issues/29) | ✅ Improved market regime detection | #5, #27, #28 | P1 |
+| [#30](https://github.com/jpfelgueiras/btc-timesfm/issues/30) | ✅ Correlation-aware ensemble weighting | #6, #26, #28 | P1 |
+| [#31](https://github.com/jpfelgueiras/btc-timesfm/issues/31) | ✅ Conformal calibration for forecast intervals | #5, #27 | P1 |
+| [#32](https://github.com/jpfelgueiras/btc-timesfm/issues/32) | ✅ Diversified non-TimesFM forecasting model | #26, #27, #28 | P1 |
 | [#33](https://github.com/jpfelgueiras/btc-timesfm/issues/33) | ✅ Model and feature drift detection | #5, #26, #28 | P1 |
 
 ### Phase 2 definition of done
@@ -276,10 +290,10 @@ Goal: make model improvements statistically defensible and increase ensemble div
 - ✅ Every new model can be evaluated against the same stronger benchmark suite.
 - ✅ Research uses deterministic chronological folds with explicit leakage protection.
 - ✅ Candidate comparisons include confidence intervals/effect sizes and can be marked inconclusive.
-- Regimes are validated out of sample.
-- Ensemble weighting accounts for correlated model errors.
-- Prediction intervals have empirically defensible conformal coverage.
-- At least one genuinely different model family is evaluated.
+- ✅ Regimes are validated out of sample.
+- ✅ Ensemble weighting accounts for correlated model errors.
+- ✅ Prediction intervals have empirically defensible conformal coverage.
+- ✅ At least one genuinely different model family is evaluated.
 - ✅ Production can identify when recent market/error behavior has drifted materially.
 
 ---
@@ -290,7 +304,7 @@ Goal: determine whether crypto-native and cross-market information adds real out
 
 | Issue | Improvement | Depends on | Priority |
 |---|---|---|---|
-| [#34](https://github.com/jpfelgueiras/btc-timesfm/issues/34) | Funding, open interest and liquidation signals | #17, #18, #19 | P1 |
+| [#34](https://github.com/jpfelgueiras/btc-timesfm/issues/34) | ✅ Funding, open interest and liquidation signals | #17, #18, #19 | P1 |
 | [#35](https://github.com/jpfelgueiras/btc-timesfm/issues/35) | Order-book and microstructure features | #17, #18 | P2 |
 | [#36](https://github.com/jpfelgueiras/btc-timesfm/issues/36) | Cross-asset and macro signals | #17, #18, #19 | P2 |
 | [#37](https://github.com/jpfelgueiras/btc-timesfm/issues/37) | Automated feature ablation and selection | #27, #34, #35, #36 | P1 |
@@ -314,7 +328,7 @@ Goal: make the scheduled forecast/publishing pipeline safe to leave running unat
 | [#38](https://github.com/jpfelgueiras/btc-timesfm/issues/38) | ✅ X posting idempotency and session-health checks | #9, #22 | P0 |
 | [#39](https://github.com/jpfelgueiras/btc-timesfm/issues/39) | ✅ Pipeline alerts, health checks and circuit breakers | #17, #18, #22, #33 | P0 |
 | [#40](https://github.com/jpfelgueiras/btc-timesfm/issues/40) | ✅ Automated dependency and security scanning | #25 | P1 |
-| [#44](https://github.com/jpfelgueiras/btc-timesfm/issues/44) | Statistically grounded confidence explanations in posts | #23, #30, #31, #33 | P1 |
+| [#44](https://github.com/jpfelgueiras/btc-timesfm/issues/44) | ✅ Statistically grounded confidence explanations in posts | #23, #30, #31, #33 | P1 |
 
 ### Phase 4 definition of done
 
@@ -323,7 +337,7 @@ Goal: make the scheduled forecast/publishing pipeline safe to leave running unat
 - ✅ Severe data/model health conditions stop publication instead of emitting misleading forecasts.
 - ✅ Repeated failures and recovery states are visible.
 - ✅ Dependency vulnerabilities are surfaced automatically.
-- Public confidence language is based on measured evidence, sample size, drift state, and calibration rather than raw model agreement alone.
+- ✅ Public confidence language is based on measured evidence, sample size, drift state, and calibration rather than raw model agreement alone.
 
 ---
 
@@ -334,14 +348,14 @@ Goal: automate repetitive model-selection work without allowing the research sys
 | Issue | Improvement | Depends on | Priority |
 |---|---|---|---|
 | [#41](https://github.com/jpfelgueiras/btc-timesfm/issues/41) | ✅ Optimizer promotion policy and safety guardrails | #7, #28, #33 | P0 |
-| [#42](https://github.com/jpfelgueiras/btc-timesfm/issues/42) | Champion-vs-challenger evaluation reports | #7, #26, #28, #41 | P1 |
+| [#42](https://github.com/jpfelgueiras/btc-timesfm/issues/42) | ✅ Champion-vs-challenger evaluation reports | #7, #26, #28, #41 | P1 |
 | [#43](https://github.com/jpfelgueiras/btc-timesfm/issues/43) | Automatically open safe parameter-change PRs | #21, #41, #42 | P2 |
 
 ### Phase 5 definition of done
 
 - ✅ A machine-readable promotion policy determines whether research evidence is sufficient.
-- Production and challenger configurations are evaluated on identical samples/folds.
-- Research reports explain why a candidate is accepted, rejected, or inconclusive.
+- ✅ Production and challenger configurations are evaluated on identical samples/folds.
+- ✅ Research reports explain why a candidate is accepted, rejected, or inconclusive.
 - The optimizer can open a reviewable configuration PR only after all safety criteria pass.
 - Production changes still require normal PR review and CI; the optimizer never auto-merges its own changes.
 
@@ -373,16 +387,16 @@ Goal: automate repetitive model-selection work without allowing the research sys
           ▼
          #28 ✅
           │
-          ├──► #29   improved regimes
-          ├──► #30   correlation-aware ensemble
-          ├──► #32   diversified model
+          ├──► #29 ✅ improved regimes
+          ├──► #30 ✅ correlation-aware ensemble
+          ├──► #32 ✅ diversified model
           └──► #33 ✅ drift detection
 ```
 
 ```text
 #17 ✅ ──► #18 ✅
    │          │
-   │          ├──► #34 derivatives signals ─┐
+   │          ├──► #34 ✅ derivatives signals ─┐
    │          ├──► #35 order-book signals ─┼──► #37 feature ablation
    │          └──► #36 cross-asset signals ─┘
    │
@@ -397,7 +411,7 @@ Goal: automate repetitive model-selection work without allowing the research sys
       #41 ✅
        │
        ▼
-      #42
+      #42 ✅
        │
        ▼
       #43
@@ -407,28 +421,21 @@ Goal: automate repetitive model-selection work without allowing the research sys
 
 # Recommended next execution order
 
-The evaluation critical path **#26 → #27 → #28** is complete, #33 supplies production drift awareness, and the P0 production/research-safety work **#38, #39, and #41** is complete. The next work should improve uncertainty calibration, ensemble diversity, and reviewable research automation.
+The core modeling/evaluation path through **#29, #30, #31, #32, #33**, the first external signal family **#34**, champion/challenger review **#42**, and evidence-grounded public confidence **#44** is complete. The remaining roadmap is concentrated in richer market inputs, automated feature selection, and safe research automation.
 
 The highest-value sequence is:
 
-1. **#31 — Conformal calibration for forecast intervals (P1)**  
-   Improve uncertainty quality directly using the completed leakage-safe evaluation foundation.
+1. **#35 — Order-book and market microstructure features (P2)**  
+   Add timestamp-safe liquidity, spread, depth and imbalance context, with independent 2h/4h/8h/16h evaluation.
 
-2. **#30 — Correlation-aware ensemble weighting (P1)**  
-   Prevent highly correlated TimesFM contexts from receiving misleadingly independent weight.
+2. **#36 — Cross-asset and macro signals (P2)**  
+   Add a small reproducible set of related-market features with strict completed-hour alignment and graceful outages.
 
-3. **#29 — Improved market regime detection (P1)**  
-   Replace the heuristic classifier with an out-of-sample validated approach.
+3. **#37 — Automated feature ablation and selection (P1)**  
+   Once #35 and #36 are complete, evaluate all external feature families together and promote only stable out-of-sample contributors.
 
-4. **#32 — Diversified non-TimesFM forecasting model (P1)**  
-   Evaluate a genuinely different model family through the completed benchmark/CV/significance pipeline.
-
-5. **#42 — Champion-vs-challenger evaluation reports (P1)**  
-   Build the human-review layer now that #41 defines the machine-readable promotion contract; completion of #42 will unblock #43.
-
-6. **#34/#35/#36 — richer market signals** can proceed in parallel where useful, but promotion should continue to use the completed #26/#27/#28 evaluation path. After all three signal families exist, #37 can automate ablation/selection.
-
-Once #30 and #31 are complete, #44 can replace raw model-agreement language in public posts with evidence-grounded confidence explanations.
+4. **#43 — Safe optimizer-generated parameter PRs (P2)**  
+   This is fully unblocked by #21, #41 and #42 and can proceed in parallel, while remaining review-only and never auto-merging.
 
 ---
 
@@ -444,34 +451,35 @@ Outcome: production data, durable history, integrity controls, reproducibility, 
 ## Stage B — Defensible model evaluation
 
 Target issues: **#26, #27, #28, #31**  
-Completed: **#26, #27, #28**. Remaining: **#31**.
+Completed: **#26, #27, #28, #31**. Remaining: **none**.
 
 Outcome: improvements are evaluated with leakage-safe folds, stronger baselines, statistical evidence, and calibrated uncertainty.
 
 ## Stage C — Better ensemble intelligence
 
 Target issues: **#29, #30, #32, #33**  
-Completed: **#33**. Remaining: **#29, #30, #32**.
+Completed: **#29, #30, #32, #33**. Remaining: **none**.
 
 Outcome: better regime awareness, less correlated ensemble behavior, a genuinely different model family, and drift awareness.
 
 ## Stage D — Richer market information
 
-Target issues: **#34, #35, #36, #37**
+Target issues: **#34, #35, #36, #37**  
+Completed: **#34**. Remaining: **#35, #36, #37**.
 
 Outcome: crypto-native and cross-market features are added only where ablation proves value.
 
 ## Stage E — Production hardening
 
 Target issues: **#22, #23, #38, #39, #40, #44**  
-Completed: **#22, #23, #38, #39, #40**. Remaining: **#44**.
+Completed: **#22, #23, #38, #39, #40, #44**. Remaining: **none**.
 
 Outcome: production can run unattended with usable monitoring, safer X publishing, circuit breakers, and better public confidence communication.
 
 ## Stage F — Controlled research automation
 
 Target issues: **#41, #42, #43**  
-Completed: **#41**. Remaining: **#42, #43**.
+Completed: **#41, #42**. Remaining: **#43**.
 
 Outcome: the research loop can recommend and prepare improvements automatically while preserving human review and CI gates.
 
