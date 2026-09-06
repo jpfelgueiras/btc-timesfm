@@ -73,6 +73,8 @@ jobs:
         run: |
           mypy --follow-imports=skip \
             conformal_calibration.py \
+            correlation_backtest.py \
+            correlation_weighting.py \
             drift_detection.py \
             experiment_manifest.py \
             history_audit.py \
