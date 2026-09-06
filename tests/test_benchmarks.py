@@ -12,7 +12,11 @@ from tests.support.unit_test_stubs import install_timesfm_stub
 
 install_timesfm_stub()
 
-from btc_timesfm.forecasting.benchmarks import BENCHMARK_NAMES, benchmark_forecasts, benchmark_metadata  # noqa: E402
+from btc_timesfm.forecasting.benchmarks import (  # noqa: E402
+    BENCHMARK_NAMES,
+    benchmark_forecasts,
+    benchmark_metadata,
+)
 from btc_timesfm.forecasting.forecast_engine import MarketData  # noqa: E402
 
 

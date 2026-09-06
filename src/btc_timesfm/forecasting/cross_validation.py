@@ -83,7 +83,7 @@ def build_purged_walk_forward_folds(
     if mode == "rolling" and rolling_train_samples < 1:
         raise ValueError("rolling_train_samples must be at least 1")
 
-    validation_candidates = np.arange(min_train_samples, len(timestamps), dtype=int)
+    validation_candidates: np.ndarray = np.arange(min_train_samples, len(timestamps), dtype=int)
     chunks = np.array_split(validation_candidates, min(folds, len(validation_candidates)))
     result: list[WalkForwardFold] = []
 

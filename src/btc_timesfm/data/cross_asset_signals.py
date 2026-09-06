@@ -71,9 +71,10 @@ def fetch_kraken_pair_hourly(pair: str, limit: int = 720) -> MarketData:
     """Fetch recent completed Kraken hourly candles for an arbitrary spot pair."""
     if limit < 2 or limit > 720:
         raise ValueError("Kraken history limit must be between 2 and 720")
+    params: dict[str, str | int] = {"pair": pair, "interval": INTERVAL_MINUTES}
     response = requests.get(
         KRAKEN_OHLC_URL,
-        params={"pair": pair, "interval": INTERVAL_MINUTES},
+        params=params,
         timeout=30,
     )
     response.raise_for_status()

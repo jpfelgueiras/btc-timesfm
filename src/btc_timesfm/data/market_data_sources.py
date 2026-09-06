@@ -20,7 +20,12 @@ from typing import Any, Protocol
 import numpy as np
 import requests
 
-from btc_timesfm.forecasting.forecast_engine import CONTEXT_WINDOWS, INTERVAL_MINUTES, MarketData, fetch_kraken_hourly
+from btc_timesfm.forecasting.forecast_engine import (
+    CONTEXT_WINDOWS,
+    INTERVAL_MINUTES,
+    MarketData,
+    fetch_kraken_hourly,
+)
 from btc_timesfm.data.market_data_validation import (
     MarketDataValidationError,
     ValidationConfig,
@@ -170,13 +175,14 @@ def fetch_bitstamp_hourly(limit: int = 512) -> MarketData:
     if limit > 1000:
         raise ValueError("Bitstamp OHLC endpoint supports at most 1000 candles")
 
+    params: dict[str, str | int] = {
+        "step": INTERVAL_MINUTES * 60,
+        "limit": limit,
+        "exclude_current_candle": "true",
+    }
     response = requests.get(
         BITSTAMP_OHLC_URL,
-        params={
-            "step": INTERVAL_MINUTES * 60,
-            "limit": limit,
-            "exclude_current_candle": "true",
-        },
+        params=params,
         timeout=30,
     )
     response.raise_for_status()

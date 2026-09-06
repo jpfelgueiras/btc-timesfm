@@ -21,7 +21,11 @@ import requests
 
 from btc_timesfm.forecasting import forecast_engine
 from btc_timesfm.forecasting.adaptive_weighting import DEFAULT_HISTORY_LIMIT, adaptive_model_weights
-from btc_timesfm.forecasting.benchmarks import BENCHMARK_NAMES, benchmark_forecasts, benchmark_metadata
+from btc_timesfm.forecasting.benchmarks import (
+    BENCHMARK_NAMES,
+    benchmark_forecasts,
+    benchmark_metadata,
+)
 from btc_timesfm.forecasting.cross_validation import (
     DEFAULT_CV_FOLDS,
     DEFAULT_EMBARGO_HOURS,
@@ -50,7 +54,7 @@ HORIZONS = ("2h", "4h", "8h", "16h")
 # Use the same issue #6 adaptive policy as production. During walk-forward tests
 # there is no durable DB; only target candles already visible at each simulated
 # origin can mature prior forecasts, which preserves no-look-ahead behavior.
-forecast_engine.adaptive_model_weights = adaptive_model_weights
+forecast_engine.adaptive_model_weights = adaptive_model_weights  # type: ignore[assignment]
 
 
 def fetch_binance_history(days: int) -> MarketData:
@@ -60,15 +64,16 @@ def fetch_binance_history(days: int) -> MarketData:
     cursor = start_ms
 
     while cursor < end_ms:
+        params: dict[str, str | int] = {
+            "symbol": "BTCUSDT",
+            "interval": "1h",
+            "startTime": cursor,
+            "endTime": end_ms,
+            "limit": 1000,
+        }
         response = requests.get(
             BINANCE_KLINES,
-            params={
-                "symbol": "BTCUSDT",
-                "interval": "1h",
-                "startTime": cursor,
-                "endTime": end_ms,
-                "limit": 1000,
-            },
+            params=params,
             timeout=30,
         )
         response.raise_for_status()

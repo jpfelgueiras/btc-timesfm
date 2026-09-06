@@ -63,7 +63,7 @@ def _instrument_forecast(observer: PipelineObserver, btc_forecast: Any) -> None:
     original_build_forecast = btc_forecast.build_forecast
     original_drift = btc_forecast.evaluate_production_drift
     original_manifest = btc_forecast.build_experiment_manifest
-    original_store = btc_forecast.ForecastHistoryStore
+    original_store: type[Any] = btc_forecast.ForecastHistoryStore
 
     def fetch_observed(limit: int = 512):
         with observer.stage("market_data_fetch", requested_candles=limit, includes_validation=True):

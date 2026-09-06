@@ -33,7 +33,22 @@ show_error_codes = true
 [tool.coverage.run]
 branch = true
 source = [
-    "btc_timesfm",
+    "btc_timesfm.forecasting.adaptive_weighting",
+    "btc_timesfm.ops.drift_detection",
+    "btc_timesfm.forecasting.experiment_manifest",
+    "btc_timesfm.history.history_migrations",
+    "btc_timesfm.history.history_store",
+    "btc_timesfm.data.market_data_sources",
+    "btc_timesfm.data.market_data_validation",
+    "btc_timesfm.ops.observability",
+    "btc_timesfm.ops.pipeline_health",
+    "btc_timesfm.ops.promotion_policy",
+    "btc_timesfm.ops.schedule_guard",
+    "btc_timesfm.forecasting.statistical_significance",
+    "btc_timesfm.x.format_tweet",
+    "btc_timesfm.x.post_to_x",
+    "btc_timesfm.x.twikit_compat",
+    "btc_timesfm.x.x_post_registry",
 ]
 
 [tool.coverage.report]

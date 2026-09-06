@@ -6,7 +6,11 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from btc_timesfm.forecasting.conformal_calibration import calibration_details, collect_scores, evaluation_report
+from btc_timesfm.forecasting.conformal_calibration import (
+    calibration_details,
+    collect_scores,
+    evaluation_report,
+)
 
 
 def snapshot(

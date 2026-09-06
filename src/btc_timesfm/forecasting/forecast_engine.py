@@ -55,9 +55,13 @@ class MarketData:
 def fetch_kraken_hourly(limit: int = 512) -> MarketData:
     # N hourly returns require N+1 closes. Keep enough candles for the largest context.
     limit = max(limit, max(CONTEXT_WINDOWS) + 1)
+    params: dict[str, str | int] = {
+        "pair": PAIR,
+        "interval": INTERVAL_MINUTES,
+    }
     response = requests.get(
         KRAKEN_OHLC_URL,
-        params={"pair": PAIR, "interval": INTERVAL_MINUTES},
+        params=params,
         timeout=30,
     )
     response.raise_for_status()
@@ -124,7 +128,7 @@ def _pct_change(closes: np.ndarray, hours: int) -> float:
 
 
 def market_features(data: MarketData) -> dict[str, Any]:
-    returns = data.returns.astype(np.float64)
+    returns: np.ndarray = data.returns.astype(np.float64)
     ranges = (data.highs.astype(np.float64) - data.lows) / data.closes * 100.0
     log_volume = np.log1p(data.volumes.astype(np.float64))
 
@@ -226,15 +230,15 @@ def timesfm_multi_context(
 
 
 def baseline_forecasts(data: MarketData) -> dict[str, dict[str, dict[str, float]]]:
-    returns = data.returns.astype(np.float64)
+    returns: np.ndarray = data.returns.astype(np.float64)
     current_price = float(data.closes[-1])
     recent_sigma = max(_safe_std(returns[-168:]), 1e-6)
 
-    persistence_path = np.zeros(FORECAST_HOURS, dtype=np.float64)
+    persistence_path: np.ndarray = np.zeros(FORECAST_HOURS, dtype=np.float64)
 
     drift = float(np.mean(returns[-168:]))
     drift = float(np.clip(drift, -2.0 * recent_sigma, 2.0 * recent_sigma))
-    drift_path = np.full(FORECAST_HOURS, drift, dtype=np.float64)
+    drift_path: np.ndarray = np.full(FORECAST_HOURS, drift, dtype=np.float64)
 
     x = returns[-169:-1] if len(returns) >= 170 else returns[:-1]
     y = returns[-168:] if len(returns) >= 170 else returns[1:]
@@ -245,7 +249,7 @@ def baseline_forecasts(data: MarketData) -> dict[str, dict[str, dict[str, float]
     else:
         phi, intercept = 0.0, drift
 
-    ar_path = np.empty(FORECAST_HOURS, dtype=np.float64)
+    ar_path: np.ndarray = np.empty(FORECAST_HOURS, dtype=np.float64)
     last = float(returns[-1])
     for i in range(FORECAST_HOURS):
         last = intercept + phi * last
@@ -347,6 +351,11 @@ def _bounded_normalize(
             result[name] = min(cap, max(floor, result[name] + residue))
 
     return result
+
+
+def _metric_float(metric: dict[str, Any], key: str) -> float:
+    value = metric.get(key)
+    return float(value) if value is not None else 0.0
 
 
 def _score_history_for_model(
@@ -477,12 +486,16 @@ def adaptive_model_weights(
         }
         return prior, diagnostics
 
-    persistence_mae = float(metrics["persistence"]["mae_pct"]) if "persistence" in metrics else None
-    raw_scores: dict[str, float] = {}
-    for name, metric in metrics.items():
-        mae = float(metric["mae_pct"])
-        direction_accuracy = float(metric["direction_accuracy"])
-        bias = abs(float(metric["mean_signed_error_pct"]))
+        persistence_mae = (
+            _metric_float(metrics["persistence"], "mae_pct")
+            if "persistence" in metrics and metrics["persistence"].get("mae_pct") is not None
+            else None
+        )
+        raw_scores: dict[str, float] = {}
+        for name, metric in metrics.items():
+            mae = _metric_float(metric, "mae_pct")
+            direction_accuracy = _metric_float(metric, "direction_accuracy")
+            bias = abs(_metric_float(metric, "mean_signed_error_pct"))
 
         score = math.exp(-ADAPTIVE_MAE_LAMBDA * mae)
         score *= 1.0 + ADAPTIVE_DIRECTION_REWARD * (direction_accuracy - 0.5) * 2.0
@@ -498,7 +511,7 @@ def adaptive_model_weights(
     raw_total = sum(raw_scores.values())
     adaptive = {name: score / raw_total for name, score in raw_scores.items()}
 
-    sample_count = min(int(metric["samples"]) for metric in metrics.values())
+    sample_count = min(int(_metric_float(metric, "samples")) for metric in metrics.values())
     progress = min(
         1.0,
         max(
@@ -513,7 +526,7 @@ def adaptive_model_weights(
     blended = {name: (1.0 - blend) * prior[name] + blend * adaptive[name] for name in model_names}
 
     complex_maes = [
-        float(metrics[name]["mae_pct"])
+        _metric_float(metrics[name], "mae_pct")
         for name in model_names
         if name != "persistence" and metrics[name]["mae_pct"] is not None
     ]
@@ -529,6 +542,7 @@ def adaptive_model_weights(
 
     final = _bounded_normalize(blended)
 
+    model_diagnostics: dict[str, Any] = {}
     diagnostics = {
         "mode": "adaptive",
         "source": source,
@@ -540,11 +554,11 @@ def adaptive_model_weights(
         "sample_count": sample_count,
         "persistence_fallback": persistence_fallback,
         "persistence_mae_pct": round(persistence_mae, 6) if persistence_mae is not None else None,
-        "models": {},
+        "models": model_diagnostics,
     }
     for name, metric in metrics.items():
-        mae = float(metric["mae_pct"])
-        diagnostics["models"][name] = {
+        mae = _metric_float(metric, "mae_pct")
+        model_diagnostics[name] = {
             **{
                 key: round(value, 6) if isinstance(value, float) else value
                 for key, value in metric.items()

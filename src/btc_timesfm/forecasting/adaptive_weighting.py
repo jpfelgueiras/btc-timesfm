@@ -37,6 +37,11 @@ COVERAGE_PENALTY = 0.35
 MIN_COVERAGE_SAMPLES = 3
 
 
+def _metric_float(metric: dict[str, Any], key: str) -> float:
+    value = metric.get(key)
+    return float(value) if value is not None else 0.0
+
+
 def _direction(value: float, epsilon: float = 1e-12) -> int:
     return 1 if value > epsilon else -1 if value < -epsilon else 0
 
@@ -243,7 +248,7 @@ def adaptive_model_weights(
     }
 
     if not enabled or source in {"insufficient_history", "drift_fallback"}:
-        diagnostics = {
+        diagnostics_static = {
             "mode": "static_prior",
             "source": source,
             "horizon": f"{hour}h",
@@ -265,18 +270,18 @@ def adaptive_model_weights(
                 for name, metric in metrics.items()
             },
         }
-        return prior, diagnostics
+        return prior, diagnostics_static
 
     persistence_mae = (
-        float(metrics["persistence"]["mae_pct"])
-        if "persistence" in metrics and metrics["persistence"]["mae_pct"] is not None
+        _metric_float(metrics["persistence"], "mae_pct")
+        if "persistence" in metrics and metrics["persistence"].get("mae_pct") is not None
         else None
     )
     raw_scores: dict[str, float] = {}
     for name, metric in metrics.items():
-        mae = float(metric["mae_pct"])
-        direction_accuracy = float(metric["direction_accuracy"])
-        bias = abs(float(metric["mean_signed_error_pct"]))
+        mae = _metric_float(metric, "mae_pct")
+        direction_accuracy = _metric_float(metric, "direction_accuracy")
+        bias = abs(_metric_float(metric, "mean_signed_error_pct"))
 
         score = math.exp(-ADAPTIVE_MAE_LAMBDA * mae)
         score *= 1.0 + ADAPTIVE_DIRECTION_REWARD * (direction_accuracy - 0.5) * 2.0
@@ -299,7 +304,7 @@ def adaptive_model_weights(
     raw_total = sum(raw_scores.values())
     adaptive = {name: score / raw_total for name, score in raw_scores.items()}
 
-    sample_count = min(int(metric["samples"]) for metric in metrics.values())
+    sample_count = min(int(_metric_float(metric, "samples")) for metric in metrics.values())
     progress = min(
         1.0,
         max(
@@ -313,7 +318,7 @@ def adaptive_model_weights(
     blended = {name: (1.0 - blend) * prior[name] + blend * adaptive[name] for name in model_names}
 
     complex_maes = [
-        float(metrics[name]["mae_pct"])
+        _metric_float(metrics[name], "mae_pct")
         for name in model_names
         if name != "persistence" and metrics[name]["mae_pct"] is not None
     ]
@@ -328,6 +333,7 @@ def adaptive_model_weights(
         persistence_fallback = True
 
     final = _bounded_normalize(blended, ADAPTIVE_MIN_WEIGHT, ADAPTIVE_MAX_WEIGHT)
+    model_diagnostics: dict[str, Any] = {}
     diagnostics: dict[str, Any] = {
         "mode": "adaptive",
         "source": source,
@@ -340,11 +346,11 @@ def adaptive_model_weights(
         "sample_count": sample_count,
         "persistence_fallback": persistence_fallback,
         "persistence_mae_pct": round(persistence_mae, 6) if persistence_mae is not None else None,
-        "models": {},
+        "models": model_diagnostics,
     }
     for name, metric in metrics.items():
-        mae = float(metric["mae_pct"])
-        diagnostics["models"][name] = {
+        mae = _metric_float(metric, "mae_pct")
+        model_diagnostics[name] = {
             **{
                 key: round(value, 6) if isinstance(value, float) else value
                 for key, value in metric.items()

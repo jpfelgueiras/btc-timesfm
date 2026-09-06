@@ -11,9 +11,15 @@ from typing import Any
 import numpy as np
 
 from btc_timesfm.forecasting import forecast_engine
-from btc_timesfm.forecasting.adaptive_weighting import adaptive_model_weights, attach_persisted_outcomes
+from btc_timesfm.forecasting.adaptive_weighting import (
+    adaptive_model_weights,
+    attach_persisted_outcomes,
+)
 from btc_timesfm.forecasting.forecast_confidence import build_forecast_confidence
-from btc_timesfm.forecasting.conformal_calibration import conformal_calibration_multiplier, evaluation_report
+from btc_timesfm.forecasting.conformal_calibration import (
+    conformal_calibration_multiplier,
+    evaluation_report,
+)
 from btc_timesfm.data.cross_asset_signals import (
     fetch_cross_asset_snapshot,
     signal_manifest as cross_asset_manifest,
@@ -45,8 +51,8 @@ CROSS_ASSET_PATH = Path("cross_asset_signal.json")
 # build_forecast resolves this function from forecast_engine's module globals.
 # Install the issue #6 policy once so production uses the durable-history-aware
 # weighting implementation while keeping the engine API stable.
-forecast_engine.adaptive_model_weights = adaptive_model_weights
-forecast_engine.empirical_calibration_multiplier = conformal_calibration_multiplier
+forecast_engine.adaptive_model_weights = adaptive_model_weights  # type: ignore[assignment]
+forecast_engine.empirical_calibration_multiplier = conformal_calibration_multiplier  # type: ignore[assignment]
 
 
 def load_forecast_history() -> list[dict[str, Any]]:
