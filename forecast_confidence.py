@@ -95,7 +95,9 @@ def _confidence_label(
     return "low"
 
 
-def _persistence_edge(performance: dict[str, Any]) -> tuple[float | None, float | None, float | None]:
+def _persistence_edge(
+    performance: dict[str, Any],
+) -> tuple[float | None, float | None, float | None]:
     ensemble_mae = _finite_float(performance.get("mae_pct"))
     models = performance.get("models")
     persistence_mae = None
@@ -155,7 +157,9 @@ def horizon_confidence(
         "direction_accuracy": direction_accuracy,
         "target_coverage": target_coverage,
         "empirical_calibrated_coverage": empirical_coverage,
-        "current_interval_width_pct": round(current_width, 3) if current_width is not None else None,
+        "current_interval_width_pct": round(current_width, 3)
+        if current_width is not None
+        else None,
         "typical_calibrated_interval_width_pct": (
             round(typical_width, 3) if typical_width is not None else None
         ),
@@ -199,10 +203,7 @@ def horizon_confidence(
     coverage_factor = _coverage_factor(empirical_coverage, target_coverage)
     width_factor = _width_factor(current_width, typical_width)
     raw_score = 100.0 * (
-        0.35 * edge_factor
-        + 0.30 * coverage_factor
-        + 0.20 * sample_factor
-        + 0.15 * width_factor
+        0.35 * edge_factor + 0.30 * coverage_factor + 0.20 * sample_factor + 0.15 * width_factor
     )
     score = raw_score * drift_factor
     coverage_gap = abs(empirical_coverage - target_coverage)

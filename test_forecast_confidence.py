@@ -18,7 +18,9 @@ def _prediction(width_pct: float = 2.0) -> dict:
     }
 
 
-def _performance(*, samples: int = 50, ensemble_mae: float = 0.8, persistence_mae: float = 1.0) -> dict:
+def _performance(
+    *, samples: int = 50, ensemble_mae: float = 0.8, persistence_mae: float = 1.0
+) -> dict:
     return {
         "samples": samples,
         "mae_pct": ensemble_mae,
@@ -84,9 +86,7 @@ class ForecastConfidenceTests(unittest.TestCase):
         self.assertLess(result["score"], 45.0)
 
     def test_warning_drift_reduces_and_caps_confidence(self) -> None:
-        clean = horizon_confidence(
-            "8h", _prediction(), _performance(), _calibration(), _drift()
-        )
+        clean = horizon_confidence("8h", _prediction(), _performance(), _calibration(), _drift())
         warning = horizon_confidence(
             "8h",
             _prediction(),
@@ -127,9 +127,7 @@ class ForecastConfidenceTests(unittest.TestCase):
     def test_missing_persistence_baseline_is_insufficient(self) -> None:
         performance = _performance()
         performance["models"] = {}
-        result = horizon_confidence(
-            "2h", _prediction(), performance, _calibration(), _drift()
-        )
+        result = horizon_confidence("2h", _prediction(), performance, _calibration(), _drift())
         self.assertEqual(result["status"], "insufficient_evidence")
         self.assertTrue(any("persistence" in reason for reason in result["reasons"]))
 
