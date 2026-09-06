@@ -1,0 +1,66 @@
+name: BTC Cross-Asset Signal Ablation
+
+on:
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: "Walk-forward forecast origins"
+        required: false
+        default: "96"
+        type: string
+      min_train:
+        description: "Minimum matured training rows"
+        required: false
+        default: "32"
+        type: string
+  schedule:
+    - cron: "27 6 * * 5"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-cross-asset-ablation
+  cancel-in-progress: false
+
+jobs:
+  ablation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-test.txt
+
+      - name: Run timestamp-safe cross-asset ablation
+        run: |
+          python cross_asset_ablation.py \
+            --samples "${{ inputs.samples || '96' }}" \
+            --min-train "${{ inputs.min_train || '32' }}"
+
+      - name: Add summary
+        if: always() && hashFiles('cross_asset_ablation_summary.md') != ''
+        run: cat cross_asset_ablation_summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: btc-cross-asset-ablation-${{ github.run_id }}
+          path: |
+            cross_asset_ablation_report.json
+            cross_asset_ablation_summary.md
+          if-no-files-found: error
+          retention-days: 90
