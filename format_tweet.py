@@ -123,11 +123,35 @@ def consensus_text(predictions: dict[str, Any]) -> str:
     return f"🤝 {best_count}/4 {description}"
 
 
+def confidence_text(output: dict[str, Any], *, compact: bool = False) -> str | None:
+    """Render an evidence band only when all four horizons have enough OOS support."""
+    confidence = output.get("forecast_confidence")
+    if not isinstance(confidence, dict) or confidence.get("status") != "available":
+        return None
+
+    label = str(confidence.get("label") or "").lower()
+    if label not in {"low", "moderate", "high"}:
+        return None
+    try:
+        samples = int(confidence["minimum_evidence_samples"])
+        edge = float(confidence["minimum_edge_vs_persistence_pct"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if samples < 1 or not math.isfinite(edge):
+        return None
+
+    short_label = {"low": "LOW", "moderate": "MOD", "high": "HIGH"}[label]
+    if compact:
+        return f"📊 Conf {short_label} • edge≥{edge:+.0f}% • n≥{samples}"
+    return f"📊 Confidence {short_label} • min edge {edge:+.1f}% vs persistence • n≥{samples}"
+
+
 def _render_tweet(
     output: dict[str, Any],
     *,
     compact: bool,
-    include_consensus: bool,
+    include_confidence: bool,
+    compact_confidence: bool,
     include_price: bool,
 ) -> str:
     predictions = output["predictions"]
@@ -138,8 +162,10 @@ def _render_tweet(
         signal_row(horizon, predictions[horizon], reliability.get(horizon), compact=compact)
         for horizon in HORIZONS
     )
-    if include_consensus:
-        lines.append(consensus_text(predictions))
+    if include_confidence:
+        confidence = confidence_text(output, compact=compact_confidence)
+        if confidence:
+            lines.append(confidence)
 
     if include_price:
         lines.append(f"💰 {format_price(float(output['latest_close_usd']))} • ⚠️ Experimental • NFA")
@@ -151,10 +177,11 @@ def _render_tweet(
 def build_visual_tweet(output: dict[str, Any]) -> str:
     """Build the selected B1 direction-first template with deterministic fallbacks."""
     attempts = (
-        dict(compact=False, include_consensus=True, include_price=True),
-        dict(compact=False, include_consensus=False, include_price=True),
-        dict(compact=False, include_consensus=False, include_price=False),
-        dict(compact=True, include_consensus=False, include_price=False),
+        dict(compact=False, include_confidence=True, compact_confidence=False, include_price=True),
+        dict(compact=False, include_confidence=True, compact_confidence=True, include_price=True),
+        dict(compact=False, include_confidence=True, compact_confidence=True, include_price=False),
+        dict(compact=True, include_confidence=True, compact_confidence=True, include_price=False),
+        dict(compact=True, include_confidence=False, compact_confidence=True, include_price=False),
     )
 
     for options in attempts:
