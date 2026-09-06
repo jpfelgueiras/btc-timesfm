@@ -62,8 +62,7 @@ def regime_scores(features: dict[str, Any]) -> dict[str, float]:
     normalized_6 = abs(mom6) / max(0.20, vol6 * math.sqrt(6.0))
     normalized_7d = abs(mom7d) / max(1.0, vol7d * math.sqrt(168.0))
     direction_consistency = float(
-        (mom6 > 0 and mom24 > 0 and mom7d > 0)
-        or (mom6 < 0 and mom24 < 0 and mom7d < 0)
+        (mom6 > 0 and mom24 > 0 and mom7d > 0) or (mom6 < 0 and mom24 < 0 and mom7d < 0)
     )
     rsi_extremity = abs(rsi - 50.0) / 25.0
     trending = (
@@ -124,7 +123,10 @@ def prototype_regime(features: dict[str, Any]) -> str:
     scales = (0.55, 0.70, 0.70, 0.65)
 
     def distance(center: tuple[float, ...]) -> float:
-        return sum(((value - target) / scale) ** 2 for value, target, scale in zip(vector, center, scales, strict=True))
+        return sum(
+            ((value - target) / scale) ** 2
+            for value, target, scale in zip(vector, center, scales, strict=True)
+        )
 
     return min(prototypes, key=lambda name: distance(prototypes[name]))
 
