@@ -11,7 +11,12 @@ from history_backup import (
     retention_plan,
     verify_archive,
 )
-from history_migrations import validate_database
+from history_migrations import (
+    CURRENT_SCHEMA_VERSION,
+    MIGRATIONS,
+    migrate_database,
+    validate_database,
+)
 from history_store import ForecastHistoryStore
 
 
@@ -46,6 +51,27 @@ class HistoryBackupTests(unittest.TestCase):
             self.assertEqual(created["sha256"], verified["sha256"])
             self.assertTrue(created["database_verification"]["ok"])
             self.assertTrue(verified["database_verification"]["ok"])
+
+    def test_create_archive_upgrades_older_schema_without_modifying_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db = root / "legacy.sqlite"
+            migrate_database(db, migrations=MIGRATIONS[:3], target_version=3)
+            self.assertEqual(validate_database(db, expected_version=3)["schema_version"], 3)
+
+            archive = root / "legacy-backup.sqlite.gz"
+            created = create_archive(db, archive)
+            verified = verify_archive(archive)
+
+            # The rollback source remains byte-compatible with its original schema,
+            # while the archive is immediately restorable by the current code.
+            self.assertEqual(validate_database(db, expected_version=3)["schema_version"], 3)
+            self.assertEqual(
+                created["database_verification"]["schema_version"], CURRENT_SCHEMA_VERSION
+            )
+            self.assertEqual(
+                verified["database_verification"]["schema_version"], CURRENT_SCHEMA_VERSION
+            )
 
     def test_restore_archive_recovers_valid_database(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
