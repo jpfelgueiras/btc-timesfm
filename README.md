@@ -355,7 +355,7 @@ Run the complete unit-test suite:
 
 ```bash
 pip install -r requirements-test.txt
-python -m unittest discover -s . -p 'test_*.py' -v
+python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
 The adaptive tests cover sparse-history fallback, current-regime/all-regime selection, durable outcomes beyond the recent candle window, configurable rolling limits, interval-coverage scoring, persistence fallback and strict weight floors/caps. The history-store tests cover schema verification, idempotent manual reruns, first-write-wins predictions, exact-target maturation, write-once outcomes, rolling-cache migration, adaptive-history reconstruction and CSV/JSONL export. Optimizer tests cover bounded/reproducible candidate generation, temporary parameter isolation, chronological folds, strict origin-time outcome visibility and promotion guardrails.
@@ -374,7 +374,7 @@ Python 3.11:
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python -m unittest discover -s . -p 'test_*.py' -v
+python -m unittest discover -s tests -p 'test_*.py' -v
 python btc_forecast.py
 ```
 
