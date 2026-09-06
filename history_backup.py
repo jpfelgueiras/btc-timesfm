@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from history_migrations import validate_database
+from history_migrations import migrate_database, validate_database
 
 BACKUP_PREFIX = "forecast_history.backup-"
 BACKUP_SUFFIX = ".sqlite.gz"
@@ -60,18 +60,27 @@ def create_archive(
     if not source.is_file():
         raise FileNotFoundError(source)
 
-    verification = validate_database(source)
-    if not _verification_ok(verification):
-        raise RuntimeError(f"source database failed verification: {verification}")
-
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_name(f".{output.name}.{os.getpid()}.tmp")
     try:
-        with (
-            source.open("rb") as source_handle,
-            gzip.open(temporary, "wb", compresslevel=9) as target,
-        ):
-            shutil.copyfileobj(source_handle, target, length=1024 * 1024)
+        # A previous-known-good database can legitimately be one schema version
+        # behind immediately after a new migration ships. Prepare the backup from
+        # a temporary copy so it is upgraded to the current schema without
+        # mutating the rollback source itself.
+        with tempfile.TemporaryDirectory(prefix="forecast-history-backup-") as directory:
+            prepared = Path(directory) / "forecast_history.sqlite"
+            shutil.copy2(source, prepared)
+            migrate_database(prepared)
+            verification = validate_database(prepared)
+            if not _verification_ok(verification):
+                raise RuntimeError(f"source database failed verification: {verification}")
+
+            with (
+                prepared.open("rb") as source_handle,
+                gzip.open(temporary, "wb", compresslevel=9) as target,
+            ):
+                shutil.copyfileobj(source_handle, target, length=1024 * 1024)
+
         archive_bytes = temporary.stat().st_size
         if archive_bytes > max_generation_bytes:
             raise RuntimeError(
