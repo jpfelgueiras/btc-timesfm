@@ -79,7 +79,7 @@ class VisualTweetTests(unittest.TestCase):
         self.assertEqual(previous_outcome_text(None), "Prev …")
         self.assertEqual(previous_outcome_text({"absolute_error_pct": 0.2}), "Prev …")
 
-    def test_b1_tweet_contains_direction_and_accountability(self) -> None:
+    def test_b1_tweet_contains_direction_accountability_and_confidence(self) -> None:
         tweet = build_visual_tweet(sample_output())
         self.assertLessEqual(len(tweet), 280)
         self.assertIn("₿ BTC SIGNAL", tweet)
@@ -102,7 +102,8 @@ class VisualTweetTests(unittest.TestCase):
         tweet = build_visual_tweet(output)
         self.assertIn("2h 🔴 DOWN -0.20%", tweet)
         self.assertIn("8h ⚪ FLAT +0.00%", tweet)
-        self.assertIn("🤝 mixed outlook", tweet)
+        self.assertNotIn("mixed outlook", tweet)
+        self.assertIn("📊", tweet)
 
     def test_insufficient_evidence_suppresses_confidence_claim(self) -> None:
         output = sample_output()
@@ -111,7 +112,7 @@ class VisualTweetTests(unittest.TestCase):
         self.assertNotIn("Confidence", tweet)
         self.assertNotIn("📊 Conf", tweet)
 
-    def test_consensus_reports_dominant_direction(self) -> None:
+    def test_consensus_reports_dominant_direction_for_legacy_callers(self) -> None:
         predictions = sample_output()["predictions"]
         predictions["16h"]["change_pct"] = -0.1
         self.assertEqual(consensus_text(predictions), "🤝 3/4 bullish")
