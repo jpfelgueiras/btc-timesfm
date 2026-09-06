@@ -24,13 +24,13 @@ replace(
 replace(
     "test_history_backup.py",
     "from history_migrations import validate_database\n",
-    "from history_migrations import CURRENT_SCHEMA_VERSION, migrate_database, validate_database\n",
+    "from history_migrations import (\n    CURRENT_SCHEMA_VERSION,\n    MIGRATIONS,\n    migrate_database,\n    validate_database,\n)\n",
 )
 
 replace(
     "test_history_backup.py",
     '''    def test_restore_archive_recovers_valid_database(self) -> None:\n''',
-    '''    def test_create_archive_upgrades_older_schema_without_modifying_source(self) -> None:\n        with tempfile.TemporaryDirectory() as directory:\n            root = Path(directory)\n            db = root / "legacy.sqlite"\n            migrate_database(db, target_version=3)\n            self.assertEqual(validate_database(db, expected_version=3)["schema_version"], 3)\n\n            archive = root / "legacy-backup.sqlite.gz"\n            created = create_archive(db, archive)\n            verified = verify_archive(archive)\n\n            # The rollback source remains byte-compatible with its original schema,\n            # while the archive is immediately restorable by the current code.\n            self.assertEqual(validate_database(db, expected_version=3)["schema_version"], 3)\n            self.assertEqual(\n                created["database_verification"]["schema_version"], CURRENT_SCHEMA_VERSION\n            )\n            self.assertEqual(\n                verified["database_verification"]["schema_version"], CURRENT_SCHEMA_VERSION\n            )\n\n    def test_restore_archive_recovers_valid_database(self) -> None:\n''',
+    '''    def test_create_archive_upgrades_older_schema_without_modifying_source(self) -> None:\n        with tempfile.TemporaryDirectory() as directory:\n            root = Path(directory)\n            db = root / "legacy.sqlite"\n            migrate_database(db, migrations=MIGRATIONS[:3], target_version=3)\n            self.assertEqual(validate_database(db, expected_version=3)["schema_version"], 3)\n\n            archive = root / "legacy-backup.sqlite.gz"\n            created = create_archive(db, archive)\n            verified = verify_archive(archive)\n\n            # The rollback source remains byte-compatible with its original schema,\n            # while the archive is immediately restorable by the current code.\n            self.assertEqual(validate_database(db, expected_version=3)["schema_version"], 3)\n            self.assertEqual(\n                created["database_verification"]["schema_version"], CURRENT_SCHEMA_VERSION\n            )\n            self.assertEqual(\n                verified["database_verification"]["schema_version"], CURRENT_SCHEMA_VERSION\n            )\n\n    def test_restore_archive_recovers_valid_database(self) -> None:\n''',
 )
 
 Path("_apply_history_backup_fix.py").unlink(missing_ok=True)
