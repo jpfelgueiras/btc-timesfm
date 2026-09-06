@@ -37,7 +37,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Initialize forecast observability
-        run: python3 observability.py init --run-type production_forecast
+        run: PYTHONPATH=src python -m btc_timesfm.ops.observability init --run-type production_forecast
 
       - name: Restore forecast history
         uses: actions/cache/restore@v6
@@ -49,14 +49,14 @@ jobs:
 
       - name: Decide whether forecast is due
         id: due
-        run: python3 schedule_guard.py
+        run: PYTHONPATH=src python -m btc_timesfm.ops.schedule_guard
 
       - name: Explain skipped schedule
         if: steps.due.outputs.run_forecast != 'true'
         env:
           SKIP_REASON: ${{ steps.due.outputs.reason }}
         run: |
-          python3 observability.py skip --reason "$SKIP_REASON"
+          PYTHONPATH=src python -m btc_timesfm.ops.observability skip --reason "$SKIP_REASON"
           echo '## Forecast skipped' >> "$GITHUB_STEP_SUMMARY"
           echo "$SKIP_REASON" >> "$GITHUB_STEP_SUMMARY"
 
@@ -123,7 +123,7 @@ jobs:
         if: always() && steps.due.outputs.run_forecast == 'true'
         env:
           FORECAST_OUTCOME: ${{ steps.forecast_run.outcome }}
-        run: python3 pipeline_health.py observe-forecast --outcome "$FORECAST_OUTCOME"
+        run: PYTHONPATH=src python -m btc_timesfm.ops.pipeline_health observe-forecast --outcome "$FORECAST_OUTCOME"
 
       - name: Add drift detection to job summary
         if: always() && steps.due.outputs.run_forecast == 'true' && hashFiles('drift_summary.md') != ''
@@ -152,7 +152,7 @@ jobs:
       - name: Preliminary publication health gate
         id: health_pre
         if: always() && steps.due.outputs.run_forecast == 'true' && (github.event_name == 'schedule' || inputs.post_to_x)
-        run: python3 pipeline_health.py gate --ignore-stage history
+        run: PYTHONPATH=src python -m btc_timesfm.ops.pipeline_health gate --ignore-stage history
 
       - name: Preflight and reserve X publication
         id: x_prepare
@@ -163,7 +163,7 @@ jobs:
 
       - name: Observe X preflight health
         if: always() && steps.due.outputs.run_forecast == 'true' && (github.event_name == 'schedule' || inputs.post_to_x) && hashFiles('x_post_status.json') != ''
-        run: python3 pipeline_health.py observe-x --phase preflight
+        run: PYTHONPATH=src python -m btc_timesfm.ops.pipeline_health observe-x --phase preflight
 
       - name: Verify and export durable history
         if: steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success'
@@ -271,7 +271,7 @@ jobs:
         if: always() && steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success'
         env:
           HISTORY_OUTCOME: ${{ steps.history_publish.outcome }}
-        run: python3 pipeline_health.py observe-history --outcome "$HISTORY_OUTCOME"
+        run: PYTHONPATH=src python -m btc_timesfm.ops.pipeline_health observe-history --outcome "$HISTORY_OUTCOME"
 
       - name: Persist current pipeline health
         id: health_persist
@@ -286,7 +286,7 @@ jobs:
       - name: Final publication health gate
         id: health_gate
         if: always() && steps.due.outputs.run_forecast == 'true' && (github.event_name == 'schedule' || inputs.post_to_x)
-        run: python3 pipeline_health.py gate
+        run: PYTHONPATH=src python -m btc_timesfm.ops.pipeline_health gate
 
       - name: Add forecast to job summary
         if: steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success'
@@ -338,7 +338,7 @@ jobs:
 
       - name: Observe X publication health
         if: always() && steps.due.outputs.run_forecast == 'true' && (github.event_name == 'schedule' || inputs.post_to_x) && steps.x_publish.outcome != 'skipped' && hashFiles('x_post_status.json') != ''
-        run: python3 pipeline_health.py observe-x --phase publish
+        run: PYTHONPATH=src python -m btc_timesfm.ops.pipeline_health observe-x --phase publish
 
       - name: Persist X and health metadata
         if: always() && steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success'
@@ -361,14 +361,14 @@ jobs:
 
       - name: Refresh pipeline health report
         if: always() && steps.due.outputs.run_forecast == 'true'
-        run: python3 pipeline_health.py report
+        run: PYTHONPATH=src python -m btc_timesfm.ops.pipeline_health report
 
       - name: Send optional pipeline health notification
         if: always() && steps.due.outputs.run_forecast == 'true'
         continue-on-error: true
         env:
           PIPELINE_HEALTH_WEBHOOK_URL: ${{ secrets.PIPELINE_HEALTH_WEBHOOK_URL }}
-        run: python3 pipeline_health.py notify
+        run: PYTHONPATH=src python -m btc_timesfm.ops.pipeline_health notify
 
       - name: Add pipeline health to job summary
         if: always() && steps.due.outputs.run_forecast == 'true' && hashFiles('pipeline_health_summary.md') != ''
@@ -389,11 +389,11 @@ jobs:
           JOB_STATUS: ${{ job.status }}
         run: |
           if [ "$JOB_STATUS" = "failure" ]; then
-            python3 observability.py finalize --status failed
+            PYTHONPATH=src python -m btc_timesfm.ops.observability finalize --status failed
           else
-            python3 observability.py finalize --status success --preserve-terminal
+            PYTHONPATH=src python -m btc_timesfm.ops.observability finalize --status success --preserve-terminal
           fi
-          python3 observability.py summary --append "$GITHUB_STEP_SUMMARY"
+          PYTHONPATH=src python -m btc_timesfm.ops.observability summary --append "$GITHUB_STEP_SUMMARY"
 
       - name: Upload forecast
         if: always() && steps.due.outputs.run_forecast == 'true'
