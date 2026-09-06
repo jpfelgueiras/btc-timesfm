@@ -88,6 +88,17 @@ class ExperimentManifestTests(unittest.TestCase):
         )
         self.assertNotEqual(base["configuration_id"], changed["configuration_id"])
 
+    def test_feature_set_version_is_recorded_in_configuration(self) -> None:
+        manifest = build_experiment_manifest(
+            run_type="research",
+            data=make_data(),
+            data_source="Binance BTCUSDT 1h",
+            data_pair="BTC/USDT",
+            feature_set_version="feature-set-1234abcd",
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        self.assertEqual(manifest["configuration"]["feature_set_version"], "feature-set-1234abcd")
+
     def test_seed_everything_replays_python_and_numpy_randomness(self) -> None:
         seed_everything(42)
         first = (random.random(), float(np.random.random()))

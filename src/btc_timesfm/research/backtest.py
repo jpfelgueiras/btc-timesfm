@@ -17,7 +17,8 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import requests
+
+from btc_timesfm._requests import requests
 
 from btc_timesfm.forecasting import forecast_engine
 from btc_timesfm.forecasting.adaptive_weighting import DEFAULT_HISTORY_LIMIT, adaptive_model_weights

@@ -14,6 +14,22 @@ from typing import Any
 
 def install_timesfm_stub() -> None:
     if "timesfm3" in sys.modules:
+        pass
+
+    if "requests" not in sys.modules:
+        requests_module = types.ModuleType("requests")
+
+        class RequestException(Exception):
+            pass
+
+        def get(*args: Any, **kwargs: Any) -> Any:
+            raise RequestException("requests is stubbed in unit tests")
+
+        requests_module.RequestException = RequestException
+        requests_module.get = get
+        sys.modules["requests"] = requests_module
+
+    if "timesfm3" in sys.modules:
         return
 
     module = types.ModuleType("timesfm3")

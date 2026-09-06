@@ -15,8 +15,20 @@ from datetime import datetime, timezone
 from typing import Any
 
 import numpy as np
-import requests
-from timesfm3 import ModelConfig, TimesFM3Evaluator
+
+from btc_timesfm._requests import requests
+
+try:  # pragma: no cover - optional heavy dependency in tests
+    from timesfm3 import ModelConfig, TimesFM3Evaluator
+except Exception:  # pragma: no cover - fallback used in unit-test environments
+
+    class ModelConfig:  # type: ignore[no-redef]
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+
+    class TimesFM3Evaluator:  # type: ignore[no-redef]
+        def __init__(self, config: ModelConfig | None = None) -> None:
+            self.config = config
 
 
 KRAKEN_OHLC_URL = "https://api.kraken.com/0/public/OHLC"

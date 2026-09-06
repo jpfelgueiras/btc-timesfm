@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
-import requests
+from btc_timesfm._requests import requests
 
 KRAKEN_DEPTH_URL = "https://api.kraken.com/0/public/Depth"
 BITSTAMP_DEPTH_URL = "https://www.bitstamp.net/api/v2/order_book/btcusd/"
