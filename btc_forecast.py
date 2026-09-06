@@ -14,6 +14,10 @@ import forecast_engine
 from adaptive_weighting import adaptive_model_weights, attach_persisted_outcomes
 from forecast_confidence import build_forecast_confidence
 from conformal_calibration import conformal_calibration_multiplier, evaluation_report
+from cross_asset_signals import (
+    fetch_cross_asset_snapshot,
+    signal_manifest as cross_asset_manifest,
+)
 from drift_detection import evaluate_drift, persist_drift_report
 from derivatives_signals import (
     fetch_derivatives_snapshot,
@@ -36,6 +40,7 @@ HISTORY_DB_PATH = DEFAULT_DB_PATH
 HISTORY_LIMIT = 72
 DERIVATIVES_PATH = Path("derivatives_signal.json")
 MICROSTRUCTURE_PATH = Path("microstructure_signal.json")
+CROSS_ASSET_PATH = Path("cross_asset_signal.json")
 
 # build_forecast resolves this function from forecast_engine's module globals.
 # Install the issue #6 policy once so production uses the durable-history-aware
@@ -222,6 +227,7 @@ def save_forecast_history(history: list[dict[str, Any]], output: dict[str, Any])
         "market_data_provenance": output.get("market_data_provenance"),
         "derivatives_signals": output.get("derivatives_signals"),
         "microstructure_signals": output.get("microstructure_signals"),
+        "cross_asset_signals": output.get("cross_asset_signals"),
         "experiment_manifest": output.get("experiment_manifest"),
         "regime": output["regime"],
         "market_features": output["market_features"],
@@ -340,6 +346,15 @@ def main() -> None:
         f"Microstructure signals: {microstructure_snapshot['status']} | "
         f"features={len(microstructure_snapshot.get('features', {}))}"
     )
+    cross_asset_snapshot = fetch_cross_asset_snapshot(forecast_origin, data)
+    CROSS_ASSET_PATH.write_text(
+        json.dumps(cross_asset_snapshot, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(
+        f"Cross-asset signals: {cross_asset_snapshot['status']} | "
+        f"features={len(cross_asset_snapshot.get('features', {}))}"
+    )
 
     actuals = dict(zip(data.timestamps, map(float, data.closes), strict=True))
     rolling_history = load_forecast_history()
@@ -367,9 +382,14 @@ def main() -> None:
     engine_output = build_forecast(model, data, history, adaptive_confidence=adaptive_confidence)
     derivative_features = derivatives_snapshot.get("features", {})
     microstructure_features = microstructure_snapshot.get("features", {})
+    cross_asset_features = cross_asset_snapshot.get("features", {})
     market_features = engine_output.get("market_features")
     if isinstance(market_features, dict):
-        for feature_group in (derivative_features, microstructure_features):
+        for feature_group in (
+            derivative_features,
+            microstructure_features,
+            cross_asset_features,
+        ):
             if not isinstance(feature_group, dict):
                 continue
             for name, value in feature_group.items():
@@ -401,6 +421,7 @@ def main() -> None:
             "drift_configuration": drift_report["configuration"],
             "derivatives_signals": derivatives_manifest(derivatives_snapshot),
             "microstructure_signals": microstructure_manifest(microstructure_snapshot),
+            "cross_asset_signals": cross_asset_manifest(cross_asset_snapshot),
         },
         model_names=sorted(engine_output.get("model_predictions", {})),
         created_at=generated_at,
@@ -425,6 +446,7 @@ def main() -> None:
         "experiment_manifest": experiment_manifest,
         "derivatives_signals": derivatives_snapshot,
         "microstructure_signals": microstructure_snapshot,
+        "cross_asset_signals": cross_asset_snapshot,
         "drift_detection": drift_report,
         "interval_calibration_evaluation": interval_calibration_evaluation,
         "forecast_confidence": forecast_confidence,
