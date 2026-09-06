@@ -72,6 +72,8 @@ jobs:
         continue-on-error: true
         run: |
           mypy --follow-imports=skip \
+            champion_challenger.py \
+            champion_challenger_intervals.py \
             conformal_calibration.py \
             correlation_backtest.py \
             correlation_weighting.py \
