@@ -63,8 +63,7 @@ class RegimeBacktestTests(unittest.TestCase):
                 ("persistence", 0.0),
             ):
                 model_predictions[name] = {
-                    f"{hour}h": {"price_usd": current + offset}
-                    for hour in (2, 4, 8, 16)
+                    f"{hour}h": {"price_usd": current + offset} for hour in (2, 4, 8, 16)
                 }
             sample_actuals = {}
             for hour in (2, 4, 8, 16):
