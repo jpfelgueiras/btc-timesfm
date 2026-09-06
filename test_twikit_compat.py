@@ -48,25 +48,15 @@ class TwikitCompatTests(unittest.TestCase):
         self.assertEqual(_normalize_user_data(original), original)
 
     def test_extract_create_tweet_id_from_current_result_shapes(self) -> None:
-        direct = {
-            "data": {
-                "create_tweet": {
-                    "tweet_results": {"result": {"rest_id": "123456"}}
-                }
-            }
-        }
+        direct = {"data": {"create_tweet": {"tweet_results": {"result": {"rest_id": "123456"}}}}}
         nested = {
             "data": {
-                "create_tweet": {
-                    "tweet_results": {"result": {"tweet": {"rest_id": "654321"}}}
-                }
+                "create_tweet": {"tweet_results": {"result": {"tweet": {"rest_id": "654321"}}}}
             }
         }
         legacy = {
             "data": {
-                "create_tweet": {
-                    "tweet_results": {"result": {"legacy": {"id_str": "111222"}}}
-                }
+                "create_tweet": {"tweet_results": {"result": {"legacy": {"id_str": "111222"}}}}
             }
         }
         self.assertEqual(_extract_create_tweet_id(direct), "123456")
@@ -78,9 +68,7 @@ class TwikitCompatTests(unittest.TestCase):
             "data": {
                 "create_tweet": {
                     "tweet_results": {
-                        "result": {
-                            "core": {"user_results": {"result": {"rest_id": "account-42"}}}
-                        }
+                        "result": {"core": {"user_results": {"result": {"rest_id": "account-42"}}}}
                     }
                 }
             }
@@ -89,11 +77,7 @@ class TwikitCompatTests(unittest.TestCase):
 
     def test_client_patch_recovers_id_when_full_tweet_parser_returns_none(self) -> None:
         payload = {
-            "data": {
-                "create_tweet": {
-                    "tweet_results": {"result": {"rest_id": "987654321"}}
-                }
-            }
+            "data": {"create_tweet": {"tweet_results": {"result": {"rest_id": "987654321"}}}}
         }
 
         async def fake_create(client, *args, **kwargs):
@@ -108,9 +92,7 @@ class TwikitCompatTests(unittest.TestCase):
     def test_client_patch_recovers_id_when_parser_raises_after_acceptance(self) -> None:
         payload = {
             "data": {
-                "create_tweet": {
-                    "tweet_results": {"result": {"tweet": {"rest_id": "777888999"}}}
-                }
+                "create_tweet": {"tweet_results": {"result": {"tweet": {"rest_id": "777888999"}}}}
             }
         }
 
