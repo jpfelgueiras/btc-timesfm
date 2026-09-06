@@ -57,12 +57,8 @@ class DerivativesSignalTests(unittest.TestCase):
         self.assertEqual(set(features), set(DERIVATIVE_FEATURE_NAMES))
 
     def test_stale_stats_are_omitted_without_aborting_funding(self) -> None:
-        funding = [
-            {"fundingTime": (self.origin_s - 2 * 3600) * 1000, "fundingRate": "-0.0002"}
-        ]
-        stats = [
-            {"time": self.origin_s - 5 * 3600, "open_interest_usd": "1000000"}
-        ]
+        funding = [{"fundingTime": (self.origin_s - 2 * 3600) * 1000, "fundingRate": "-0.0002"}]
+        stats = [{"time": self.origin_s - 5 * 3600, "open_interest_usd": "1000000"}]
         snapshot = snapshot_from_rows(self.origin, funding, stats)
         self.assertEqual(snapshot["status"], "partial")
         self.assertTrue(snapshot["available"])

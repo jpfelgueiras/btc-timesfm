@@ -14,6 +14,7 @@ import forecast_engine
 from adaptive_weighting import adaptive_model_weights, attach_persisted_outcomes
 from conformal_calibration import conformal_calibration_multiplier, evaluation_report
 from drift_detection import evaluate_drift, persist_drift_report
+from derivatives_signals import fetch_derivatives_snapshot, signal_manifest
 from experiment_manifest import build_experiment_manifest, seed_everything
 from forecast_engine import TARGET_HOURS, build_forecast, load_timesfm
 from market_data_sources import fetch_redundant_hourly
@@ -25,6 +26,7 @@ TWEET_PATH = Path("tweet.txt")
 STATE_PATH = Path(".state/previous_forecast.json")
 HISTORY_DB_PATH = DEFAULT_DB_PATH
 HISTORY_LIMIT = 72
+DERIVATIVES_PATH = Path("derivatives_signal.json")
 
 # build_forecast resolves this function from forecast_engine's module globals.
 # Install the issue #6 policy once so production uses the durable-history-aware
@@ -209,6 +211,7 @@ def save_forecast_history(history: list[dict[str, Any]], output: dict[str, Any])
         "pair": output.get("pair"),
         "source_pair": output.get("source_pair"),
         "market_data_provenance": output.get("market_data_provenance"),
+        "derivatives_signals": output.get("derivatives_signals"),
         "experiment_manifest": output.get("experiment_manifest"),
         "regime": output["regime"],
         "market_features": output["market_features"],
@@ -309,6 +312,16 @@ def main() -> None:
         f"{datetime.fromtimestamp(data.timestamps[-1], tz=timezone.utc).isoformat()}"
     )
 
+    forecast_origin = datetime.fromtimestamp(data.timestamps[-1], tz=timezone.utc)
+    derivatives_snapshot = fetch_derivatives_snapshot(forecast_origin)
+    DERIVATIVES_PATH.write_text(
+        json.dumps(derivatives_snapshot, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    print(
+        f"Derivatives signals: {derivatives_snapshot['status']} | "
+        f"features={len(derivatives_snapshot.get('features', {}))}"
+    )
+
     actuals = dict(zip(data.timestamps, map(float, data.closes), strict=True))
     rolling_history = load_forecast_history()
 
@@ -333,6 +346,16 @@ def main() -> None:
 
     model = load_timesfm()
     engine_output = build_forecast(model, data, history, adaptive_confidence=adaptive_confidence)
+    derivative_features = derivatives_snapshot.get("features", {})
+    market_features = engine_output.get("market_features")
+    if isinstance(market_features, dict) and isinstance(derivative_features, dict):
+        for name, value in derivative_features.items():
+            if (
+                isinstance(name, str)
+                and isinstance(value, (int, float))
+                and not isinstance(value, bool)
+            ):
+                market_features[name] = float(value)
     interval_calibration_evaluation = evaluation_report(
         history, actuals, regime=str(engine_output["regime"])
     )
@@ -347,6 +370,7 @@ def main() -> None:
             "adaptive_confidence": adaptive_confidence,
             "drift_severity": drift_report["severity"],
             "drift_configuration": drift_report["configuration"],
+            "derivatives_signals": signal_manifest(derivatives_snapshot),
         },
         model_names=sorted(engine_output.get("model_predictions", {})),
         created_at=generated_at,
@@ -369,6 +393,7 @@ def main() -> None:
             "comparison": selection.comparison,
         },
         "experiment_manifest": experiment_manifest,
+        "derivatives_signals": derivatives_snapshot,
         "drift_detection": drift_report,
         "interval_calibration_evaluation": interval_calibration_evaluation,
         **engine_output,

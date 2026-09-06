@@ -150,7 +150,9 @@ def _aggregate(scores: list[dict[str, Any]]) -> dict[str, Any]:
         "samples": len(scores),
         "mae_pct": round(float(np.mean([item["absolute_error_pct"] for item in scores])), 6),
         "bias_pct": round(float(np.mean([item["signed_error_pct"] for item in scores])), 6),
-        "direction_accuracy": round(float(np.mean([item["direction_correct"] for item in scores])), 6),
+        "direction_accuracy": round(
+            float(np.mean([item["direction_correct"] for item in scores])), 6
+        ),
     }
 
 
@@ -235,12 +237,13 @@ def walk_forward_ablation(
     ]
     safe = bool(improvements) and min(improvements) >= -0.05
     significant = sum(
-        item["significance"].get("conclusion") == "candidate_better"
-        for item in by_horizon.values()
+        item["significance"].get("conclusion") == "candidate_better" for item in by_horizon.values()
     )
     mean_improvement = float(np.mean(improvements)) if improvements else 0.0
     recommendation = (
-        "edge_detected" if mean_improvement >= 0.01 and safe and significant >= 1 else "no_defensible_edge"
+        "edge_detected"
+        if mean_improvement >= 0.01 and safe and significant >= 1
+        else "no_defensible_edge"
     )
     return {
         "schema_version": 1,

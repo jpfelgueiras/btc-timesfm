@@ -82,9 +82,7 @@ def _bounded_rows(
     return sorted(usable, key=lambda row: timestamp(row) or 0)
 
 
-def _nearest_at_or_before(
-    rows: list[dict[str, Any]], target_s: int
-) -> dict[str, Any] | None:
+def _nearest_at_or_before(rows: list[dict[str, Any]], target_s: int) -> dict[str, Any] | None:
     eligible = [row for row in rows if (_timestamp_seconds(row) or target_s + 1) <= target_s]
     return eligible[-1] if eligible else None
 
