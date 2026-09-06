@@ -1,0 +1,43 @@
+name: Temporary issue 34 integration
+
+on:
+  push:
+    branches:
+      - feature/crypto-derivatives-signals-final
+    paths:
+      - issue34_finish.py
+
+permissions:
+  contents: write
+
+jobs:
+  finish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/crypto-derivatives-signals-final
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+      - name: Install quality dependencies
+        run: pip install -r requirements-test.txt
+      - name: Apply integration patch
+        run: python issue34_finish.py
+      - name: Format and lint changed Python
+        run: |
+          ruff format btc_forecast.py derivatives_signals.py derivatives_ablation.py test_derivatives_signals.py test_derivatives_ablation.py test_derivatives_history_integration.py
+          ruff check btc_forecast.py derivatives_signals.py derivatives_ablation.py test_derivatives_signals.py test_derivatives_ablation.py test_derivatives_history_integration.py
+      - name: Run focused tests
+        run: python -m unittest -v test_derivatives_signals test_derivatives_ablation test_derivatives_history_integration
+      - name: Commit integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm issue34_finish.py
+          git add btc_forecast.py derivatives_signals.py derivatives_ablation.py test_derivatives_signals.py test_derivatives_ablation.py test_derivatives_history_integration.py DERIVATIVES_SIGNALS.md
+          git commit -m "Integrate derivatives signals into production history"
+          git push origin HEAD:feature/crypto-derivatives-signals-final
