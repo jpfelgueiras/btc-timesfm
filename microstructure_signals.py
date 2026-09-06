@@ -71,7 +71,9 @@ def _normalize_levels(rows: Iterable[object], *, bids: bool) -> list[tuple[float
     return levels
 
 
-def _depth_usd(levels: list[tuple[float, float]], mid: float, band_bps: float, *, bids: bool) -> float:
+def _depth_usd(
+    levels: list[tuple[float, float]], mid: float, band_bps: float, *, bids: bool
+) -> float:
     if bids:
         threshold = mid * (1.0 - band_bps / 10_000.0)
         selected = (level for level in levels if level[0] >= threshold)
@@ -121,9 +123,9 @@ def snapshot_from_book(
         else:
             mid = (best_bid + best_ask) / 2.0
             spread_bps = (best_ask - best_bid) / mid * 10_000.0
-            microprice = (
-                best_ask * best_bid_amount + best_bid * best_ask_amount
-            ) / (best_bid_amount + best_ask_amount)
+            microprice = (best_ask * best_bid_amount + best_bid * best_ask_amount) / (
+                best_bid_amount + best_ask_amount
+            )
             features["microstructure_spread_bps"] = spread_bps
             features["microstructure_microprice_deviation_bps"] = (
                 (microprice - mid) / mid * 10_000.0
@@ -134,9 +136,7 @@ def snapshot_from_book(
                 ask_depth = _depth_usd(ask_levels, mid, band, bids=False)
                 features[f"microstructure_bid_depth_usd_{suffix}"] = bid_depth
                 features[f"microstructure_ask_depth_usd_{suffix}"] = ask_depth
-                features[f"microstructure_imbalance_{suffix}"] = _imbalance(
-                    bid_depth, ask_depth
-                )
+                features[f"microstructure_imbalance_{suffix}"] = _imbalance(bid_depth, ask_depth)
 
     if provider_error:
         errors.append(provider_error)

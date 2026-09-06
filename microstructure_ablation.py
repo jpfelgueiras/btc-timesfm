@@ -116,7 +116,7 @@ def _ridge_predict(train_x: np.ndarray, train_y: np.ndarray, test_x: np.ndarray)
     standardized = (train_x - means) / scales
     test_standardized = (test_x - means) / scales
     design = np.column_stack([np.ones(len(standardized)), standardized])
-    penalty = np.eye(design.shape[1], dtype=float)
+    penalty: np.ndarray = np.eye(design.shape[1], dtype=float)
     penalty[0, 0] = 0.0
     coefficients = np.linalg.solve(design.T @ design + penalty, design.T @ train_y)
     return float(np.dot(np.concatenate([[1.0], test_standardized]), coefficients))
@@ -136,9 +136,7 @@ def evaluate_rows(rows: list[dict[str, Any]], *, min_train: int = 24) -> dict[st
             if len(train) < min_train:
                 continue
             base_x = np.asarray([row["base"] for row in train], dtype=float)
-            augmented_x = np.asarray(
-                [row["base"] + row["micro"] for row in train], dtype=float
-            )
+            augmented_x = np.asarray([row["base"] + row["micro"] for row in train], dtype=float)
             train_y = np.asarray([row["target"] for row in train], dtype=float)
             baseline = _ridge_predict(base_x, train_y, np.asarray(test["base"], dtype=float))
             candidate = _ridge_predict(
@@ -190,12 +188,8 @@ def evaluate_rows(rows: list[dict[str, Any]], *, min_train: int = 24) -> dict[st
         report["horizons"][f"{horizon}h"] = {
             "available_feature_rows": len(horizon_rows),
             "walk_forward_samples": len(outcomes),
-            "baseline_mae_pp": round(float(np.mean(baseline_errors)), 6)
-            if outcomes
-            else None,
-            "candidate_mae_pp": round(float(np.mean(candidate_errors)), 6)
-            if outcomes
-            else None,
+            "baseline_mae_pp": round(float(np.mean(baseline_errors)), 6) if outcomes else None,
+            "candidate_mae_pp": round(float(np.mean(candidate_errors)), 6) if outcomes else None,
             "baseline_direction_accuracy": round(
                 float(np.mean([item["baseline_direction"] for item in outcomes])), 6
             )
