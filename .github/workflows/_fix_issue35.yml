@@ -1,0 +1,39 @@
+name: Fix issue 35 quality gates
+
+on:
+  push:
+    branches: [feature/microstructure-signals]
+    paths: ['.github/workflows/_fix_issue35.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/microstructure-signals
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Format and fix typing
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('microstructure_ablation.py')
+          text = path.read_text()
+          old = '    penalty = np.eye(design.shape[1], dtype=float)\n'
+          new = '    penalty: np.ndarray = np.eye(design.shape[1], dtype=float)\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one penalty assignment, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          python -m pip install 'ruff==0.16.6'
+          ruff format microstructure_ablation.py microstructure_signals.py test_microstructure_ablation.py test_microstructure_signals.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add microstructure_ablation.py microstructure_signals.py test_microstructure_ablation.py test_microstructure_signals.py
+          git commit -m 'Fix microstructure formatting and typing'
+          git push origin HEAD:feature/microstructure-signals
