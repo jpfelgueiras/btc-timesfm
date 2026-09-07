@@ -2,6 +2,8 @@ name: BTC Forecast GitHub Pages
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
   schedule:
     # Rebuild hourly as a fallback even if the forecast workflow is delayed.
     - cron: "17 * * * *"
