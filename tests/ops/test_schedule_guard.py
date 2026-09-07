@@ -114,28 +114,38 @@ class ScheduleGuardTests(unittest.TestCase):
                 datetime(2026, 9, 5, 10, 0, tzinfo=timezone.utc),
             )
 
-    def test_scheduled_run_without_x_post_history_proceeds(self) -> None:
+    def test_scheduled_run_without_prior_forecast_proceeds(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run, reason = should_run("schedule", Path(tmp) / "forecast.json", Path(tmp) / "x.json")
             self.assertTrue(run)
-            self.assertIn("No successful X publication", reason)
+            self.assertIn("No prior forecast candle", reason)
 
-    def test_scheduled_run_waits_for_two_hours_since_last_successful_x_post(self) -> None:
+    def test_scheduled_run_uses_completed_forecast_candle_not_x_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             forecast_path = Path(tmp) / "state.json"
             registry_path = Path(tmp) / "x_post_registry.json"
-            registry_path.write_text(
-                json.dumps({"last_successful_x_post_at": "2026-09-05T09:00:00+00:00"}),
+            forecast_path.write_text(
+                json.dumps(
+                    {
+                        "latest_close_at": "2026-09-05T10:00:00+00:00",
+                        "predictions": {"2h": {}},
+                    }
+                ),
                 encoding="utf-8",
             )
+            registry_path.write_text(
+                json.dumps({"last_successful_x_post_at": "2026-09-05T10:59:00+00:00"}),
+                encoding="utf-8",
+            )
+
             run, reason = should_run(
                 "schedule",
                 forecast_path,
                 registry_path,
-                now=datetime(2026, 9, 5, 10, 29, tzinfo=timezone.utc),
+                now=datetime(2026, 9, 5, 10, 59, tzinfo=timezone.utc),
             )
             self.assertFalse(run)
-            self.assertIn("1.5 hours", reason)
+            self.assertIn("not due", reason)
 
             run, reason = should_run(
                 "schedule",
@@ -144,7 +154,7 @@ class ScheduleGuardTests(unittest.TestCase):
                 now=datetime(2026, 9, 5, 11, 1, tzinfo=timezone.utc),
             )
             self.assertTrue(run)
-            self.assertIn("2.0 hours", reason)
+            self.assertIn("1.0 completed candle hours", reason)
 
 
 if __name__ == "__main__":
