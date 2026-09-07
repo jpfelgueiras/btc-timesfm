@@ -2,9 +2,8 @@
 """Decide whether a scheduled forecast is due.
 
 GitHub Actions cron runs are best-effort and may be delayed or dropped. The
-workflow therefore wakes up on a two-hour cadence, restores durable X posting
-state, and uses this guard to run the expensive forecast only when at least two
-hours have elapsed since the last successful X publication.
+workflow wakes hourly and this guard compares completed BTC candle timestamps,
+so production forecasting is independent of X/Twitter publication success.
 
 Manual workflow_dispatch runs always proceed.
 """
@@ -19,7 +18,7 @@ from typing import Any
 
 STATE_PATH = Path(".state/previous_forecast.json")
 X_POST_REGISTRY_PATH = Path(".state/x_post_registry.json")
-MIN_POST_GAP_HOURS = 2
+MIN_FORECAST_GAP_HOURS = 1
 
 
 def parse_timestamp(value: Any) -> datetime | None:
@@ -49,7 +48,6 @@ def latest_forecast_close(state_path: Path) -> datetime | None:
     if isinstance(state, dict) and isinstance(state.get("forecasts"), list):
         snapshots = [item for item in state["forecasts"] if isinstance(item, dict)]
     elif isinstance(state, dict) and "predictions" in state:
-        # Legacy single-forecast cache format.
         snapshots = [state]
 
     timestamps = [
@@ -61,6 +59,7 @@ def latest_forecast_close(state_path: Path) -> datetime | None:
 
 
 def latest_successful_x_post(registry_path: Path) -> datetime | None:
+    """Retained for compatibility and diagnostics; it no longer controls cadence."""
     if not registry_path.exists():
         return None
 
@@ -101,9 +100,9 @@ def should_run(
     x_post_registry_path: Path = X_POST_REGISTRY_PATH,
     now: datetime | None = None,
 ) -> tuple[bool, str]:
-    # Keep state_path in the public signature for compatibility with older tests
-    # and local callers; scheduled X cadence is now controlled by the registry.
-    _ = state_path
+    # Keep x_post_registry_path in the public signature for compatibility with
+    # existing callers. X state is intentionally not used to decide cadence.
+    _ = x_post_registry_path
 
     if event_name != "schedule":
         return (
@@ -112,23 +111,23 @@ def should_run(
         )
 
     checked_at = now or datetime.now(timezone.utc)
-    last_post = latest_successful_x_post(x_post_registry_path)
-    if last_post is None:
-        return True, "No successful X publication history found: forecast will run."
+    current_hour = completed_hour(checked_at)
+    last_forecast = latest_forecast_close(state_path)
+    if last_forecast is None:
+        return True, "No prior forecast candle found: forecast will run."
 
-    post_gap_hours = (checked_at.astimezone(timezone.utc) - last_post).total_seconds() / 3600.0
-
-    if post_gap_hours >= MIN_POST_GAP_HOURS:
+    gap_hours = (current_hour - completed_hour(last_forecast)).total_seconds() / 3600.0
+    if gap_hours >= MIN_FORECAST_GAP_HOURS:
         return (
             True,
-            f"Forecast is due: {post_gap_hours:.1f} hours since the last successful X post "
-            f"at {last_post.isoformat()}.",
+            f"Forecast is due: {gap_hours:.1f} completed candle hours since the last forecast "
+            f"at {last_forecast.isoformat()}.",
         )
 
     return (
         False,
-        f"Forecast not due yet: {post_gap_hours:.1f} hours since the last successful X post "
-        f"at {last_post.isoformat()} (need {MIN_POST_GAP_HOURS}).",
+        f"Forecast not due yet: latest forecast is {last_forecast.isoformat()} and the current "
+        f"completed candle is {current_hour.isoformat()} (need {MIN_FORECAST_GAP_HOURS}h).",
     )
 
 
