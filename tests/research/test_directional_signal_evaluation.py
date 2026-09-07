@@ -70,7 +70,9 @@ class DirectionalSignalEvaluationTests(unittest.TestCase):
 
         self.assertEqual(report["evaluated_samples"], 3)
         self.assertAlmostEqual(report["overall"]["direction_accuracy"], 2 / 3, places=6)
-        self.assertAlmostEqual(report["overall"]["mean_magnitude_error_pct_points"], 1.033333, places=4)
+        self.assertAlmostEqual(
+            report["overall"]["mean_magnitude_error_pct_points"], 1.033333, places=4
+        )
         two_hour = report["by_dimension"]["horizon"]["2h"]
         self.assertEqual(two_hour["samples"], 2)
         self.assertEqual(two_hour["confusion_matrix"]["up"]["up"], 1)
