@@ -87,7 +87,12 @@ def production_config() -> CandidateConfig:
 
 
 def candidate_catalog() -> list[CandidateConfig]:
-    """Small deterministic search space with one-factor and conservative variants."""
+    """Small deterministic search space with one-factor and conservative variants.
+
+    Horizon-specialized candidates target differential performance across the
+    four supported horizons (2h, 4h, 8h, 16h) by varying model selection or
+    hyperparameter emphasis that may affect horizons unevenly.
+    """
     current = production_config()
     return [
         current,
@@ -112,6 +117,40 @@ def candidate_catalog() -> list[CandidateConfig]:
         ),
         CandidateConfig(
             name="interval_stricter", target_interval_coverage=0.80, coverage_penalty=0.60
+        ),
+        # --- Horizon-specialized additions for issue #116 ---
+        # "2h_specialized": tighter weight bounds and higher direction reward,
+        # which may improve short-horizon direction accuracy at the cost of longer horizons.
+        CandidateConfig(
+            name="2h_specialized",
+            min_weight=0.02,
+            max_weight=0.40,
+            direction_reward=0.40,
+            persistence_boost=0.15,
+        ),
+        # "4h_specialized": moderate history limit and middle-of-the-road settings,
+        # acting as a baseline for intermediate-horizon evaluation.
+        CandidateConfig(
+            name="4h_specialized",
+            min_samples=8,
+            full_samples=24,
+            max_blend=0.75,
+            mae_lambda=2.5,
+        ),
+        # "8h_specialized": broader model enablement favoring longer-context models,
+        # which may benefit the 8h horizon where TimesFM's context window matters more.
+        CandidateConfig(
+            name="8h_specialized",
+            enabled_models=("timesfm_336h", "timesfm_512h", "persistence", "drift_7d", "ar1"),
+            max_weight=0.60,
+        ),
+        # "16h_specialized": strongest persistence fallback and highest max weight,
+        # targeting the longest horizon where persistence often remains competitive.
+        CandidateConfig(
+            name="16h_specialized",
+            persistence_boost=0.25,
+            max_weight=0.70,
+            min_weight=0.05,
         ),
     ]
 

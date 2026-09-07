@@ -20,7 +20,7 @@ class OptimizerTests(unittest.TestCase):
         second = optimizer.candidate_catalog()
         self.assertEqual(first, second)
         self.assertEqual(first[0].name, "production")
-        self.assertLessEqual(len(first), 16)
+        self.assertLessEqual(len(first), 18)
         self.assertGreaterEqual(len(first), 8)
         self.assertEqual(len({item.name for item in first}), len(first))
         for candidate in first:
