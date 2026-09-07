@@ -11,7 +11,7 @@ Each publication gets a deterministic key derived from:
 
 The SHA-256 key is stable across retries. Re-running the same forecast with the same text therefore resolves to the same registry record.
 
-The registry is stored as `.state/x_post_registry.json` and uploaded to the same machine-managed GitHub Release used for forecast history. Records include the forecast origin, content digest, experiment/configuration IDs, GitHub Actions run ID, attempt count, provider, status and final X post ID when available.
+The registry is stored as `.state/x_post_registry.json` and uploaded to the same machine-managed GitHub Release used for forecast history. Records include the forecast origin, content digest, experiment/configuration IDs, GitHub Actions run ID, attempt count, provider, status and final X post ID when available. The registry also stores `last_successful_x_post_at`; scheduled runs use that timestamp, not the last forecast timestamp, to decide whether the next production post is due. Manual non-posting runs therefore do not reset the scheduled posting cadence.
 
 ## Two-phase publication
 

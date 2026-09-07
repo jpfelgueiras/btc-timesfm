@@ -179,6 +179,7 @@ class PostToXTests(unittest.TestCase):
             self.assertEqual(item["status"], "posted")
             self.assertEqual(item["experiment_run_id"], "exp-1")
             self.assertEqual(item["github_run_id"], "100")
+            self.assertIsNotNone(records.data["last_successful_x_post_at"])
 
     def test_ambiguous_response_failure_locks_future_retry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

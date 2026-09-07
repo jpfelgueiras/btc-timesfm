@@ -32,6 +32,7 @@ class XPostRegistryTests(unittest.TestCase):
             )
             self.assertEqual(first["action"], "publish")
             registry.mark_posted(key, "123")
+            self.assertIsNotNone(registry.data["last_successful_x_post_at"])
 
             second = XPostRegistry(path).reserve(
                 key=key,
@@ -43,6 +44,28 @@ class XPostRegistryTests(unittest.TestCase):
             )
             self.assertEqual(second["action"], "duplicate")
             self.assertEqual(second["record"]["post_id"], "123")
+
+    def test_loading_legacy_registry_backfills_last_successful_post_timestamp(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "registry.json"
+            path.write_text(
+                """{
+  "version": 1,
+  "posts": {
+    "old": {"status": "posted", "posted_at": "2026-09-05T20:00:00+00:00"},
+    "new": {"status": "posted", "posted_at": "2026-09-05T22:00:00+00:00"},
+    "failed": {"status": "failed", "posted_at": "2026-09-05T23:00:00+00:00"}
+  }
+}
+""",
+                encoding="utf-8",
+            )
+
+            registry = XPostRegistry(path)
+            self.assertEqual(
+                registry.data["last_successful_x_post_at"],
+                "2026-09-05T22:00:00+00:00",
+            )
 
     def test_ambiguous_attempt_is_locked_but_auth_failure_can_retry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

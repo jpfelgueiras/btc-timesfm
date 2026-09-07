@@ -262,14 +262,14 @@ For each horizon the project tracks absolute USD error, MAE %, signed error/bias
 
 ## Schedule
 
-GitHub Actions wakes up hourly at minute `37` UTC:
+GitHub Actions wakes up every two hours at minute `37` UTC:
 
 ```yaml
 schedule:
-  - cron: "37 * * * *"
+  - cron: "37 */2 * * *"
 ```
 
-A lightweight guard restores the rolling scheduler state first. The expensive forecast only runs after at least two completed candle-hours have elapsed since the previous saved forecast. This gives GitHub another opportunity every hour if a scheduled event is delayed or dropped while still producing roughly one forecast every two hours.
+A lightweight guard restores durable X posting state first. The expensive forecast only runs after at least two hours have elapsed since the previous successful X post. Manual non-posting runs can update forecast history without resetting the production X posting cadence.
 
 When a forecast is due, the durable Release database is restored before model execution, updated and verified after the forecast, and published back before any X post is sent.
 
