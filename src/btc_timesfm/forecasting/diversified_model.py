@@ -26,6 +26,8 @@ MIN_INITIAL_PRIOR_WEIGHT = 0.03
 MAX_INITIAL_PRIOR_WEIGHT = 0.20
 PRODUCTION_FLAG = "BTC_ENABLE_DIVERSIFIED_MODEL"
 
+STATIC_MODEL_NAMES = {MODEL_NAME, "ar1", "momentum"}
+
 StaticWeights = Callable[[list[str], str], dict[str, float]]
 
 
@@ -240,15 +242,154 @@ def ridge_feature_forecast(
     return result
 
 
+def _ar1_forecast(returns: np.ndarray, *, alpha: float | None = None) -> float:
+    """One-step AR(1) forecast: next return = alpha * last_return + noise.
+    If alpha is not supplied, estimate it as the lag-1 autocorrelation."""
+    if len(returns) < 2:
+        return 0.0
+    last_return = returns[-1]
+    if alpha is None:
+        # Estimate autocorrelation: sum(r_{t-1} * r_t) / sum(r_{t-1}^2)
+        num = 0.0
+        den = 0.0
+        for t in range(1, len(returns)):
+            num += returns[t - 1] * returns[t]
+            den += returns[t - 1] ** 2
+        alpha = num / den if den != 0 else 0.0
+    return alpha * last_return
+
+
+def _momentum_forecast(returns: np.ndarray, *, lookback: int = 10) -> float:
+    """Momentum forecast: sign of average return over lookback periods."""
+    if len(returns) < lookback:
+        return 0.0
+    recent = returns[-lookback :]
+    avg = float(np.mean(recent))
+    return float(np.sign(avg))
+
+
+def ridge_feature_forecast(
+    data: Any,
+    *,
+    alpha: float = DEFAULT_RIDGE_ALPHA,
+    min_train_samples: int = DEFAULT_MIN_TRAIN_SAMPLES,
+) -> dict[str, dict[str, float]]:
+    """Forecast 2h/4h/8h/16h BTC prices with direct ridge regressions."""
+    closes = np.asarray(data.closes, dtype=float)
+    if len(closes) <= MAX_LAG + max(TARGET_HOURS):
+        raise ValueError("market window is too short for ridge forecasting")
+    current_price = float(closes[-1])
+    latest_features = _feature_at(data, len(closes) - 1)
+    recent_returns = np.diff(np.log(closes[-73:]))
+    recent_volatility = max(float(np.std(recent_returns)), 1e-5)
+
+    result: dict[str, dict[str, float]] = {}
+    for horizon in TARGET_HOURS:
+        x, y, _ = training_examples(data, horizon, min_train_samples=min_train_samples)
+        predicted_return = _fit_predict_ridge(x, y, latest_features, alpha=alpha)
+        # Guard against an unstable extrapolation while keeping the model's
+        # relative signal. The bound scales with recent realized volatility.
+        return_limit = max(0.005, 4.0 * recent_volatility * math.sqrt(horizon))
+        predicted_return = float(np.clip(predicted_return, -return_limit, return_limit))
+        predicted_price = current_price * math.exp(predicted_return)
+        result[f"{horizon}h"] = {
+            "price_usd": predicted_price,
+            "predicted_log_return": predicted_return,
+            "training_samples": float(len(y)),
+        }
+    return result
+
+
+def ar1_feature_forecast(
+    data: Any,
+    *,
+    min_train_samples: int = DEFAULT_MIN_TRAIN_SAMPLES,
+) -> dict[str, dict[str, float]]:
+    """One-step AR(1) forecast for 2h/4h/8h/16h horizons using lag-1 autocorrelation.
+
+    This model is deliberately lightweight: it estimates a single autocorrelation
+    coefficient from past log-returns and applies it to the most recent return.
+    All horizons share the same estimated alpha; the returned values are the
+    one-step-ahead log-return forecast clipped to a volatility-scaled bound.
+    """
+    closes = np.asarray(data.closes, dtype=float)
+    if len(closes) <= MAX_LAG + max(TARGET_HOURS):
+        raise ValueError("market window is too short for AR(1) forecasting")
+    # Compute log returns
+    log_returns = np.diff(np.log(closes))
+    # Estimate AR(1) alpha from lag-1 autocorrelation
+    num = 0.0
+    den = 0.0
+    for t in range(1, len(log_returns)):
+        num += log_returns[t - 1] * log_returns[t]
+        den += log_returns[t - 1] ** 2
+    alpha = num / den if den != 0 else 0.0
+    latest_return = log_returns[-1]
+    recent_volatility = max(float(np.std(log_returns[-24:])), 1e-5)
+    return_limit = max(0.005, 4.0 * recent_volatility * math.sqrt(max(TARGET_HOURS)))
+
+    result: dict[str, dict[str, float]] = {}
+    for horizon in TARGET_HOURS:
+        predicted_return = float(np.clip(alpha * latest_return, -return_limit, return_limit))
+        predicted_price = current_price = float(closes[-1]) * math.exp(predicted_return)
+        result[f"{horizon}h"] = {
+            "price_usd": predicted_price,
+            "predicted_log_return": predicted_return,
+            "training_samples": float(len(log_returns)),
+        }
+    return result
+
+
+def momentum_feature_forecast(
+    data: Any,
+    *,
+    lookback: int = 10,
+    min_train_samples: int = DEFAULT_MIN_TRAIN_SAMPLES,
+) -> dict[str, dict[str, float]]:
+    """Momentum-based forecast for 2h/4h/8h/16h horizons.
+
+    The sign of the average return over ``lookback`` most recent hourly candles
+    is used as the forecast direction.  The magnitude is set to a small default
+    return limit scaled by recent volatility, so the model produces price-level
+    forecasts rather than just +/-1 signals.
+    """
+    closes = np.asarray(data.closes, dtype=float)
+    if len(closes) <= MAX_LAG + max(TARGET_HOURS):
+        raise ValueError("market window is too short for momentum forecasting")
+    # Compute log returns
+    log_returns = np.diff(np.log(closes))
+    # Use the most recent ``lookback`` returns for the momentum signal
+    recent = log_returns[-lookback :]
+    avg_return = float(np.mean(recent))
+    direction = float(np.sign(avg_return))
+    # Scale magnitude by recent volatility
+    recent_vol = max(float(np.std(log_returns[-24:])), 1e-5)
+    return_limit = max(0.005, 3.0 * recent_vol)
+    predicted_return = direction * return_limit
+    current_price = float(closes[-1])
+    predicted_price = current_price * math.exp(predicted_return)
+
+    result: dict[str, dict[str, float]] = {}
+    for horizon in TARGET_HOURS:
+        result[f"{horizon}h"] = {
+            "price_usd": predicted_price,
+            "predicted_log_return": predicted_return,
+            "training_samples": float(len(log_returns)),
+        }
+    return result
+
+
 def augment_baselines(
     baseline_function: Any,
     data: Any,
     *,
     enabled: bool,
 ) -> dict[str, dict[str, dict[str, float]]]:
-    """Return ordinary baselines plus the ridge member when research/approved."""
+    """Return ordinary baselines plus the ridge/AR1/momentum members when research/approved."""
     baselines = dict(baseline_function(data))
     if enabled:
         install_adaptive_prior()
         baselines[MODEL_NAME] = ridge_feature_forecast(data)
+        baselines["ar1"] = ar1_feature_forecast(data)
+        baselines["momentum"] = momentum_feature_forecast(data)
     return baselines
