@@ -1,0 +1,43 @@
+name: Apply page-first forecast cadence
+
+on:
+  push:
+    branches: [feature/github-pages-dashboard]
+    paths: ['.github/workflows/_apply_pages_forecast_cadence.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/github-pages-dashboard
+      - name: Make forecast publishing hourly and independent of X
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/forecast.yml')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              '# Wake up every two hours away from the top of the hour. A guard below uses\n    # durable X publication state so delayed/dropped cron runs catch up safely.\n    - cron: "37 */2 * * *"',
+              '# Run hourly away from the top of the hour. The guard tracks completed forecast\n    # candles, so forecasting no longer depends on X/Twitter publication state.\n    - cron: "37 * * * *"',
+          )
+          text = text.replace(
+              "(github.event_name == 'schedule' || inputs.post_to_x)",
+              "inputs.post_to_x",
+          )
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit changes and remove temporary workflow
+        run: |
+          set -euo pipefail
+          rm .github/workflows/_apply_pages_forecast_cadence.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/forecast.yml .github/workflows/_apply_pages_forecast_cadence.yml
+          git commit -m 'Make GitHub Pages the hourly publication path'
+          git push origin HEAD:feature/github-pages-dashboard
