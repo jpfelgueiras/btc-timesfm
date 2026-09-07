@@ -179,15 +179,15 @@ def _render_latest(data: dict[str, Any]) -> str:
         if item.get("q10_usd") is not None and item.get("q90_usd") is not None:
             interval = (
                 f'<div class="sub">80% interval {_money(item["q10_usd"])} – '
-                f'{_money(item["q90_usd"])}</div>'
+                f"{_money(item['q90_usd'])}</div>"
             )
         cards.append(
             f"""
             <article class="prediction-card {direction_class}">
-              <div class="eyebrow">+{int(item['horizon_hours'])}h</div>
-              <div class="prediction-price">{_money(item['predicted_price_usd'])}</div>
+              <div class="eyebrow">+{int(item["horizon_hours"])}h</div>
+              <div class="prediction-price">{_money(item["predicted_price_usd"])}</div>
               <div class="change">{change:+.2f}%</div>
-              <div class="sub">Target {html.escape(str(item['target_at']))}</div>
+              <div class="sub">Target {html.escape(str(item["target_at"]))}</div>
               {interval}
             </article>
             """
@@ -197,7 +197,7 @@ def _render_latest(data: dict[str, Any]) -> str:
     stale = isinstance(age, (int, float)) and float(age) > 4.0
     freshness = (
         f'<span class="badge {"warn" if stale else "ok"}">'
-        f'{"STALE" if stale else "LIVE"} · {float(age):.1f}h old</span>'
+        f"{'STALE' if stale else 'LIVE'} · {float(age):.1f}h old</span>"
         if isinstance(age, (int, float))
         else ""
     )
@@ -205,12 +205,12 @@ def _render_latest(data: dict[str, Any]) -> str:
     <div class="current-strip">
       <div>
         <div class="eyebrow">Latest completed BTC candle</div>
-        <div class="spot-price">{_money(latest['source_price_usd'])}</div>
-        <div class="sub">{html.escape(str(latest['origin_at']))} · {html.escape(str(latest.get('regime') or 'unknown'))}</div>
+        <div class="spot-price">{_money(latest["source_price_usd"])}</div>
+        <div class="sub">{html.escape(str(latest["origin_at"]))} · {html.escape(str(latest.get("regime") or "unknown"))}</div>
       </div>
       {freshness}
     </div>
-    <div class="prediction-grid">{''.join(cards)}</div>
+    <div class="prediction-grid">{"".join(cards)}</div>
     """
 
 
@@ -225,23 +225,23 @@ def _render_accuracy(data: dict[str, Any]) -> str:
             warning = metrics.get("confidence_warning")
             rows.append(
                 f"""
-                <tr class="{'low-sample' if warning else ''}">
+                <tr class="{"low-sample" if warning else ""}">
                   <td><strong>{html.escape(horizon)}</strong></td>
-                  <td>{int(metrics.get('samples') or 0)}</td>
-                  <td>{_pct(metrics.get('mae_pct'))}</td>
-                  <td>{_ratio_pct(metrics.get('direction_accuracy'))}</td>
-                  <td>{_ratio_pct(metrics.get('q10_q90_coverage'))}</td>
+                  <td>{int(metrics.get("samples") or 0)}</td>
+                  <td>{_pct(metrics.get("mae_pct"))}</td>
+                  <td>{_ratio_pct(metrics.get("direction_accuracy"))}</td>
+                  <td>{_ratio_pct(metrics.get("q10_q90_coverage"))}</td>
                 </tr>
                 """
             )
         blocks.append(
             f"""
-            <details {'open' if window == '30d' else ''}>
+            <details {"open" if window == "30d" else ""}>
               <summary>{labels[window]}</summary>
               <div class="table-wrap">
                 <table>
                   <thead><tr><th>Horizon</th><th>Samples</th><th>MAE</th><th>Direction</th><th>80% coverage</th></tr></thead>
-                  <tbody>{''.join(rows)}</tbody>
+                  <tbody>{"".join(rows)}</tbody>
                 </table>
               </div>
             </details>
@@ -259,11 +259,11 @@ def _render_recent(data: dict[str, Any]) -> str:
         rows.append(
             f"""
             <tr>
-              <td>{html.escape(str(item['origin_at']))}</td>
-              <td>+{int(item['horizon_hours'])}h</td>
-              <td>{_money(item['source_price_usd'])}</td>
-              <td>{_money(item['predicted_price_usd'])}</td>
-              <td class="{'positive' if float(item['predicted_change_pct']) >= 0 else 'negative'}">{float(item['predicted_change_pct']):+.2f}%</td>
+              <td>{html.escape(str(item["origin_at"]))}</td>
+              <td>+{int(item["horizon_hours"])}h</td>
+              <td>{_money(item["source_price_usd"])}</td>
+              <td>{_money(item["predicted_price_usd"])}</td>
+              <td class="{"positive" if float(item["predicted_change_pct"]) >= 0 else "negative"}">{float(item["predicted_change_pct"]):+.2f}%</td>
               <td>{actual}</td>
               <td>{error}</td>
               <td><span class="status {css}">{label}</span></td>
@@ -274,7 +274,7 @@ def _render_recent(data: dict[str, Any]) -> str:
     <div class="table-wrap recent-table">
       <table>
         <thead><tr><th>Origin</th><th>Horizon</th><th>BTC then</th><th>Prediction</th><th>Move</th><th>Actual</th><th>Error</th><th>Status</th></tr></thead>
-        <tbody>{''.join(rows)}</tbody>
+        <tbody>{"".join(rows)}</tbody>
       </table>
     </div>
     """
@@ -358,7 +358,7 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
   {_render_recent(data)}
 </section>
 <div class="note">Experimental forecasting only — not financial advice. Historical accuracy does not guarantee future performance.</div>
-<footer>Generated {html.escape(str(data['generated_at']))} from {int(data['matured_rows'])} matured forecast rows.</footer>
+<footer>Generated {html.escape(str(data["generated_at"]))} from {int(data["matured_rows"])} matured forecast rows.</footer>
 </main>
 </body>
 </html>
@@ -392,7 +392,9 @@ def generate_site(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate the static BTC forecast GitHub Pages site")
+    parser = argparse.ArgumentParser(
+        description="Generate the static BTC forecast GitHub Pages site"
+    )
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--recent-limit", type=int, default=DEFAULT_RECENT_ROWS)
