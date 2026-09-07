@@ -36,7 +36,7 @@ The project has moved beyond a TimesFM experiment into a small forecasting platf
 - **Weekly recommendation-only optimizer** that evaluates bounded candidate ensemble parameters and consumes statistical evidence.
 - **Structured production observability** with JSON snapshots, JSONL events, timings, counters, run identifiers, and GitHub Actions summaries.
 - **Daily forecast performance dashboard** generated from durable history in JSON, Markdown, and standalone HTML.
-- **Scheduled GitHub Actions production workflow** with a guard targeting roughly one forecast every two completed candle hours.
+- **Scheduled GitHub Actions production workflow** with a guard targeting roughly one X post every two hours based on durable successful-publication state.
 - **Automatic X posting** for scheduled forecasts using Twikit and the `X_COOKIES_JSON` repository secret.
 - **Emoji-rich tweet formatting** with compact 280-character fallbacks.
 - **PR CI quality gates** for unit tests, coverage, Ruff lint/format, and mypy checks.
@@ -126,9 +126,9 @@ Bitstamp BTC/USD fallback ─────┘
 
 ### Production scheduling
 
-The GitHub Actions forecast workflow wakes up hourly at minute `37` UTC. A lightweight scheduler guard checks the latest completed forecast candle and only runs the expensive model when at least two completed hourly candles have elapsed.
+The GitHub Actions forecast workflow wakes up every two hours at minute `37` UTC. A lightweight scheduler guard checks durable X publication state and only runs the expensive model when at least two hours have elapsed since the last successful X post.
 
-This design is intentional: GitHub scheduled workflows are best-effort and can be delayed. Waking hourly gives the project another chance to run without producing an expensive forecast every hour.
+This design is intentional: GitHub scheduled workflows are best-effort and can be delayed. The guard keys off successful X posts rather than saved forecasts, so failed posts and manual non-posting runs do not advance the production posting cadence.
 
 Scheduled forecasts post to X automatically. Manual runs only post when explicitly requested.
 

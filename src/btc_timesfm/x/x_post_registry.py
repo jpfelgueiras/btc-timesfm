@@ -39,7 +39,7 @@ class XPostRegistry:
 
     def _load(self) -> dict[str, Any]:
         if not self.path.exists():
-            return {"version": REGISTRY_VERSION, "posts": {}}
+            return {"version": REGISTRY_VERSION, "posts": {}, "last_successful_x_post_at": None}
         payload = json.loads(self.path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             raise RuntimeError("X post registry must contain a JSON object")
@@ -51,7 +51,17 @@ class XPostRegistry:
         posts = payload.get("posts")
         if not isinstance(posts, dict):
             raise RuntimeError("X post registry is missing its posts mapping")
+        payload.setdefault("last_successful_x_post_at", self._latest_posted_at(posts))
         return payload
+
+    @staticmethod
+    def _latest_posted_at(posts: dict[str, Any]) -> str | None:
+        posted_times = [
+            str(item["posted_at"])
+            for item in posts.values()
+            if isinstance(item, dict) and item.get("status") == "posted" and item.get("posted_at")
+        ]
+        return max(posted_times) if posted_times else None
 
     def _save(self) -> None:
         tmp = self.path.with_suffix(self.path.suffix + ".tmp")
@@ -131,6 +141,7 @@ class XPostRegistry:
                 "updated_at": now,
             }
         )
+        self.data["last_successful_x_post_at"] = now
         self._save()
         return dict(record)
 

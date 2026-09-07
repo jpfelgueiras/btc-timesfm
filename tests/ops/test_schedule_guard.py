@@ -12,6 +12,7 @@ from pathlib import Path
 from btc_timesfm.ops.schedule_guard import (
     completed_hour,
     latest_forecast_close,
+    latest_successful_x_post,
     parse_timestamp,
     should_run,
 )
@@ -83,34 +84,67 @@ class ScheduleGuardTests(unittest.TestCase):
         self.assertTrue(run)
         self.assertIn("Manual", reason)
 
-    def test_scheduled_run_without_history_proceeds(self) -> None:
+    def test_latest_successful_x_post_prefers_root_and_post_records(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            run, reason = should_run("schedule", Path(tmp) / "missing.json")
-            self.assertTrue(run)
-            self.assertIn("No usable", reason)
-
-    def test_scheduled_run_waits_for_two_completed_candles(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "state.json"
+            path = Path(tmp) / "registry.json"
             path.write_text(
-                json.dumps({"forecasts": [{"latest_close_at": "2026-09-05T09:00:00+00:00"}]}),
+                json.dumps(
+                    {
+                        "last_successful_x_post_at": "2026-09-05T09:00:00+00:00",
+                        "posts": {
+                            "old": {
+                                "status": "posted",
+                                "posted_at": "2026-09-05T08:00:00+00:00",
+                            },
+                            "new": {
+                                "status": "posted",
+                                "posted_at": "2026-09-05T10:00:00Z",
+                            },
+                            "failed": {
+                                "status": "failed",
+                                "posted_at": "2026-09-05T11:00:00Z",
+                            },
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                latest_successful_x_post(path),
+                datetime(2026, 9, 5, 10, 0, tzinfo=timezone.utc),
+            )
+
+    def test_scheduled_run_without_x_post_history_proceeds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run, reason = should_run("schedule", Path(tmp) / "forecast.json", Path(tmp) / "x.json")
+            self.assertTrue(run)
+            self.assertIn("No successful X publication", reason)
+
+    def test_scheduled_run_waits_for_two_hours_since_last_successful_x_post(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            forecast_path = Path(tmp) / "state.json"
+            registry_path = Path(tmp) / "x_post_registry.json"
+            registry_path.write_text(
+                json.dumps({"last_successful_x_post_at": "2026-09-05T09:00:00+00:00"}),
                 encoding="utf-8",
             )
             run, reason = should_run(
                 "schedule",
-                path,
-                now=datetime(2026, 9, 5, 10, 59, tzinfo=timezone.utc),
+                forecast_path,
+                registry_path,
+                now=datetime(2026, 9, 5, 10, 29, tzinfo=timezone.utc),
             )
             self.assertFalse(run)
-            self.assertIn("1.0 completed", reason)
+            self.assertIn("1.5 hours", reason)
 
             run, reason = should_run(
                 "schedule",
-                path,
+                forecast_path,
+                registry_path,
                 now=datetime(2026, 9, 5, 11, 1, tzinfo=timezone.utc),
             )
             self.assertTrue(run)
-            self.assertIn("2.0 completed", reason)
+            self.assertIn("2.0 hours", reason)
 
 
 if __name__ == "__main__":

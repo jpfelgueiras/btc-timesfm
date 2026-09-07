@@ -9,9 +9,9 @@ on:
         default: false
         type: boolean
   schedule:
-    # Wake up hourly away from the top of the hour. A guard below only runs
-    # the expensive forecast when at least two completed candle hours elapsed.
-    - cron: "37 * * * *"
+    # Wake up every two hours away from the top of the hour. A guard below uses
+    # durable X publication state so delayed/dropped cron runs catch up safely.
+    - cron: "37 */2 * * *"
 
 permissions:
   # Read the source and update the dedicated forecast-history Release assets.
@@ -46,6 +46,20 @@ jobs:
           key: btc-forecast-state-${{ github.run_id }}
           restore-keys: |
             btc-forecast-state-
+
+      - name: Restore durable X schedule state
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p .state
+          if gh release view "$HISTORY_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release download "$HISTORY_RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern 'x_post_registry.json' \
+              --dir .state >/dev/null 2>&1 || true
+          fi
 
       - name: Decide whether forecast is due
         id: due
