@@ -102,6 +102,7 @@ jobs:
             src/btc_timesfm/data/regime_detection.py \
             src/btc_timesfm/ops/schedule_guard.py \
             src/btc_timesfm/forecasting/statistical_significance.py \
+            src/btc_timesfm/web/static_site.py \
             src/btc_timesfm/x/x_post_registry.py
 
       - name: Enforce quality gates
