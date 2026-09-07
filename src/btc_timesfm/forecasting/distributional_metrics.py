@@ -26,7 +26,7 @@ def pinball_loss(actual: float, quantile_value: float, quantile_level: float) ->
     """
     error = actual - quantile_value
     if quantile_level < 0.5:
-        return quantile_level * error if error > 0 else - (1.0 - quantile_level) * error
+        return quantile_level * error if error > 0 else -(1.0 - quantile_level) * error
     else:
         return (quantile_level - 1.0) * error if error > 0 else quantile_level * error
 
@@ -144,9 +144,11 @@ def conditional_coverage_by_regime(
         interval_hits = sum(
             1
             for row in regime_rows
-            if row.get("within_q10_q90") is not None
-            and row["within_q10_q90"] == 1
+            if row.get("within_q10_q90") is not None and row["within_q10_q90"] == 1
         )
         coverage = interval_hits / total if total > 0 else None
-        result[regime] = {"coverage": round(coverage, 4) if coverage is not None else None, "samples": total}
+        result[regime] = {
+            "coverage": round(coverage, 4) if coverage is not None else None,
+            "samples": total,
+        }
     return result

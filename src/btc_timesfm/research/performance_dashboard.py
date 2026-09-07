@@ -51,7 +51,9 @@ def _mean(values: Iterable[float]) -> float | None:
     return sum(items) / len(items)
 
 
-def _distributional_summary(rows: list[dict[str, Any]], *, horizon: int | None = None) -> dict[str, Any]:
+def _distributional_summary(
+    rows: list[dict[str, Any]], *, horizon: int | None = None
+) -> dict[str, Any]:
     """Compute minimal distributional metrics from exported rows for one horizon."""
     from btc_timesfm.forecasting.distributional_metrics import (
         coverage_error,
@@ -62,7 +64,8 @@ def _distributional_summary(rows: list[dict[str, Any]], *, horizon: int | None =
     )
 
     filtered = [
-        row for row in rows
+        row
+        for row in rows
         if row.get("actual_target_price_usd") is not None
         and (horizon is None or int(row.get("horizon_hours")) == horizon)
     ]
