@@ -10,6 +10,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from btc_timesfm.forecasting.distributional_metrics import (
+    coverage_error,
+    conditional_coverage_by_regime,
+    interval_score,
+    interval_width_pct,
+    pinball_loss,
+    quantile_metrics,
+)
 from btc_timesfm.history.history_store import DEFAULT_DB_PATH, ENSEMBLE_MODEL, ForecastHistoryStore
 
 DEFAULT_HORIZONS = (2, 4, 8, 16)
@@ -41,6 +49,70 @@ def _mean(values: Iterable[float]) -> float | None:
     if not items:
         return None
     return sum(items) / len(items)
+
+
+def _distributional_summary(rows: list[dict[str, Any]], *, horizon: int | None = None) -> dict[str, Any]:
+    """Compute minimal distributional metrics from exported rows for one horizon."""
+    from btc_timesfm.forecasting.distributional_metrics import (
+        coverage_error,
+        conditional_coverage_by_regime,
+        interval_score,
+        interval_width_pct,
+        pinball_loss,
+    )
+
+    filtered = [
+        row for row in rows
+        if row.get("actual_target_price_usd") is not None
+        and (horizon is None or int(row.get("horizon_hours")) == horizon)
+    ]
+
+    # Conditional coverage by regime
+    cov_by_regime = conditional_coverage_by_regime(filtered)
+
+    # Pinball losses
+    pinball_10_total = 0.0
+    pinball_50_total = 0.0
+    pinball_90_total = 0.0
+    pinball_n = 0
+
+    # Interval scores and widths
+    interval_scores: list[float] = []
+    interval_widths: list[float] = []
+    coverage_errs: list[float] = []
+
+    for row in filtered:
+        actual = _safe_float(row.get("actual_target_price_usd"))
+        if actual is None:
+            continue
+        q10 = _safe_float(row.get("q10_usd"))
+        q50 = _safe_float(row.get("q50_usd"))
+        q90 = _safe_float(row.get("q90_usd"))
+
+        if q10 is not None:
+            pinball_10_total += pinball_loss(actual, q10, 0.10)
+            pinball_n += 1
+        if q50 is not None:
+            pinball_50_total += pinball_loss(actual, q50, 0.50)
+        if q90 is not None:
+            pinball_90_total += pinball_loss(actual, q90, 0.90)
+            if q10 is not None:
+                interval_scores.append(interval_score(actual, q10, q90))
+                iw = interval_width_pct(q10, q90, actual)
+                if iw is not None:
+                    interval_widths.append(iw)
+                coverage_errs.append(coverage_error(_safe_float(row.get("within_q10_q90"))))
+
+    n = pinball_n
+    return {
+        "pinball_10_mean": round(pinball_10_total / n, 4) if n > 0 else None,
+        "pinball_50_mean": round(pinball_50_total / n, 4) if n > 0 else None,
+        "pinball_90_mean": round(pinball_90_total / n, 4) if n > 0 else None,
+        "interval_score_mean": round(_mean(interval_scores), 4) if interval_scores else None,
+        "interval_width_pct_mean": round(_mean(interval_widths), 4) if interval_widths else None,
+        "coverage_error_mean": round(_mean(coverage_errs), 4) if coverage_errs else None,
+        "cond_coverage_by_regime": cov_by_regime,
+    }
 
 
 def _round(value: float | None, digits: int = 4) -> float | None:
@@ -205,6 +277,10 @@ def build_report(
         "matured_rows": len(matured_rows),
         "horizons": [f"{horizon}h" for horizon in horizons],
         "windows": windows,
+        "distributional": {
+            horizon: _distributional_summary(matured_rows, horizon=int(horizon.rstrip("h")))
+            for horizon in [f"{h}h" for h in horizons]
+        },
     }
 
 
