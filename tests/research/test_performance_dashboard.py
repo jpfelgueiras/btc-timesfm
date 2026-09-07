@@ -113,6 +113,115 @@ class PerformanceDashboardTests(unittest.TestCase):
         self.assertEqual(ensemble["interval_samples"], 2)
         self.assertIsNone(ensemble["confidence_warning"])
 
+    def test_paired_rolling_skill_scores_are_computed_against_baselines(self) -> None:
+        rows = [
+            row(
+                origin_at="2026-08-01T00:00:00+00:00",
+                model="ensemble",
+                horizon=2,
+                regime="range",
+                mae=10.0,
+                bias=0.0,
+                direction=0,
+                coverage=1,
+            ),
+            row(
+                origin_at="2026-08-01T00:00:00+00:00",
+                model="persistence",
+                horizon=2,
+                regime="range",
+                mae=1.0,
+                bias=0.0,
+                direction=1,
+                coverage=None,
+            ),
+            row(
+                origin_at="2026-09-05T18:00:00+00:00",
+                model="ensemble",
+                horizon=2,
+                regime="range",
+                mae=1.0,
+                bias=0.0,
+                direction=1,
+                coverage=1,
+            ),
+            row(
+                origin_at="2026-09-05T18:00:00+00:00",
+                model="persistence",
+                horizon=2,
+                regime="range",
+                mae=2.0,
+                bias=0.0,
+                direction=0,
+                coverage=None,
+            ),
+            row(
+                origin_at="2026-09-05T18:00:00+00:00",
+                model="timesfm_168",
+                horizon=2,
+                regime="range",
+                mae=4.0,
+                bias=0.0,
+                direction=0,
+                coverage=None,
+            ),
+        ]
+
+        report = build_report(rows, now=NOW, rolling_days=(7,), low_sample_threshold=1)
+        all_skill = report["windows"]["all"]["horizons"]["2h"]["models"]["ensemble"][
+            "skill_scores"
+        ]["persistence"]
+        rolling_horizon = report["windows"]["7d"]["horizons"]["2h"]
+        rolling_skill = rolling_horizon["models"]["ensemble"]["skill_scores"]["persistence"]
+        additional_baseline_skill = rolling_horizon["models"]["ensemble"]["skill_scores"][
+            "timesfm_168"
+        ]
+
+        self.assertEqual(rolling_horizon["skill_baselines"], ["persistence", "timesfm_168"])
+        self.assertEqual(all_skill["paired_samples"], 2)
+        self.assertEqual(all_skill["edge_state"], "negative")
+        self.assertEqual(rolling_skill["paired_samples"], 1)
+        self.assertEqual(rolling_skill["skill_score"], 0.5)
+        self.assertEqual(rolling_skill["skill_pct"], 50.0)
+        self.assertEqual(rolling_skill["edge_state"], "positive")
+        self.assertEqual(additional_baseline_skill["skill_score"], 0.75)
+
+    def test_skill_scores_are_conservative_without_samples_or_valid_baseline(self) -> None:
+        rows = [
+            row(
+                origin_at="2026-09-05T18:00:00+00:00",
+                model="ensemble",
+                horizon=2,
+                regime="range",
+                mae=1.0,
+                bias=0.0,
+                direction=1,
+                coverage=1,
+            ),
+            row(
+                origin_at="2026-09-05T18:00:00+00:00",
+                model="persistence",
+                horizon=2,
+                regime="range",
+                mae=0.0,
+                bias=0.0,
+                direction=1,
+                coverage=None,
+            ),
+        ]
+        report = build_report(rows, now=NOW, low_sample_threshold=2)
+        skill = report["windows"]["all"]["horizons"]["2h"]["models"]["ensemble"]["skill_scores"][
+            "persistence"
+        ]
+        missing = report["windows"]["all"]["horizons"]["4h"]["models"]["ensemble"]["skill_scores"][
+            "persistence"
+        ]
+
+        self.assertIsNone(skill["skill_score"])
+        self.assertEqual(skill["edge_state"], "inconclusive")
+        self.assertEqual(skill["confidence_warning"], "zero_baseline_error")
+        self.assertEqual(missing["confidence_warning"], "no_paired_samples")
+
     def test_rolling_windows_and_regimes_are_separate(self) -> None:
         rows = [
             row(
@@ -165,8 +274,11 @@ class PerformanceDashboardTests(unittest.TestCase):
         html = render_html(report)
 
         self.assertIn("Persistence", markdown)
+        self.assertIn("Skill vs persistence", markdown)
+        self.assertIn("Edge", markdown)
         self.assertIn("persistence", markdown)
         self.assertIn("no_samples", markdown)
+        self.assertIn("Skill vs persistence", html)
         self.assertIn("persistence", html)
         self.assertIn("no_samples", html)
 
@@ -175,6 +287,8 @@ class PerformanceDashboardTests(unittest.TestCase):
             build_report([], now=NOW, low_sample_threshold=0)
         with self.assertRaises(ValueError):
             build_report([], now=NOW, rolling_days=(0,))
+        with self.assertRaises(ValueError):
+            build_report([], now=NOW, skill_neutral_threshold=-0.1)
 
     def test_generate_dashboard_reads_durable_history(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
