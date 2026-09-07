@@ -16,7 +16,6 @@ from btc_timesfm.forecasting.distributional_metrics import (
     interval_score,
     interval_width_pct,
     pinball_loss,
-    quantile_metrics,
 )
 from btc_timesfm.history.history_store import DEFAULT_DB_PATH, ENSEMBLE_MODEL, ForecastHistoryStore
 
@@ -55,19 +54,17 @@ def _distributional_summary(
     rows: list[dict[str, Any]], *, horizon: int | None = None
 ) -> dict[str, Any]:
     """Compute minimal distributional metrics from exported rows for one horizon."""
-    from btc_timesfm.forecasting.distributional_metrics import (
-        coverage_error,
-        conditional_coverage_by_regime,
-        interval_score,
-        interval_width_pct,
-        pinball_loss,
-    )
-
     filtered = [
         row
         for row in rows
         if row.get("actual_target_price_usd") is not None
-        and (horizon is None or int(row.get("horizon_hours")) == horizon)
+        and (
+            horizon is None
+            or (
+                row.get("horizon_hours") is not None
+                and int(row["horizon_hours"]) == horizon
+            )
+        )
     ]
 
     # Conditional coverage by regime
@@ -107,13 +104,22 @@ def _distributional_summary(
                 coverage_errs.append(coverage_error(_safe_float(row.get("within_q10_q90"))))
 
     n = pinball_n
+    interval_score_mean = _mean(interval_scores)
+    interval_width_mean = _mean(interval_widths)
+    coverage_error_mean = _mean(coverage_errs)
     return {
         "pinball_10_mean": round(pinball_10_total / n, 4) if n > 0 else None,
         "pinball_50_mean": round(pinball_50_total / n, 4) if n > 0 else None,
         "pinball_90_mean": round(pinball_90_total / n, 4) if n > 0 else None,
-        "interval_score_mean": round(_mean(interval_scores), 4) if interval_scores else None,
-        "interval_width_pct_mean": round(_mean(interval_widths), 4) if interval_widths else None,
-        "coverage_error_mean": round(_mean(coverage_errs), 4) if coverage_errs else None,
+        "interval_score_mean": (
+            round(interval_score_mean, 4) if interval_score_mean is not None else None
+        ),
+        "interval_width_pct_mean": (
+            round(interval_width_mean, 4) if interval_width_mean is not None else None
+        ),
+        "coverage_error_mean": (
+            round(coverage_error_mean, 4) if coverage_error_mean is not None else None
+        ),
         "cond_coverage_by_regime": cov_by_regime,
     }
 
