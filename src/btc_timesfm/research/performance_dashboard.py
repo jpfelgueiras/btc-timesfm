@@ -60,10 +60,7 @@ def _distributional_summary(
         if row.get("actual_target_price_usd") is not None
         and (
             horizon is None
-            or (
-                row.get("horizon_hours") is not None
-                and int(row["horizon_hours"]) == horizon
-            )
+            or (row.get("horizon_hours") is not None and int(row["horizon_hours"]) == horizon)
         )
     ]
 
