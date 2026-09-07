@@ -1,0 +1,30 @@
+name: Hourly BTC Forecast Dispatcher
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Dispatch shortly after each completed UTC hour. The production forecast
+    # workflow is invoked manually so X posting stays disabled.
+    - cron: "7 * * * *"
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: hourly-btc-forecast-dispatch
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch production forecast without X posting
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run forecast.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f post_to_x=false
