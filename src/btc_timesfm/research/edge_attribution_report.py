@@ -98,7 +98,9 @@ def _weekday(value: int | None) -> str:
 
 def _feature_set_version(row: dict[str, Any]) -> str:
     manifest = _json_object(row.get("experiment_manifest_json"))
-    configuration = manifest.get("configuration") if isinstance(manifest.get("configuration"), dict) else {}
+    configuration = (
+        manifest.get("configuration") if isinstance(manifest.get("configuration"), dict) else {}
+    )
     version = configuration.get("feature_set_version") or manifest.get("feature_set_version")
     return str(version or row.get("configuration_id") or "unknown")
 
@@ -298,7 +300,11 @@ def _monthly_stability(
         )
         for name, bucket_pairs in sorted(buckets.items())
     }
-    deltas = [value["mae_delta_pct_points"] for value in periods.values() if value["mae_delta_pct_points"] is not None]
+    deltas = [
+        value["mae_delta_pct_points"]
+        for value in periods.values()
+        if value["mae_delta_pct_points"] is not None
+    ]
     return {
         "period": "calendar_month",
         "periods": periods,
@@ -388,7 +394,11 @@ def build_report(
         ),
         "reproducibility": {
             "source": "durable_forecast_history",
-            "manifest_fields": ["experiment_run_id", "configuration_id", "experiment_manifest_json"],
+            "manifest_fields": [
+                "experiment_run_id",
+                "configuration_id",
+                "experiment_manifest_json",
+            ],
         },
     }
 

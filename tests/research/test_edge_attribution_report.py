@@ -5,7 +5,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from btc_timesfm.history.history_store import ForecastHistoryStore
-from btc_timesfm.research.edge_attribution_report import build_report, generate_report, render_markdown
+from btc_timesfm.research.edge_attribution_report import (
+    build_report,
+    generate_report,
+    render_markdown,
+)
 
 
 NOW = datetime(2026, 9, 5, 22, 0, tzinfo=timezone.utc)
