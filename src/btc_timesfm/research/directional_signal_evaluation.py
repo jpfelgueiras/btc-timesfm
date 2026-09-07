@@ -258,7 +258,12 @@ def build_report(
         "leakage_guard": {
             "source": "durable_forecast_history",
             "uses_only_matured_outcomes": True,
-            "forecast_time_inputs": ["predicted_change_pct", "origin_at", "horizon_hours", "regime"],
+            "forecast_time_inputs": [
+                "predicted_change_pct",
+                "origin_at",
+                "horizon_hours",
+                "regime",
+            ],
             "outcome_inputs": ["actual_change_pct", "actual_target_price_usd", "target_at"],
         },
     }
@@ -374,7 +379,9 @@ def main() -> None:
     parser.add_argument("--json", type=Path, default=Path("directional_signal_evaluation.json"))
     parser.add_argument("--markdown", type=Path, default=Path("directional_signal_evaluation.md"))
     parser.add_argument("--model-name", default=ENSEMBLE_MODEL)
-    parser.add_argument("--neutral-threshold-pct", type=float, default=DEFAULT_NEUTRAL_THRESHOLD_PCT)
+    parser.add_argument(
+        "--neutral-threshold-pct", type=float, default=DEFAULT_NEUTRAL_THRESHOLD_PCT
+    )
     parser.add_argument("--low-sample-threshold", type=int, default=DEFAULT_LOW_SAMPLE_THRESHOLD)
     args = parser.parse_args()
     report = generate_report(
