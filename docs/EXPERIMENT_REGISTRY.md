@@ -41,8 +41,8 @@ from btc_timesfm.research.experiment_registry import ExperimentRegistry
 
 registry = ExperimentRegistry(".state/experiment_registry.sqlite")
 record, created = registry.register_from_manifest(
-    manifest,                # dict from build_experiment_manifest(...)
-    metrics=optimizer_candidate,   # optimizer-style candidate metrics dict
+    manifest,  # dict from build_experiment_manifest(...)
+    metrics=optimizer_candidate,  # optimizer-style candidate metrics dict
     decision="candidate",
 )
 ```
