@@ -15,6 +15,7 @@ from btc_timesfm.forecasting.adaptive_weighting import (
     adaptive_model_weights,
     attach_persisted_outcomes,
 )
+from btc_timesfm.forecasting.direction_probability import build_forecast_probabilities
 from btc_timesfm.forecasting.forecast_confidence import build_forecast_confidence
 from btc_timesfm.forecasting.conformal_calibration import (
     conformal_calibration_multiplier,
@@ -323,6 +324,23 @@ def evaluate_production_drift(store: ForecastHistoryStore, data: Any) -> dict[st
     )
 
 
+def build_direction_probability(
+    store: ForecastHistoryStore,
+    predictions: dict[str, Any],
+    forecast_origin: datetime,
+) -> dict[str, Any]:
+    """Assemble the calibrated direction-probability section for forecast.json.
+
+    Calibration is limited to matured durable rows whose target candle existed at
+    the forecast origin, so no outcome realized after the forecast is used.
+    """
+    return build_forecast_probabilities(
+        store.export_rows(),
+        now=forecast_origin,
+        predictions=predictions,
+    )
+
+
 def main() -> None:
     seed_everything()
     selection = fetch_redundant_hourly(512)
@@ -414,6 +432,9 @@ def main() -> None:
         interval_calibration_evaluation,
         drift_report,
     )
+    direction_probability = build_direction_probability(
+        store, engine_output["predictions"], forecast_origin
+    )
     generated_at = datetime.now(timezone.utc)
     experiment_manifest = build_experiment_manifest(
         run_type="production_forecast",
@@ -456,6 +477,7 @@ def main() -> None:
         "drift_detection": drift_report,
         "interval_calibration_evaluation": interval_calibration_evaluation,
         "forecast_confidence": forecast_confidence,
+        "direction_probability": direction_probability,
         **engine_output,
         "forecast_reliability": reliability,
         "performance_summary": summary,
