@@ -347,6 +347,47 @@ class PerformanceDashboardTests(unittest.TestCase):
             payload = json.loads(json_path.read_text(encoding="utf-8"))
             self.assertTrue(payload["database_verification"]["ok"])
 
+    def test_weekly_slo_adherence_section_included_when_log_provided(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log_path = root / "slo_events.jsonl"
+            now = datetime(2026, 9, 5, 20, 0, tzinfo=timezone.utc)
+            events = [
+                {
+                    "timestamp": "2026-09-05T18:00:00+00:00",
+                    "event": "check_ok",
+                    "metric_name": "production_forecast",
+                },
+                {
+                    "timestamp": "2026-09-05T18:30:00+00:00",
+                    "event": "breach",
+                    "metric_name": "production_forecast",
+                },
+                {
+                    "timestamp": "2026-09-05T19:00:00+00:00",
+                    "event": "check_ok",
+                    "metric_name": "site_update",
+                },
+            ]
+            log_path.write_text(
+                "\n".join(json.dumps(event, sort_keys=True) for event in events) + "\n",
+                encoding="utf-8",
+            )
+
+            report = build_report([], now=now, slo_metrics_log_path=log_path)
+            slo = report["freshness_slo"]
+            self.assertEqual(slo["overall"]["checks"], 3)
+            self.assertEqual(slo["overall"]["breaches"], 1)
+            self.assertEqual(slo["per_metric"]["production_forecast"]["adherence_pct"], 50.0)
+            markdown = render_markdown(report)
+            self.assertIn("Weekly freshness SLO adherence", markdown)
+            html = render_html(report)
+            self.assertIn("Weekly freshness SLO adherence", html)
+
+    def test_report_without_slo_log_has_no_slo_section(self) -> None:
+        report = build_report([], now=NOW)
+        self.assertNotIn("freshness_slo", report)
+
 
 if __name__ == "__main__":
     unittest.main()
