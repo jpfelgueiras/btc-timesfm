@@ -16,12 +16,15 @@ from btc_timesfm.forecasting.adaptive_weighting import (
     attach_persisted_outcomes,
 )
 from btc_timesfm.forecasting.direction_probability import build_forecast_probabilities
-from btc_timesfm.forecasting.dynamic_thresholds import build_dynamic_threshold_section
 from btc_timesfm.forecasting.forecast_confidence import build_forecast_confidence
 from btc_timesfm.forecasting.conformal_calibration import (
     conformal_calibration_multiplier,
     evaluation_report,
 )
+from btc_timesfm.forecasting.conditional_calibration import (
+    build_conditional_calibration_section,
+)
+from btc_timesfm.forecasting.dynamic_thresholds import build_dynamic_threshold_section
 from btc_timesfm.data.cross_asset_signals import (
     fetch_cross_asset_snapshot,
     signal_manifest as cross_asset_manifest,
@@ -342,6 +345,31 @@ def build_direction_probability(
     )
 
 
+def build_conditional_calibration(
+    history: list[dict[str, Any]],
+    actual_by_timestamp: dict[int, float],
+    *,
+    regime: str,
+    market_features: dict[str, Any],
+    predictions: dict[str, Any],
+    forecast_origin: datetime,
+) -> dict[str, Any]:
+    """Assemble the regime/volatility-conditional calibration section.
+
+    Bucket assignment reads only origin-time snapshot fields (``regime`` and
+    the short-window realized-volatility feature), and the origin cutoff stops
+    any snapshot that postdates the forecast origin from participating.
+    """
+    return build_conditional_calibration_section(
+        history,
+        actual_by_timestamp,
+        regime=regime,
+        market_features=market_features,
+        predictions=predictions,
+        now=forecast_origin,
+    )
+
+
 def build_dynamic_threshold(
     store: ForecastHistoryStore,
     predictions: dict[str, Any],
@@ -454,6 +482,14 @@ def main() -> None:
     direction_probability = build_direction_probability(
         store, engine_output["predictions"], forecast_origin
     )
+    conditional_calibration = build_conditional_calibration(
+        history,
+        actuals,
+        regime=str(engine_output["regime"]),
+        market_features=market_features,
+        predictions=engine_output["predictions"],
+        forecast_origin=forecast_origin,
+    )
     dynamic_thresholds = build_dynamic_threshold_section(
         store.export_rows(),
         now=forecast_origin,
@@ -502,6 +538,7 @@ def main() -> None:
         "interval_calibration_evaluation": interval_calibration_evaluation,
         "forecast_confidence": forecast_confidence,
         "direction_probability": direction_probability,
+        "conditional_calibration": conditional_calibration,
         "dynamic_thresholds": dynamic_thresholds,
         **engine_output,
         "forecast_reliability": reliability,
