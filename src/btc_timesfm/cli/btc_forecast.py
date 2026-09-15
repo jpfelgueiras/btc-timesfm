@@ -24,6 +24,7 @@ from btc_timesfm.forecasting.conformal_calibration import (
 from btc_timesfm.forecasting.conditional_calibration import (
     build_conditional_calibration_section,
 )
+from btc_timesfm.forecasting.dynamic_thresholds import build_dynamic_threshold_section
 from btc_timesfm.data.cross_asset_signals import (
     fetch_cross_asset_snapshot,
     signal_manifest as cross_asset_manifest,
@@ -369,6 +370,24 @@ def build_conditional_calibration(
     )
 
 
+def build_dynamic_threshold(
+    store: ForecastHistoryStore,
+    predictions: dict[str, Any],
+    forecast_origin: datetime,
+) -> dict[str, Any]:
+    """Assemble the dynamic neutral/no-edge threshold section for forecast.json.
+
+    Thresholds are learned from matured durable outcomes whose target candle
+    already existed at the forecast origin, so no outcome realized after the
+    forecast contributes to the learned noise band.
+    """
+    return build_dynamic_threshold_section(
+        store.export_rows(),
+        now=forecast_origin,
+        predictions=predictions,
+    )
+
+
 def main() -> None:
     seed_everything()
     selection = fetch_redundant_hourly(512)
@@ -471,6 +490,11 @@ def main() -> None:
         predictions=engine_output["predictions"],
         forecast_origin=forecast_origin,
     )
+    dynamic_thresholds = build_dynamic_threshold_section(
+        store.export_rows(),
+        now=forecast_origin,
+        predictions=engine_output["predictions"],
+    )
     generated_at = datetime.now(timezone.utc)
     experiment_manifest = build_experiment_manifest(
         run_type="production_forecast",
@@ -515,6 +539,7 @@ def main() -> None:
         "forecast_confidence": forecast_confidence,
         "direction_probability": direction_probability,
         "conditional_calibration": conditional_calibration,
+        "dynamic_thresholds": dynamic_thresholds,
         **engine_output,
         "forecast_reliability": reliability,
         "performance_summary": summary,
