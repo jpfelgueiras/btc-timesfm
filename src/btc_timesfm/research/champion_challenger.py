@@ -10,6 +10,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from btc_timesfm.research.multiple_testing import (
+    build_multiple_testing_assessment,
+    default_policy,
+    policy_identity as multiple_testing_policy_id,
+)
+
 REPORT_VERSION = 1
 DEFAULT_OPTIMIZER_REPORT = Path("optimizer_report.json")
 DEFAULT_PROMOTION_DECISION = Path("promotion_decision.json")
@@ -171,6 +177,19 @@ def _policy_decision(
     }
 
 
+def _safe_multiple_testing_assessment(
+    optimizer_report: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Best-effort multiple testing assessment; returns empty dict on failure."""
+    try:
+        policy = default_policy()
+        assessment = build_multiple_testing_assessment(optimizer_report, policy=policy)
+        assessment["policy_id"] = multiple_testing_policy_id(policy)
+        return assessment
+    except (ValueError, KeyError, TypeError):
+        return {}
+
+
 def build_report(
     optimizer_report: Mapping[str, Any],
     promotion_decision: Mapping[str, Any] | None = None,
@@ -188,6 +207,18 @@ def build_report(
         if promotion_decision is not None
         else None
     )
+
+    mt_assessment = _safe_multiple_testing_assessment(optimizer_report)
+    mt_summary = {
+        "method": mt_assessment.get("policy", {}).get("method"),
+        "alpha": mt_assessment.get("policy", {}).get("alpha"),
+        "family_comparisons_considered": mt_assessment.get("family", {}).get(
+            "comparisons_considered"
+        ),
+        "adjusted_conclusion": mt_assessment.get("conclusion"),
+        "survives": mt_assessment.get("survives", False),
+        "policy_id": mt_assessment.get("policy_id"),
+    }
     identity_payload = {
         "optimizer_sha256": optimizer_hash,
         "decision_sha256": decision_hash,
@@ -223,6 +254,7 @@ def build_report(
         },
         "comparison": comparison,
         "statistical_evidence": comparison.get("significance", {}),
+        "multiple_testing": mt_summary,
         "policy_recommendation": policy,
         "review_contract": {
             "production_changes_automatic": False,
@@ -358,6 +390,21 @@ def render_summary(report: Mapping[str, Any]) -> str:
         )
     else:
         lines.append("- Statistical evidence unavailable.")
+
+    mt = report.get("multiple_testing", {})
+    lines.extend(["", "## Multiple testing", ""])
+    if isinstance(mt, dict) and mt.get("method"):
+        lines.append(f"- Adjustment method: **{mt['method']}**")
+        lines.append(f"- Family-wise alpha: **{mt.get('alpha', 'n/a')}**")
+        lines.append(
+            f"- Comparisons considered: **{mt.get('family_comparisons_considered', 'n/a')}**"
+        )
+        lines.append(f"- Adjusted conclusion: **{mt.get('adjusted_conclusion', 'inconclusive')}**")
+        lines.append(f"- Survives adjustment: **{mt.get('survives', False)}**")
+        if mt.get("policy_id"):
+            lines.append(f"- Policy: `{mt['policy_id']}`")
+    else:
+        lines.append("- Multiple-testing assessment unavailable.")
 
     lines.extend(["", "## Promotion policy", ""])
     reasons = policy.get("reasons", [])
