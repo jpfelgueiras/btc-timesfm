@@ -11,6 +11,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from btc_timesfm.research.multiple_testing import (
+    MultipleTestingPolicy,
+    build_multiple_testing_assessment,
+    policy_identity as multiple_testing_policy_id,
+)
+
 
 POLICY_VERSION = 1
 DEFAULT_OPTIMIZER_REPORT = Path("optimizer_report.json")
@@ -36,6 +42,10 @@ class PromotionPolicy:
     require_drift_state_none_for_review: bool = True
     reject_severe_drift: bool = True
     reject_open_pipeline_circuits: bool = True
+    multiple_testing_method: str = "holm"
+    multiple_testing_alpha: float = 0.05
+    multiple_testing_max_comparisons: int = 1000
+    require_multiple_testing_adjustment: bool = True
 
 
 def _canonical_json(value: object) -> str:
@@ -230,6 +240,52 @@ def health_snapshot(path: Path) -> dict[str, Any]:
     }
 
 
+def _mt_nested(data: dict, *keys: str) -> Any:
+    """Safely traverse nested dicts; returns None on any missing key."""
+    current: Any = data
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def _build_multiple_testing(
+    optimizer_report: Mapping[str, Any],
+    *,
+    method: str,
+    alpha: float,
+    max_comparisons: int,
+) -> dict[str, Any]:
+    """Build the family-aware multiple-testing assessment for this optimizer run.
+
+    Returns a dict with ``adjusted_conclusion`` (str or None), ``policy_id``
+    (str), ``assessments`` (list) and family metadata. If the report lacks the
+    paired-metrics structure required by the assessment, ``adjusted_conclusion``
+    is ``None`` and callers fall back to the unadjusted conclusion.
+    """
+    try:
+        policy = MultipleTestingPolicy(method=method, alpha=alpha, max_comparisons=max_comparisons)
+        assessment = build_multiple_testing_assessment(optimizer_report, policy=policy)
+        return {
+            "adjusted_conclusion": assessment.get("conclusion") or None,
+            "policy_id": multiple_testing_policy_id(policy),
+            "family_comparisons_considered": assessment.get("family", {}).get(
+                "comparisons_considered"
+            ),
+            "survives": assessment.get("survives", False),
+            "assessment": assessment,
+        }
+    except (ValueError, KeyError, TypeError):
+        return {
+            "adjusted_conclusion": None,
+            "policy_id": None,
+            "family_comparisons_considered": None,
+            "survives": False,
+            "assessment": None,
+        }
+
+
 def evaluate_promotion(
     optimizer_report: Mapping[str, Any],
     *,
@@ -253,6 +309,16 @@ def evaluate_promotion(
     )
     persistence_changes = _persistence_changes(challenger)
     production_significance, persistence_significance = _significance(optimizer_report)
+
+    multiple_testing = _build_multiple_testing(
+        optimizer_report,
+        method=active.multiple_testing_method,
+        alpha=active.multiple_testing_alpha,
+        max_comparisons=active.multiple_testing_max_comparisons,
+    )
+    adjusted_production_significance = (
+        multiple_testing.get("adjusted_conclusion") or production_significance
+    )
 
     worst_horizon = min(horizon_changes.values()) if horizon_changes else 0.0
     worst_fold = min(fold_changes) if fold_changes else 0.0
@@ -301,6 +367,11 @@ def evaluate_promotion(
         "statistically_supported_vs_production": (
             not active.require_significant_improvement_vs_production
             or production_significance == "candidate_better"
+        ),
+        "multiple_testing_adjusted_significance": (
+            not active.require_multiple_testing_adjustment
+            or multiple_testing.get("adjusted_conclusion") is None
+            or adjusted_production_significance == "candidate_better"
         ),
         "drift_state_stable": (
             not active.require_drift_state_none_for_review or drift_severity == "none"
@@ -363,6 +434,17 @@ def evaluate_promotion(
             },
             "significance_vs_production": production_significance,
             "significance_vs_persistence": persistence_significance,
+            "multiple_testing_adjusted_significance": adjusted_production_significance,
+            "multiple_testing_adjustment": {
+                "applied": multiple_testing.get("assessment") is not None,
+                "method": _mt_nested(multiple_testing, "assessment", "policy", "method"),
+                "alpha": _mt_nested(multiple_testing, "assessment", "policy", "alpha"),
+                "policy_id": multiple_testing.get("policy_id"),
+                "family_comparisons_considered": multiple_testing.get(
+                    "family_comparisons_considered"
+                ),
+                "survives": multiple_testing.get("survives", False),
+            },
         },
         "production_health": health_info,
         "checks": {
