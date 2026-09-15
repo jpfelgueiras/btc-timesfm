@@ -18,6 +18,7 @@ from btc_timesfm.forecasting.distributional_metrics import (
     pinball_loss,
 )
 from btc_timesfm.history.history_store import DEFAULT_DB_PATH, ENSEMBLE_MODEL, ForecastHistoryStore
+from btc_timesfm.ops.freshness_watchdog import compute_weekly_slo_adherence
 
 DEFAULT_HORIZONS = (2, 4, 8, 16)
 DEFAULT_ROLLING_DAYS = (7, 30, 90)
@@ -337,6 +338,8 @@ def build_report(
     rolling_days: tuple[int, ...] = DEFAULT_ROLLING_DAYS,
     low_sample_threshold: int = DEFAULT_LOW_SAMPLE_THRESHOLD,
     skill_neutral_threshold: float = DEFAULT_SKILL_NEUTRAL_THRESHOLD,
+    slo_metrics_log_path: Path | None = None,
+    slo_window_days: int = 7,
 ) -> dict[str, Any]:
     """Build a JSON-serializable dashboard report from exported history rows."""
     if low_sample_threshold < 1:
@@ -377,7 +380,7 @@ def build_report(
             },
         }
 
-    return {
+    report = {
         "generated_at": current_time.isoformat(),
         "baseline_model": PERSISTENCE_MODEL,
         "ensemble_model": ENSEMBLE_MODEL,
@@ -392,6 +395,15 @@ def build_report(
             for horizon in [f"{h}h" for h in horizons]
         },
     }
+
+    if slo_metrics_log_path is not None:
+        report["freshness_slo"] = compute_weekly_slo_adherence(
+            slo_metrics_log_path,
+            days=slo_window_days,
+            now=current_time,
+        )
+
+    return report
 
 
 def _pct(value: Any, *, scale: float = 1.0) -> str:
@@ -499,6 +511,33 @@ def render_markdown(report: dict[str, Any]) -> str:
                     )
             lines.append("")
 
+    slo = report.get("freshness_slo")
+    if isinstance(slo, dict):
+        overall = slo.get("overall", {})
+        lines.extend(
+            [
+                "## Weekly freshness SLO adherence",
+                "",
+                f"Window: last **{slo.get('window_days')}** day(s). Computed: "
+                f"`{slo.get('computed_at')}`",
+                f"Overall adherence: **{overall.get('adherence_pct')}%** "
+                f"({overall.get('checks')} checks, {overall.get('breaches')} breaches)",
+                "",
+                "| Metric | Checks | Breaches | Adherence |",
+                "| --- | ---: | ---: | ---: |",
+            ]
+        )
+        per_metric = slo.get("per_metric", {})
+        if isinstance(per_metric, dict) and per_metric:
+            for name, item in per_metric.items():
+                lines.append(
+                    f"| `{name}` | {item.get('checks')} | {item.get('breaches')} | "
+                    f"{item.get('adherence_pct')}% |"
+                )
+        else:
+            lines.append("| _no checks recorded_ | 0 | 0 | — |")
+        lines.append("")
+
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -562,6 +601,39 @@ def render_html(report: dict[str, Any]) -> str:
             """
         )
 
+    slo = report.get("freshness_slo")
+    if isinstance(slo, dict):
+        overall = slo.get("overall", {})
+        slo_rows = []
+        per_metric = slo.get("per_metric", {})
+        if isinstance(per_metric, dict) and per_metric:
+            for name, item in per_metric.items():
+                slo_rows.append(
+                    f"<tr><td>{html.escape(str(name))}</td>"
+                    f"<td>{int(item.get('checks', 0))}</td>"
+                    f"<td>{int(item.get('breaches', 0))}</td>"
+                    f"<td>{item.get('adherence_pct')}%</td></tr>"
+                )
+        else:
+            slo_rows.append(
+                "<tr><td><em>no checks recorded</em></td><td>0</td><td>0</td><td>—</td></tr>"
+            )
+        sections.append(
+            f"""
+            <section>
+              <h2>Weekly freshness SLO adherence</h2>
+              <p>Window: last <strong>{int(slo.get("window_days", 7))}</strong> day(s),
+              computed <code>{html.escape(str(slo.get("computed_at", "")))}</code>.
+              Overall adherence: <strong>{overall.get("adherence_pct")}%</strong>
+              ({int(overall.get("checks", 0))} checks, {int(overall.get("breaches", 0))} breaches).</p>
+              <table>
+                <thead><tr><th>Metric</th><th>Checks</th><th>Breaches</th><th>Adherence</th></tr></thead>
+                <tbody>{"".join(slo_rows)}</tbody>
+              </table>
+            </section>
+            """
+        )
+
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -602,6 +674,8 @@ def generate_dashboard(
     rolling_days: tuple[int, ...] = DEFAULT_ROLLING_DAYS,
     low_sample_threshold: int = DEFAULT_LOW_SAMPLE_THRESHOLD,
     skill_neutral_threshold: float = DEFAULT_SKILL_NEUTRAL_THRESHOLD,
+    slo_metrics_log_path: Path | None = None,
+    slo_window_days: int = 7,
 ) -> dict[str, Any]:
     store = ForecastHistoryStore(db_path)
     verification = store.verify()
@@ -619,6 +693,8 @@ def generate_dashboard(
         rolling_days=rolling_days,
         low_sample_threshold=low_sample_threshold,
         skill_neutral_threshold=skill_neutral_threshold,
+        slo_metrics_log_path=slo_metrics_log_path,
+        slo_window_days=slo_window_days,
     )
     report["database_verification"] = verification
 
@@ -661,6 +737,18 @@ def main() -> None:
         default=DEFAULT_SKILL_NEUTRAL_THRESHOLD,
         help="Absolute skill-score threshold treated as neutral, default: 0.02",
     )
+    parser.add_argument(
+        "--slo-metrics-log",
+        type=Path,
+        default=None,
+        help="Path to freshness SLO events JSONL to include weekly adherence, default: off",
+    )
+    parser.add_argument(
+        "--slo-window-days",
+        type=int,
+        default=7,
+        help="Weekly SLO adherence reporting window in days, default: 7",
+    )
     args = parser.parse_args()
 
     report = generate_dashboard(
@@ -671,6 +759,8 @@ def main() -> None:
         rolling_days=args.rolling_days,
         low_sample_threshold=args.low_sample_threshold,
         skill_neutral_threshold=args.skill_neutral_threshold,
+        slo_metrics_log_path=args.slo_metrics_log,
+        slo_window_days=args.slo_window_days,
     )
     print(
         json.dumps(
