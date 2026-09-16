@@ -16,6 +16,7 @@ from btc_timesfm.research.multiple_testing import (
     build_multiple_testing_assessment,
     policy_identity as multiple_testing_policy_id,
 )
+from btc_timesfm.research.segment_evaluation import SegmentEvaluationPolicy, evaluate_segments
 
 
 POLICY_VERSION = 1
@@ -46,6 +47,9 @@ class PromotionPolicy:
     multiple_testing_alpha: float = 0.05
     multiple_testing_max_comparisons: int = 1000
     require_multiple_testing_adjustment: bool = True
+    require_segment_evaluation: bool = True
+    segment_minimum_paired_samples: int = 8
+    maximum_protected_segment_relative_mae_degradation: float = 0.05
 
 
 def _canonical_json(value: object) -> str:
@@ -286,11 +290,40 @@ def _build_multiple_testing(
         }
 
 
+def _segment_evidence(report: Mapping[str, Any], policy: PromotionPolicy) -> dict[str, Any] | None:
+    production, candidate = _candidate_pair(report)
+    candidate_rows = candidate.get("segment_rows")
+    production_rows = production.get("segment_rows")
+    if not isinstance(candidate_rows, list) or not isinstance(production_rows, list):
+        return None
+    now = report.get("evaluation_at") or report.get("generated_at")
+    if not isinstance(now, str):
+        return None
+    try:
+        parsed_now = datetime.fromisoformat(now.replace("Z", "+00:00"))
+        if parsed_now.tzinfo is None:
+            return None
+        return evaluate_segments(
+            candidate_rows,
+            production_rows,
+            now=parsed_now,
+            policy=SegmentEvaluationPolicy(
+                minimum_paired_samples=policy.segment_minimum_paired_samples,
+                maximum_protected_relative_mae_degradation=(
+                    policy.maximum_protected_segment_relative_mae_degradation
+                ),
+            ),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
 def evaluate_promotion(
     optimizer_report: Mapping[str, Any],
     *,
     health: Mapping[str, Any] | None = None,
     policy: PromotionPolicy | None = None,
+    approved_protected_segment_degradation: bool = False,
 ) -> dict[str, Any]:
     active = policy or PromotionPolicy()
     production, challenger = _candidate_pair(optimizer_report)
@@ -309,6 +342,12 @@ def evaluate_promotion(
     )
     persistence_changes = _persistence_changes(challenger)
     production_significance, persistence_significance = _significance(optimizer_report)
+    segment_evidence = _segment_evidence(optimizer_report, active)
+    segment_blocked = bool(
+        segment_evidence
+        and segment_evidence["promotion_guard"]["blocked_without_approval"]
+        and not approved_protected_segment_degradation
+    )
 
     multiple_testing = _build_multiple_testing(
         optimizer_report,
@@ -344,6 +383,7 @@ def evaluate_promotion(
         "no_material_persistence_regression": (
             worst_persistence >= -active.maximum_persistence_horizon_relative_degradation
         ),
+        "no_unapproved_protected_segment_degradation": not segment_blocked,
         "direction_accuracy_not_materially_worse": (
             direction_delta >= -active.maximum_direction_accuracy_drop
         ),
@@ -377,6 +417,9 @@ def evaluate_promotion(
             not active.require_drift_state_none_for_review or drift_severity == "none"
         ),
         "pipeline_health_known": bool(health_info.get("available", False)),
+        "segment_evaluation_available": (
+            not active.require_segment_evaluation or segment_evidence is not None
+        ),
     }
 
     hard_failures = [name for name, passed in hard_veto_checks.items() if not passed]
@@ -445,6 +488,8 @@ def evaluate_promotion(
                 ),
                 "survives": multiple_testing.get("survives", False),
             },
+            "segment_evaluation": segment_evidence,
+            "protected_segment_degradation_approved": approved_protected_segment_degradation,
         },
         "production_health": health_info,
         "checks": {
@@ -497,13 +542,19 @@ def build_decision_report(
     *,
     health_path: Path = DEFAULT_HEALTH_STATE,
     policy: PromotionPolicy | None = None,
+    approved_protected_segment_degradation: bool = False,
 ) -> dict[str, Any]:
     optimizer_text = optimizer_path.read_text(encoding="utf-8")
     optimizer_report = json.loads(optimizer_text)
     if not isinstance(optimizer_report, dict):
         raise ValueError("optimizer report must contain a JSON object")
     health = health_snapshot(health_path)
-    decision = evaluate_promotion(optimizer_report, health=health, policy=policy)
+    decision = evaluate_promotion(
+        optimizer_report,
+        health=health,
+        policy=policy,
+        approved_protected_segment_degradation=approved_protected_segment_degradation,
+    )
     decision.update(
         {
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -524,11 +575,13 @@ def main() -> None:
     parser.add_argument("--health-state", type=Path, default=DEFAULT_HEALTH_STATE)
     parser.add_argument("--output", type=Path, default=DEFAULT_DECISION_PATH)
     parser.add_argument("--summary", type=Path, default=DEFAULT_SUMMARY_PATH)
+    parser.add_argument("--approve-protected-segment-degradation", action="store_true")
     args = parser.parse_args()
 
     decision = build_decision_report(
         args.optimizer_report,
         health_path=args.health_state,
+        approved_protected_segment_degradation=args.approve_protected_segment_degradation,
     )
     args.output.write_text(json.dumps(decision, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     args.summary.write_text(render_summary(decision), encoding="utf-8")

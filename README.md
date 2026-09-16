@@ -264,6 +264,12 @@ The workflow will only overwrite an existing Release when that same run successf
 
 The small `.state/previous_forecast.json` Actions cache remains in place for fast scheduler decisions. It is not the long-term source of truth, but it also provides a bootstrap source for recent forecasts if the durable database is being created for the first time.
 
+## Segment-aware evaluation and promotion
+
+Promotion evidence is evaluated on exact, timezone-aware `(origin_at, horizon_hours)` pairs that have matured by the report timestamp. Segment labels are captured at forecast origin and never reconstructed from target-time data. The configured dimensions are regime, volatility, liquidity, and data quality; every report includes paired bootstrap evidence per segment and an explicit low-sample status.
+
+`high_volatility`, high volatility, low liquidity, and degraded data-quality segments are protected. A material MAE degradation in a protected segment blocks promotion unless the caller supplies explicit approval; low-sample evidence is never treated as a pass. Promotion remains review-only.
+
 ## Confidence and uncertainty
 
 For each horizon the output includes the ensemble price, change from current price, Q10/Q50/Q90 interval, model agreement, weighting mode/sample count, interval calibration multiplier and empirical Q10-Q90 coverage once enough history exists.
