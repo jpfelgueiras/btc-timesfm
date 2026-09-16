@@ -3,7 +3,13 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timezone
 
-from btc_timesfm.web.static_site import build_site_data, render_html
+from btc_timesfm.web.static_site import (
+    build_site_data,
+    explorer_query,
+    explorer_url_state,
+    filter_explorer_rows,
+    render_html,
+)
 
 
 class StaticSiteTests(unittest.TestCase):
@@ -193,6 +199,33 @@ class StaticSiteTests(unittest.TestCase):
         self.assertEqual(windows["7d"]["by_horizon"]["2h"]["mae_delta_pct_points"], 2.0)
         self.assertEqual(windows["all"]["by_horizon"]["2h"]["mae_delta_pct_points"], -1.75)
 
+    def test_explorer_filter_logic_and_url_state(self) -> None:
+        rows = [
+            {
+                "origin_at": "2026-09-07T12:00:00+00:00",
+                "horizon_hours": 2,
+                "status": "pending",
+                "regime": "range",
+                "absolute_error_pct": None,
+            },
+            {
+                "origin_at": "2026-09-01T12:00:00+00:00",
+                "horizon_hours": 4,
+                "status": "matured",
+                "regime": "trending",
+                "absolute_error_pct": 1.0,
+            },
+        ]
+        state = explorer_url_state("?days=7&horizon=2&q=range&sort=error", [2, 4])
+        selected = filter_explorer_rows(
+            rows, state, now=datetime(2026, 9, 7, 13, tzinfo=timezone.utc)
+        )
+
+        self.assertEqual(selected, rows[:1])
+        self.assertEqual(explorer_query(state), "days=7&horizon=2&q=range&sort=error")
+        self.assertEqual(explorer_url_state("?days=x&horizon=3&origin=bad", [2, 4])["days"], "all")
+        self.assertIsNone(explorer_url_state("?days=x&horizon=3&origin=bad", [2, 4])["origin"])
+
     def test_render_html_contains_predictions_accuracy_and_ledger(self) -> None:
         rows = [
             self._row(
@@ -220,6 +253,10 @@ class StaticSiteTests(unittest.TestCase):
         self.assertIn("90 days", page)
         self.assertIn("All time", page)
         self.assertIn("Recent forecast ledger", page)
+        self.assertIn("Forecast explorer", page)
+        self.assertIn('id="explorer-horizon"', page)
+        self.assertIn("80% interval", page)
+        self.assertIn("forecast-detail", page)
         self.assertIn("No X/Twitter dependency", page)
         self.assertIn("Pending", page)
 
