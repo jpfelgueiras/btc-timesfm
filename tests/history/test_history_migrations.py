@@ -122,7 +122,7 @@ class HistoryMigrationTests(unittest.TestCase):
         self.assertEqual(result["schema_version"], CURRENT_SCHEMA_VERSION)
         self.assertEqual(
             [item["version"] for item in result["applied_migrations"]],
-            [1, 2, 3, 4],
+            [1, 2, 3, 4, 5],
         )
         self.assertEqual(validate_database(self.db_path)["integrity"], "ok")
 
@@ -140,7 +140,28 @@ class HistoryMigrationTests(unittest.TestCase):
         diagnostics = schema_diagnostics(self.db_path)
         self.assertEqual(
             [item["version"] for item in diagnostics["applied_migrations"]],
-            [1, 2, 3, 4],
+            [1, 2, 3, 4, 5],
+        )
+
+    def test_coherence_diagnostics_are_preserved_in_snapshots(self) -> None:
+        store = ForecastHistoryStore(self.db_path)
+        snapshot = {
+            "generated_at": "2026-01-01T00:02:00+00:00",
+            "latest_close_at": "2026-01-01T00:00:00+00:00",
+            "latest_close_usd": 100.0,
+            "market_features": {},
+            "predictions": {"2h": {"price_usd": 101.0, "change_pct": 1.0}},
+            "multi_horizon_coherence": {
+                "coherence_score": 1.0,
+                "violation_log": {"crossing_entries": 0},
+            },
+        }
+
+        store.ingest_snapshot(snapshot)
+
+        self.assertEqual(
+            store.load_snapshots()[0]["multi_horizon_coherence"],
+            snapshot["multi_horizon_coherence"],
         )
 
     def test_migrations_are_idempotent(self) -> None:

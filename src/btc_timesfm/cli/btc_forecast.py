@@ -25,6 +25,7 @@ from btc_timesfm.forecasting.conditional_calibration import (
     build_conditional_calibration_section,
 )
 from btc_timesfm.forecasting.dynamic_thresholds import build_dynamic_threshold_section
+from btc_timesfm.forecasting.multi_horizon_coherence import assert_forecast_coherent
 from btc_timesfm.data.cross_asset_signals import (
     fetch_cross_asset_snapshot,
     signal_manifest as cross_asset_manifest,
@@ -245,6 +246,7 @@ def save_forecast_history(history: list[dict[str, Any]], output: dict[str, Any])
         "model_weights": output["model_weights"],
         "model_predictions": output["model_predictions"],
         "predictions": output["predictions"],
+        "multi_horizon_coherence": output.get("multi_horizon_coherence"),
     }
     deduplicated = [
         item for item in history if item.get("latest_close_at") != snapshot["latest_close_at"]
@@ -343,6 +345,32 @@ def build_direction_probability(
         now=forecast_origin,
         predictions=predictions,
     )
+
+
+def build_multi_horizon_coherence(
+    predictions: dict[str, Any],
+    base_price_usd: float,
+    direction_probability: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Reconcile ensemble quantiles toward cross-horizon coherence.
+
+    Returns ``(reconciled_predictions, coherence_section)``. The per-horizon
+    evidence counts come from the leakage-guarded direction-probability section,
+    which only counts matured outcomes that were already realized at the forecast
+    origin. Unrecoverable quantile crossings raise loudly instead of publishing
+    an inconsistent horizon set.
+    """
+    samples = {
+        key: int(item["samples"])
+        for key, item in direction_probability.get("horizons", {}).items()
+        if isinstance(item, dict) and item.get("samples") is not None
+    }
+    result = assert_forecast_coherent(
+        predictions,
+        base_price_usd=base_price_usd,
+        samples=samples or None,
+    )
+    return result["reconciled_predictions"], result["section"]
 
 
 def build_conditional_calibration(
@@ -482,6 +510,12 @@ def main() -> None:
     direction_probability = build_direction_probability(
         store, engine_output["predictions"], forecast_origin
     )
+    reconciled_predictions, multi_horizon_coherence = build_multi_horizon_coherence(
+        engine_output["predictions"],
+        float(engine_output["latest_close_usd"]),
+        direction_probability,
+    )
+    engine_output["predictions"] = reconciled_predictions
     conditional_calibration = build_conditional_calibration(
         history,
         actuals,
@@ -540,6 +574,7 @@ def main() -> None:
         "direction_probability": direction_probability,
         "conditional_calibration": conditional_calibration,
         "dynamic_thresholds": dynamic_thresholds,
+        "multi_horizon_coherence": multi_horizon_coherence,
         **engine_output,
         "forecast_reliability": reliability,
         "performance_summary": summary,

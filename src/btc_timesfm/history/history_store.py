@@ -186,6 +186,14 @@ class ForecastHistoryStore:
             if experiment_manifest
             else None
         )
+        multi_horizon_coherence = snapshot.get("multi_horizon_coherence")
+        if not isinstance(multi_horizon_coherence, dict):
+            multi_horizon_coherence = {}
+        multi_horizon_coherence_json = (
+            json.dumps(multi_horizon_coherence, sort_keys=True, separators=(",", ":"))
+            if multi_horizon_coherence
+            else None
+        )
 
         prediction_rows = list(_prediction_rows(snapshot))
         inserted_origins = 0
@@ -197,8 +205,9 @@ class ForecastHistoryStore:
                 INSERT OR IGNORE INTO forecast_origins(
                     origin_at, generated_at, source_name, pair, source_price_usd,
                     regime, market_features_json, first_seen_at, last_seen_at,
-                    experiment_run_id, configuration_id, experiment_manifest_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    experiment_run_id, configuration_id, experiment_manifest_json,
+                    multi_horizon_coherence_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     origin_at,
@@ -213,6 +222,7 @@ class ForecastHistoryStore:
                     experiment_run_id,
                     configuration_id,
                     experiment_manifest_json,
+                    multi_horizon_coherence_json,
                 ),
             )
             inserted_origins += cursor.rowcount
@@ -368,6 +378,14 @@ class ForecastHistoryStore:
                             experiment_manifest = parsed_manifest
                     except (json.JSONDecodeError, TypeError):
                         pass
+                multi_horizon_coherence: dict[str, Any] | None = None
+                if origin["multi_horizon_coherence_json"]:
+                    try:
+                        parsed_coherence = json.loads(origin["multi_horizon_coherence_json"])
+                        if isinstance(parsed_coherence, dict):
+                            multi_horizon_coherence = parsed_coherence
+                    except (json.JSONDecodeError, TypeError):
+                        pass
                 snapshot: dict[str, Any] = {
                     "generated_at": origin["generated_at"],
                     "latest_close_at": origin["origin_at"],
@@ -377,6 +395,7 @@ class ForecastHistoryStore:
                     "regime": origin["regime"],
                     "market_features": market_features,
                     "experiment_manifest": experiment_manifest,
+                    "multi_horizon_coherence": multi_horizon_coherence,
                     "model_weights": {},
                     "model_predictions": {},
                     "predictions": {},
