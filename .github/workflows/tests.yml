@@ -114,6 +114,7 @@ jobs:
             src/btc_timesfm/research/champion_challenger.py \
             src/btc_timesfm/research/champion_challenger_intervals.py \
             src/btc_timesfm/forecasting/conformal_calibration.py \
+            src/btc_timesfm/forecasting/conditional_calibration.py \
             src/btc_timesfm/research/correlation_backtest.py \
             src/btc_timesfm/forecasting/correlation_weighting.py \
             src/btc_timesfm/research/cross_asset_ablation.py \

@@ -34,6 +34,7 @@ show_error_codes = true
 branch = true
 source = [
     "btc_timesfm.forecasting.adaptive_weighting",
+    "btc_timesfm.forecasting.conditional_calibration",
     "btc_timesfm.ops.drift_detection",
     "btc_timesfm.forecasting.experiment_manifest",
     "btc_timesfm.history.history_migrations",
