@@ -161,3 +161,42 @@ jobs:
             fi
           done
           exit "$failed"
+
+  # Compatibility aliases retained for the required status-check names on main.
+  unit-tests-required-compat:
+    name: Unit tests
+    needs: quality-gates
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - uses: ./.github/actions/python-setup
+
+      - name: Mirror quality-gate result
+        env:
+          RESULT: ${{ needs.quality-gates.result }}
+        run: |
+          echo "Unit tests + quality: $RESULT"
+          test "$RESULT" = "success"
+
+  unit-tests-legacy-compat:
+    name: unit-tests
+    needs: quality-gates
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - uses: ./.github/actions/python-setup
+
+      - name: Mirror quality-gate result
+        env:
+          RESULT: ${{ needs.quality-gates.result }}
+        run: |
+          echo "Unit tests + quality: $RESULT"
+          test "$RESULT" = "success"
