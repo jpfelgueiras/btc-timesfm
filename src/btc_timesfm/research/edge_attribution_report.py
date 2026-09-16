@@ -98,9 +98,8 @@ def _weekday(value: int | None) -> str:
 
 def _feature_set_version(row: dict[str, Any]) -> str:
     manifest = _json_object(row.get("experiment_manifest_json"))
-    configuration = (
-        manifest.get("configuration") if isinstance(manifest.get("configuration"), dict) else {}
-    )
+    configuration_value = manifest.get("configuration")
+    configuration = configuration_value if isinstance(configuration_value, dict) else {}
     version = configuration.get("feature_set_version") or manifest.get("feature_set_version")
     return str(version or row.get("configuration_id") or "unknown")
 

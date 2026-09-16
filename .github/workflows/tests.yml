@@ -128,6 +128,7 @@ jobs:
             src/btc_timesfm/data/microstructure_signals.py \
             src/btc_timesfm/ops/observability.py \
             src/btc_timesfm/research/performance_dashboard.py \
+            src/btc_timesfm/research/edge_attribution_report.py \
             src/btc_timesfm/ops/pipeline_health.py \
             src/btc_timesfm/x/post_to_x.py \
             src/btc_timesfm/ops/promotion_policy.py \

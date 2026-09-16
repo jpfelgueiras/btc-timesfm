@@ -401,9 +401,15 @@ export X_COOKIES_JSON="$(cat x_cookies.json)"
 PYTHONPATH=src python -m btc_timesfm.x.post_to_x
 ```
 
+## Persistence comparison panel
+
+The static site includes an **Ensemble edge vs persistence** panel built at page-generation time from the durable SQLite history and the experiment-manifest fields stored with each forecast. For every horizon it shows the paired MAE delta (positive means the ensemble had lower error), bootstrap 95% confidence interval and paired sample count. It also breaks the same comparison down by detected regime and 24-hour volatility bucket when those records exist. Cells with fewer than 20 paired forecasts or an inconclusive confidence interval are explicitly marked inconclusive.
+
+The panel is regenerated from the same durable history used by the edge-attribution report; no browser-side calculation or transient Actions artifact is required. Its source and manifest provenance are included in `site/data.json` under `persistence_edge.reproducibility`.
+
 ## Important
 
-This is an experiment, not a trading signal or financial advice. Backtesting is required before interpreting direction accuracy or forecast errors as useful predictive skill.
+This is an experiment, not a trading signal or financial advice. Historical performance does not guarantee future performance. Backtesting is required before interpreting direction accuracy or forecast errors as useful predictive skill.
 
 TimesFM 3 pretrained weights have their own license terms; verify the model license before production or commercial use.
 

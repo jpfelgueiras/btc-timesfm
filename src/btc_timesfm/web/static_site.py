@@ -6,11 +6,12 @@ from __future__ import annotations
 import argparse
 import html
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from btc_timesfm.history.history_store import DEFAULT_DB_PATH, ENSEMBLE_MODEL, ForecastHistoryStore
+from btc_timesfm.research.edge_attribution_report import build_report as build_edge_report
 from btc_timesfm.research.performance_dashboard import build_report
 
 DEFAULT_OUTPUT_DIR = Path("site")
@@ -107,6 +108,41 @@ def _accuracy_summary(report: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
+def _edge_summary(
+    rows: list[dict[str, Any]], *, now: datetime, low_sample_threshold: int
+) -> dict[str, Any]:
+    windows: dict[str, Any] = {}
+    for label, days in (("7d", 7), ("30d", 30), ("90d", 90), ("all", None)):
+        selected = rows
+        if days is not None:
+            cutoff = now - timedelta(days=days)
+            selected = [
+                row
+                for row in rows
+                if row.get("origin_at") and _parse_timestamp(row["origin_at"]) >= cutoff
+            ]
+        report = build_edge_report(
+            selected,
+            now=now,
+            low_sample_threshold=low_sample_threshold,
+            bootstrap_iterations=1000,
+        )
+        windows[label] = {
+            "days": days,
+            "matured_rows": report["matured_rows"],
+            "paired_samples": report["paired_samples"],
+            "by_horizon": report["by_dimension"]["horizon"],
+            "by_regime": report["by_dimension"]["regime"],
+            "by_volatility_bucket": report["by_dimension"]["volatility_bucket"],
+        }
+    return {
+        "low_sample_threshold": low_sample_threshold,
+        "horizons": report["horizons"],
+        "windows": windows,
+        "reproducibility": report["reproducibility"],
+    }
+
+
 def build_site_data(
     rows: list[dict[str, Any]],
     *,
@@ -152,6 +188,9 @@ def build_site_data(
         "latest": latest,
         "latest_age_hours": round(latest_age_hours, 2) if latest_age_hours is not None else None,
         "accuracy": _accuracy_summary(report),
+        "persistence_edge": _edge_summary(
+            rows, now=current_time, low_sample_threshold=report["low_sample_threshold"]
+        ),
         "recent": recent,
         "matured_rows": report["matured_rows"],
         "horizons": report["horizons"],
@@ -256,6 +295,74 @@ def _render_accuracy(data: dict[str, Any]) -> str:
     return "".join(blocks)
 
 
+def _render_edge_metrics(metrics: dict[str, Any]) -> str:
+    delta = _safe_float(metrics.get("mae_delta_pct_points"))
+    ci = metrics.get("confidence_interval")
+    lower = _safe_float(ci.get("lower")) if isinstance(ci, dict) else None
+    upper = _safe_float(ci.get("upper")) if isinstance(ci, dict) else None
+    sign = (
+        "positive"
+        if delta is not None and delta > 0
+        else "negative"
+        if delta is not None and delta < 0
+        else ""
+    )
+    return (
+        f"<td>{int(metrics.get('samples') or 0)}</td>"
+        f'<td class="{sign}">{_pct(delta)}</td>'
+        f"<td>[{_pct(lower)}, {_pct(upper)}]</td>"
+        f"<td>{html.escape(str(metrics.get('conclusion') or 'inconclusive'))}</td>"
+    )
+
+
+def _render_edge_rows(segments: dict[str, Any]) -> str:
+    rows: list[str] = []
+    for segment, metrics in segments.items():
+        if not isinstance(metrics, dict):
+            continue
+        warning = bool(metrics.get("unstable_or_low_sample"))
+        status = "Inconclusive" if warning else ""
+        rows.append(
+            f'<tr class="{"low-sample" if warning else ""}">'
+            f"<td><strong>{html.escape(str(segment))}</strong></td>"
+            f"{_render_edge_metrics(metrics)}"
+            f"<td>{html.escape(status)}</td></tr>"
+        )
+    return "".join(rows)
+
+
+def _render_persistence_edge(data: dict[str, Any]) -> str:
+    edge = data["persistence_edge"]
+    threshold = int(edge["low_sample_threshold"])
+    labels = {"7d": "7 days", "30d": "30 days", "90d": "90 days", "all": "All time"}
+    windows = []
+    for window in ("7d", "30d", "90d", "all"):
+        summary = edge["windows"].get(window, {})
+        sections = [("Per horizon", summary.get("by_horizon", {}))]
+        for label, key in (("By regime", "by_regime"), ("By volatility", "by_volatility_bucket")):
+            segments = summary.get(key, {})
+            if segments:
+                sections.append((label, segments))
+        tables = []
+        for label, segments in sections:
+            tables.append(
+                f"<h3>{html.escape(label)}</h3>"
+                '<div class="table-wrap edge-table"><table><thead><tr>'
+                "<th>Segment</th><th>Paired samples</th><th>MAE edge</th><th>95% CI</th>"
+                "<th>Result</th><th>Evidence</th></tr></thead>"
+                f"<tbody>{_render_edge_rows(segments)}</tbody></table></div>"
+            )
+        windows.append(
+            f"<details {'open' if window == '30d' else ''}>"
+            f"<summary>{labels[window]}</summary>{''.join(tables)}</details>"
+        )
+    return (
+        "<p>Positive MAE edge means lower ensemble error than persistence. "
+        f"Cells with fewer than {threshold} paired forecasts or an inconclusive confidence interval "
+        "are marked inconclusive.</p>" + "".join(windows)
+    )
+
+
 def _render_recent(data: dict[str, Any]) -> str:
     rows: list[str] = []
     for item in data["recent"]:
@@ -302,6 +409,7 @@ main {{ width:min(1180px,calc(100% - 32px)); margin:0 auto; padding:42px 0 72px;
 header {{ display:flex; justify-content:space-between; gap:24px; align-items:flex-end; margin-bottom:34px; }}
 h1 {{ font-size:clamp(2rem,5vw,4rem); line-height:1; margin:.25rem 0 .7rem; letter-spacing:-.045em; }}
 h2 {{ margin:44px 0 14px; font-size:1.35rem; }}
+h3 {{ margin:22px 0 8px; font-size:1rem; }}
 p {{ color:var(--muted); }}
 a {{ color:var(--blue); }}
 .eyebrow {{ text-transform:uppercase; letter-spacing:.14em; font-size:.72rem; color:var(--muted); font-weight:700; }}
@@ -356,10 +464,14 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
 <section>
   <h2>Accuracy</h2>
   <p>MAE is mean absolute percentage error. Direction is the share of forecasts that got the BTC move direction right. 80% coverage shows how often the actual price landed inside the q10–q90 interval.</p>
-  {_render_accuracy(data)}
-</section>
-<section>
-  <h2>Recent forecast ledger</h2>
+      {_render_accuracy(data)}
+    </section>
+    <section>
+      <h2>Ensemble edge vs persistence</h2>
+      {_render_persistence_edge(data)}
+    </section>
+    <section>
+      <h2>Recent forecast ledger</h2>
   <p>Pending rows have not reached their target candle yet. Matured rows are immutable historical predictions compared with the actual BTC price.</p>
   {_render_recent(data)}
 </section>
