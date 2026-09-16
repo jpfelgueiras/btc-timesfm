@@ -31,6 +31,15 @@ DEFAULT_COUNTERS = {
     "drift_severe": 0,
     "successful_posts": 0,
 }
+STAGE_DOMAINS = {
+    "market_data_fetch": "data",
+    "market_data_validation": "data",
+    "model_load": "model",
+    "model_inference": "model",
+    "history_persistence": "storage",
+    "x_post": "publication",
+    "site_publish": "publication",
+}
 
 
 def utc_now() -> datetime:
@@ -177,7 +186,12 @@ class PipelineObserver:
         self.data.setdefault("stages", []).append(entry)
         self._persist()
         self.event(
-            "stage_finished", status=status, stage=name, duration_ms=entry["duration_ms"], **fields
+            "stage_finished",
+            status=status,
+            stage=name,
+            domain=STAGE_DOMAINS.get(name),
+            duration_ms=entry["duration_ms"],
+            **fields,
         )
         return entry
 
