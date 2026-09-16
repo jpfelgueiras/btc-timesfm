@@ -17,6 +17,9 @@ class StaticSiteTests(unittest.TestCase):
         actual: float | None,
         error: float | None,
         direction: int | None,
+        model: str = "ensemble",
+        regime: str = "range",
+        volatility: float = 0.5,
     ) -> dict[str, object]:
         return {
             "generated_at": origin,
@@ -24,8 +27,10 @@ class StaticSiteTests(unittest.TestCase):
             "source_name": "kraken",
             "pair": "BTC/USD",
             "source_price_usd": 100.0,
-            "regime": "range",
-            "model_name": "ensemble",
+            "regime": regime,
+            "market_features_json": f'{{"volatility_24h_pct": {volatility}}}',
+            "experiment_manifest_json": '{"configuration": {"feature_set_version": "test"}}',
+            "model_name": model,
             "horizon_hours": horizon,
             "target_at": f"2026-09-07T{12 + horizon:02d}:00:00+00:00",
             "predicted_price_usd": predicted,
@@ -108,6 +113,47 @@ class StaticSiteTests(unittest.TestCase):
 
         self.assertEqual(data["multi_horizon_coherence"], snapshot["multi_horizon_coherence"])
 
+    def test_persistence_edge_matches_paired_report_numbers(self) -> None:
+        rows = [
+            self._row(
+                origin="2026-09-07T10:00:00+00:00",
+                horizon=2,
+                predicted=101.0,
+                change=1.0,
+                actual=101.0,
+                error=1.0,
+                direction=1,
+                model="ensemble",
+                regime="trending",
+                volatility=3.0,
+            ),
+            self._row(
+                origin="2026-09-07T10:00:00+00:00",
+                horizon=2,
+                predicted=100.0,
+                change=0.0,
+                actual=101.0,
+                error=3.0,
+                direction=0,
+                model="persistence",
+                regime="trending",
+                volatility=3.0,
+            ),
+        ]
+        data = build_site_data(rows, now=datetime(2026, 9, 7, 13, tzinfo=timezone.utc))
+
+        horizon = data["persistence_edge"]["by_horizon"]["2h"]
+        self.assertEqual(horizon["samples"], 1)
+        self.assertEqual(horizon["mae_delta_pct_points"], 2.0)
+        self.assertTrue(horizon["unstable_or_low_sample"])
+        self.assertEqual(
+            data["persistence_edge"]["by_regime"]["trending"]["mae_delta_pct_points"], 2.0
+        )
+        self.assertEqual(
+            data["persistence_edge"]["by_volatility_bucket"]["high"]["mae_delta_pct_points"],
+            2.0,
+        )
+
     def test_render_html_contains_predictions_accuracy_and_ledger(self) -> None:
         rows = [
             self._row(
@@ -128,6 +174,8 @@ class StaticSiteTests(unittest.TestCase):
 
         self.assertIn("Forecasts & accuracy", page)
         self.assertIn("$102", page)
+        self.assertIn("Ensemble edge vs persistence", page)
+        self.assertIn("Paired samples", page)
         self.assertIn("Recent forecast ledger", page)
         self.assertIn("No X/Twitter dependency", page)
         self.assertIn("Pending", page)
