@@ -72,6 +72,10 @@ Each run records 6h/24h/7d realized volatility, average high-low range, volume z
 
 Those features classify the market as `range`, `trending` or `high_volatility`. The regime defines the initial prior weights and is also used to select comparable historical forecasts for adaptive weighting.
 
+### Feature registry and lineage
+
+Every enabled feature is resolved through the versioned registry before a forecast or backtest manifest is written. Each manifest records the exact feature-set version, registry version, source schema versions, enabled feature names and a SHA-256 lineage digest under `experiment_manifest.configuration.feature_set`. Runs reject unregistered features and incompatible feature-set versions rather than publishing an ambiguous lineage.
+
 ## Adaptive ensemble weighting
 
 For each horizon independently, the ensemble scores matured historical predictions from every underlying model and adjusts weights from measured out-of-sample performance.

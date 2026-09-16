@@ -39,6 +39,7 @@ from btc_timesfm.forecasting.cross_validation import (
     fold_definition,
 )
 from btc_timesfm.forecasting.experiment_manifest import build_experiment_manifest, seed_everything
+from btc_timesfm.forecasting.feature_registry import MARKET_FEATURE_NAMES
 from btc_timesfm.forecasting.forecast_engine import (
     MarketData,
     TARGET_HOURS,
@@ -513,6 +514,7 @@ def main() -> None:
             "cross_validation": cv_parameters,
         },
         model_names=sorted(samples[-1]["forecast"]["model_predictions"]) if samples else [],
+        enabled_features=list(MARKET_FEATURE_NAMES),
         created_at=generated_at,
     )
     report = {

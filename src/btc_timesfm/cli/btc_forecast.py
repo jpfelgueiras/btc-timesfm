@@ -587,6 +587,9 @@ def main() -> None:
             "cross_asset_signals": cross_asset_manifest(cross_asset_snapshot),
         },
         model_names=sorted(engine_output.get("model_predictions", {})),
+        enabled_features=sorted(
+            name for name in engine_output.get("market_features", {}) if isinstance(name, str)
+        ),
         created_at=generated_at,
     )
     persisted_drift_events = store.record_drift_events(
