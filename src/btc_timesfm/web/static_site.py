@@ -58,7 +58,9 @@ def _ensemble_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [row for row in rows if str(row.get("model_name")) == ENSEMBLE_MODEL]
 
 
-def _latest_predictions(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _latest_predictions(
+    rows: list[dict[str, Any]], latest_snapshot: dict[str, Any] | None
+) -> dict[str, Any] | None:
     ensemble = _ensemble_rows(rows)
     if not ensemble:
         return None
@@ -66,11 +68,18 @@ def _latest_predictions(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     selected = [row for row in ensemble if str(row["origin_at"]) == latest_origin]
     selected.sort(key=lambda row: int(row["horizon_hours"]))
     first = selected[0]
+
+    snapshot = latest_snapshot if isinstance(latest_snapshot, dict) else {}
+    direction_horizons = snapshot.get("direction_probability", {}).get("horizons", {})
+    threshold_horizons = snapshot.get("dynamic_thresholds", {}).get("horizons", {})
+
     return {
         "origin_at": latest_origin,
         "source_price_usd": float(first["source_price_usd"]),
         "source_name": first.get("source_name"),
         "regime": first.get("regime"),
+        "abstention": snapshot.get("abstention_policy"),
+        "attribution": snapshot.get("attribution"),
         "predictions": [
             {
                 "horizon_hours": int(row["horizon_hours"]),
@@ -83,6 +92,8 @@ def _latest_predictions(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
                 "actual_target_price_usd": _safe_float(row.get("actual_target_price_usd")),
                 "absolute_error_pct": _safe_float(row.get("absolute_error_pct")),
                 "direction_correct": row.get("direction_correct"),
+                "direction_probability": direction_horizons.get(f"{int(row['horizon_hours'])}h"),
+                "thresholds": threshold_horizons.get(f"{int(row['horizon_hours'])}h"),
             }
             for row in selected
         ],
@@ -198,7 +209,7 @@ def build_site_data(
             }
         )
 
-    latest = _latest_predictions(rows)
+    latest = _latest_predictions(rows, latest_snapshot)
     latest_age_hours: float | None = None
     if latest is not None:
         latest_age_hours = max(
@@ -343,6 +354,21 @@ def _render_latest(data: dict[str, Any]) -> str:
                 f'<div class="sub">80% interval {_money(item["q10_usd"])} – '
                 f"{_money(item['q90_usd'])}</div>"
             )
+        prob = item.get("direction_probability")
+        thresholds = item.get("thresholds")
+        extras = []
+        if (
+            isinstance(prob, dict)
+            and prob.get("p_up") is not None
+            and prob.get("p_down") is not None
+        ):
+            extras.append(
+                f'<div class="sub">P(up): {_ratio_pct(prob["p_up"], digits=0)} | '
+                f"P(down): {_ratio_pct(prob['p_down'], digits=0)}</div>"
+            )
+        if isinstance(thresholds, dict) and thresholds.get("edge_status") == "no_edge":
+            extras.append('<div class="sub">No measurable edge</div>')
+
         cards.append(
             f"""
             <article class="prediction-card {direction_class}">
@@ -351,6 +377,7 @@ def _render_latest(data: dict[str, Any]) -> str:
               <div class="change">{change:+.2f}%</div>
               <div class="sub">Target {html.escape(str(item["target_at"]))}</div>
               {interval}
+              {"".join(extras)}
             </article>
             """
         )
@@ -363,16 +390,29 @@ def _render_latest(data: dict[str, Any]) -> str:
         if isinstance(age, (int, float))
         else ""
     )
+    abstention = latest.get("abstention")
+    state = abstention.get("state") if isinstance(abstention, dict) else "healthy"
+    state_display = ""
+    if state != "healthy":
+        state_display = f'<div style="margin-top:8px"><span class="badge warn">{html.escape(str(state))}</span></div>'
+
+    attribution = latest.get("attribution")
+    attribution_display = ""
+    if isinstance(attribution, dict) and attribution.get("explanation"):
+        attribution_display = f'<div class="note"><strong>Attribution:</strong> {html.escape(str(attribution["explanation"]))}</div>'
+
     return f"""
     <div class="current-strip">
       <div>
         <div class="eyebrow">Latest completed BTC candle</div>
         <div class="spot-price">{_money(latest["source_price_usd"])}</div>
         <div class="sub">{html.escape(str(latest["origin_at"]))} · {html.escape(str(latest.get("regime") or "unknown"))}</div>
+        {state_display}
       </div>
       {freshness}
     </div>
     <div class="prediction-grid">{"".join(cards)}</div>
+    {attribution_display}
     """
 
 
