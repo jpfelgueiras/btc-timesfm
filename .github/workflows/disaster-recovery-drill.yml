@@ -25,6 +25,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - uses: ./.github/actions/python-setup
+        with:
+          requirements-file: requirements.txt
+
       - name: Restore latest backup archive to scratch storage
         env:
           GH_TOKEN: ${{ github.token }}
