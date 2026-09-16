@@ -48,6 +48,8 @@ class MicrostructureAblationTests(unittest.TestCase):
         for item in first["horizons"].values():
             self.assertGreater(item["walk_forward_samples"], 0)
             self.assertIn("significance", item)
+            self.assertIn("evidence", item)
+            self.assertEqual(item["recommendation"], item["evidence"]["decision"])
             self.assertIn("regimes", item)
 
     def test_sparse_history_is_explicitly_insufficient(self) -> None:

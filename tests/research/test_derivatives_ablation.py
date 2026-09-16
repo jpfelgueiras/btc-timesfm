@@ -63,6 +63,16 @@ class DerivativesAblationTests(unittest.TestCase):
                 item["market_only"]["samples"], item["market_plus_derivatives"]["samples"]
             )
             self.assertEqual(len(item["origins"]), item["market_only"]["samples"])
+            if "evidence" in item:
+                self.assertIn(
+                    item["evidence"]["decision"],
+                    {
+                        "recommend_review",
+                        "do_not_promote_harmful",
+                        "do_not_promote_inconclusive",
+                        "insufficient_evidence",
+                    },
+                )
 
 
 if __name__ == "__main__":

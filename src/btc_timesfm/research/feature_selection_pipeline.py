@@ -17,6 +17,7 @@ DEFAULT_REPORT_PATHS = {
     "derivatives": Path("derivatives_ablation_report.json"),
     "microstructure": Path("microstructure_ablation_report.json"),
     "cross_asset": Path("cross_asset_ablation_report.json"),
+    "multiresolution": Path("multiresolution_ablation_report.json"),
 }
 SELECTION_VERSION = 1
 
@@ -85,7 +86,11 @@ def _summary_metrics(report: Mapping[str, Any]) -> dict[str, Any]:
             improvement = (float(baseline) - float(candidate)) / float(baseline)
             improvements.append(improvement)
             safe = safe and improvement >= -0.05
-        if isinstance(item.get("significance"), dict):
+        evidence = item.get("evidence")
+        if isinstance(evidence, dict):
+            if evidence.get("decision") == "recommend_review":
+                better_horizons += 1
+        elif isinstance(item.get("significance"), dict):
             if item["significance"].get("conclusion") == "candidate_better":
                 better_horizons += 1
     mean_improvement = sum(improvements) / len(improvements) if improvements else None
@@ -141,10 +146,19 @@ def build_feature_selection_report(
             ),
         }
         components.append(component)
+        evidence_decisions = [
+            item.get("evidence", {}).get("decision")
+            for item in (report.get("by_horizon") or report.get("horizons") or {}).values()
+            if isinstance(item, dict) and isinstance(item.get("evidence"), dict)
+        ]
         if (
             component["recommendation"] == "edge_detected"
             and component["no_material_horizon_regression"] is True
             and int(component["statistically_better_horizons"] or 0) > 0
+            and (
+                not evidence_decisions
+                or all(decision == "recommend_review" for decision in evidence_decisions)
+            )
         ):
             selected_groups.append(name)
 
@@ -229,6 +243,9 @@ def main() -> None:
     parser.add_argument(
         "--cross-asset-report", type=Path, default=DEFAULT_REPORT_PATHS["cross_asset"]
     )
+    parser.add_argument(
+        "--multiresolution-report", type=Path, default=DEFAULT_REPORT_PATHS["multiresolution"]
+    )
     args = parser.parse_args()
 
     reports = load_feature_family_reports(
@@ -236,6 +253,7 @@ def main() -> None:
             "derivatives": args.derivatives_report,
             "microstructure": args.microstructure_report,
             "cross_asset": args.cross_asset_report,
+            "multiresolution": args.multiresolution_report,
         }
     )
     report = build_feature_selection_report(reports)
