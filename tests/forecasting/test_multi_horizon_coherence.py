@@ -191,6 +191,42 @@ class CrossingDetectionTests(unittest.TestCase):
         self.assertTrue(all(item["suppression_reason"] == "sample_poor" for item in suppressed))
         self.assertEqual(result["section"]["violation_log"]["suppressed_direction_flips"], 1)
         self.assertEqual(result["section"]["coherence_score"], 1.0)
+        self.assertEqual(result["reconciled_predictions"]["8h"]["q50_usd"], 100.98)
+        self.assertEqual(result["reconciled_predictions"]["16h"]["q50_usd"], 100.47)
+
+    def test_evidenced_q50_flip_is_logged_without_reconciliation(self) -> None:
+        predictions = forecast(
+            {
+                "4h": {"price_usd": 99.0, "q50_usd": 99.0, "change_pct": -1.0},
+            }
+        )
+        result = _reconcile(predictions)
+        flip = next(
+            item
+            for item in _flip_records(result["section"])
+            if item["shorter_horizon"] == "2h"
+        )
+        self.assertTrue(flip["flipped"])
+        self.assertEqual(result["reconciled_predictions"]["4h"]["q50_usd"], 99.0)
+        self.assertEqual(
+            result["section"]["horizons"]["4h"]["reconciliation_delta_q50_pct"], 0.0
+        )
+
+    def test_suppressed_q50_flip_respects_the_adjustment_guardrail(self) -> None:
+        predictions = forecast(
+            {
+                "4h": {"price_usd": 99.0, "q50_usd": 99.0, "change_pct": -1.0},
+            }
+        )
+        result = reconcile_forecast_coherence(
+            predictions,
+            base_price_usd=BASE,
+            samples={"2h": 3, "4h": 3, "8h": 30, "16h": 30},
+            now=NOW,
+        )
+        row = result["section"]["horizons"]["4h"]
+        self.assertLessEqual(abs(row["reconciliation_delta_q50_pct"]), 2.0)
+        self.assertEqual(result["reconciled_predictions"]["4h"]["q50_usd"], 100.5)
 
     def test_direction_flip_is_suppressed_below_noise_band(self) -> None:
         predictions = forecast(
@@ -295,6 +331,7 @@ class ReconciliationTests(unittest.TestCase):
         self.assertTrue(guard["matured_outcomes_only"])
         self.assertEqual(guard["outcome_inputs"], [])
         self.assertIn("q10_usd", guard["reconciliation_inputs"])
+        self.assertIn("q50_usd", guard["reconciliation_inputs"])
         self.assertIn("q90_usd", guard["reconciliation_inputs"])
 
 

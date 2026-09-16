@@ -17,10 +17,10 @@ This module detects two ways that view breaks:
    to take the flip at face value. Flips without evidence or below the neutral
    noise band are suppressed and logged instead of being published as a signal.
 
-Reconciliation only ever widens a band or re-orders it around the unchanged
-median; it never narrows an interval, so per-horizon interval coverage is not
-made worse, and both the per-quantile and the interval-width movement are capped
-so the conformal/empirical calibration done before this step stays intact.
+Reconciliation only ever widens a band or suppresses a q50 direction flip that
+lacks evidence; it never narrows an interval, so per-horizon interval coverage is
+not made worse, and both the per-quantile and the interval-width movement are
+capped so the conformal/empirical calibration done before this step stays intact.
 """
 
 from __future__ import annotations
@@ -123,6 +123,7 @@ class _Horizon:
         "price",
         "samples",
         "final_q10_usd",
+        "final_q50_usd",
         "final_q90_usd",
     )
 
@@ -146,6 +147,7 @@ class _Horizon:
         self.price = price
         self.samples = samples
         self.final_q10_usd = q10
+        self.final_q50_usd = q50
         self.final_q90_usd = q90
 
 
@@ -191,6 +193,10 @@ def _median_move(horizon: _Horizon, base: float | None) -> float | None:
     return _finite_float(horizon.item.get("change_pct"))
 
 
+def _active_quantile(horizon: _Horizon, level: str) -> float | None:
+    return getattr(horizon, f"final_{level}")
+
+
 def _envelope_detail(
     level: str,
     shorter: _Horizon,
@@ -199,8 +205,8 @@ def _envelope_detail(
     *,
     rising: bool,
 ) -> str:
-    short_usd = shorter.final_q10_usd if level == "q10_usd" else shorter.final_q90_usd
-    long_usd = longer.final_q10_usd if level == "q10_usd" else longer.final_q90_usd
+    short_usd = _active_quantile(shorter, level)
+    long_usd = _active_quantile(longer, level)
     short_chg = _pct_offset(short_usd, base) if base is not None else None
     long_chg = _pct_offset(long_usd, base) if base is not None else None
     direction = "rises" if rising else "falls"
@@ -226,10 +232,11 @@ def _crossing_records(
 
     for horizon in horizons:
         q10 = horizon.final_q10_usd
+        q50 = horizon.final_q50_usd
         q90 = horizon.final_q90_usd
-        if q10 is None or horizon.q50 is None or q90 is None:
+        if q10 is None or q50 is None or q90 is None:
             continue
-        lower_gap = _pct_offset(horizon.q50, q10)
+        lower_gap = _pct_offset(q50, q10)
         if lower_gap is not None and lower_gap < MIN_QUANTILE_GAP_PCT:
             records.append(
                 {
@@ -243,7 +250,7 @@ def _crossing_records(
                     ),
                 }
             )
-        upper_gap = _pct_offset(q90, horizon.q50)
+        upper_gap = _pct_offset(q90, q50)
         if upper_gap is not None and upper_gap < MIN_QUANTILE_GAP_PCT:
             records.append(
                 {
@@ -259,28 +266,22 @@ def _crossing_records(
             )
 
     for shorter, longer in zip(horizons, horizons[1:], strict=False):
-        shorter_q10, longer_q10 = shorter.final_q10_usd, longer.final_q10_usd
-        if shorter_q10 is not None and longer_q10 is not None and longer_q10 > shorter_q10:
+        for level, rising in (("q10_usd", True), ("q90_usd", False)):
+            shorter_value = _active_quantile(shorter, level)
+            longer_value = _active_quantile(longer, level)
+            if shorter_value is None or longer_value is None:
+                continue
+            crosses = longer_value > shorter_value if rising else longer_value < shorter_value
+            if not crosses:
+                continue
             records.append(
                 {
                     "type": "envelope_crossing",
                     "severity": "crossing",
-                    "level": "q10_usd",
+                    "level": level,
                     "shorter_horizon": shorter.key,
                     "longer_horizon": longer.key,
-                    "detail": _envelope_detail("q10_usd", shorter, longer, base, rising=True),
-                }
-            )
-        shorter_q90, longer_q90 = shorter.final_q90_usd, longer.final_q90_usd
-        if shorter_q90 is not None and longer_q90 is not None and longer_q90 < shorter_q90:
-            records.append(
-                {
-                    "type": "envelope_crossing",
-                    "severity": "crossing",
-                    "level": "q90_usd",
-                    "shorter_horizon": shorter.key,
-                    "longer_horizon": longer.key,
-                    "detail": _envelope_detail("q90_usd", shorter, longer, base, rising=False),
+                    "detail": _envelope_detail(level, shorter, longer, base, rising=rising),
                 }
             )
     return records
@@ -378,6 +379,9 @@ def detect_cross_horizon_violations(
 def _reconcile_targets(
     horizons: list[_Horizon],
     *,
+    base: float | None,
+    flip_threshold_pct: float,
+    min_evidence_samples: int,
     max_quantile_adjustment_pct: float,
     max_width_growth_rel: float,
 ) -> dict[str, dict[str, Any]]:
@@ -393,12 +397,12 @@ def _reconcile_targets(
 
     # 1. Fix torn intra-horizon order around the unchanged median.
     for horizon in horizons:
-        if horizon.final_q90_usd is not None and horizon.q50 is not None:
-            if horizon.final_q90_usd - horizon.q50 < min_gap_usd[horizon.key]:
-                horizon.final_q90_usd = horizon.q50 + min_gap_usd[horizon.key]
-        if horizon.final_q10_usd is not None and horizon.q50 is not None:
-            if horizon.q50 - horizon.final_q10_usd < min_gap_usd[horizon.key]:
-                horizon.final_q10_usd = horizon.q50 - min_gap_usd[horizon.key]
+        if horizon.final_q90_usd is not None and horizon.final_q50_usd is not None:
+            if horizon.final_q90_usd - horizon.final_q50_usd < min_gap_usd[horizon.key]:
+                horizon.final_q90_usd = horizon.final_q50_usd + min_gap_usd[horizon.key]
+        if horizon.final_q10_usd is not None and horizon.final_q50_usd is not None:
+            if horizon.final_q50_usd - horizon.final_q10_usd < min_gap_usd[horizon.key]:
+                horizon.final_q10_usd = horizon.final_q50_usd - min_gap_usd[horizon.key]
 
     # 2. Enforce cross-horizon envelope monotonicity (q10 down, q90 up).
     prev_q10: float | None = None
@@ -421,7 +425,34 @@ def _reconcile_targets(
             )
         prev_q90 = horizon.final_q90_usd
 
-    # 3. Clamp per-quantile movement and compute width/coverage outcomes.
+    for shorter, longer in zip(horizons, horizons[1:], strict=False):
+        short_move = _pct_offset(shorter.final_q50_usd, base)
+        long_move = _pct_offset(longer.final_q50_usd, base)
+        if base is None:
+            short_move = _finite_float(shorter.item.get("change_pct"))
+            long_move = _finite_float(longer.item.get("change_pct"))
+        if short_move is None or long_move is None or _sign(short_move) == _sign(long_move):
+            continue
+        magnitude_ok = (
+            abs(short_move) >= flip_threshold_pct and abs(long_move) >= flip_threshold_pct
+        )
+        evidence_ok = (
+            shorter.samples >= min_evidence_samples and longer.samples >= min_evidence_samples
+        )
+        if not (magnitude_ok and evidence_ok):
+            longer.final_q50_usd = shorter.final_q50_usd
+
+    for horizon in horizons:
+        if horizon.final_q90_usd is not None and horizon.final_q50_usd is not None:
+            horizon.final_q90_usd = max(
+                horizon.final_q90_usd, horizon.final_q50_usd + min_gap_usd[horizon.key]
+            )
+        if horizon.final_q10_usd is not None and horizon.final_q50_usd is not None:
+            horizon.final_q10_usd = min(
+                horizon.final_q10_usd, horizon.final_q50_usd - min_gap_usd[horizon.key]
+            )
+
+    # 4. Clamp per-quantile movement and compute width/coverage outcomes.
     outcomes: dict[str, dict[str, Any]] = {}
     for horizon in horizons:
         record: dict[str, Any] = {
@@ -429,6 +460,7 @@ def _reconcile_targets(
             "residual": False,
             "guardrail_breach": False,
             "delta_q10_pct": None,
+            "delta_q50_pct": None,
             "delta_q90_pct": None,
             "width_pct_before": None,
             "width_pct_after": None,
@@ -438,15 +470,20 @@ def _reconcile_targets(
             continue
 
         delta_q10 = _pct_offset(horizon.final_q10_usd, horizon.q10)
+        delta_q50 = _pct_offset(horizon.final_q50_usd, horizon.q50)
         delta_q90 = _pct_offset(horizon.final_q90_usd, horizon.q90)
         if delta_q10 is not None and abs(delta_q10) > max_quantile_adjustment_pct:
             shift = math.copysign(max_quantile_adjustment_pct, delta_q10)
             horizon.final_q10_usd = horizon.q10 * (1.0 + shift / 100.0)
+        if delta_q50 is not None and abs(delta_q50) > max_quantile_adjustment_pct:
+            shift = math.copysign(max_quantile_adjustment_pct, delta_q50)
+            horizon.final_q50_usd = horizon.q50 * (1.0 + shift / 100.0)
         if delta_q90 is not None and abs(delta_q90) > max_quantile_adjustment_pct:
             shift = math.copysign(max_quantile_adjustment_pct, delta_q90)
             horizon.final_q90_usd = horizon.q90 * (1.0 + shift / 100.0)
 
         delta_q10 = _pct_offset(horizon.final_q10_usd, horizon.q10)
+        delta_q50 = _pct_offset(horizon.final_q50_usd, horizon.q50)
         delta_q90 = _pct_offset(horizon.final_q90_usd, horizon.q90)
 
         width_before = _pct_offset(horizon.q90, horizon.q10)
@@ -457,6 +494,7 @@ def _reconcile_targets(
 
         needs_reconcile = bool(
             (delta_q10 is not None and abs(delta_q10) > EPSILON)
+            or (delta_q50 is not None and abs(delta_q50) > EPSILON)
             or (delta_q90 is not None and abs(delta_q90) > EPSILON)
         )
         record.update(
@@ -465,6 +503,7 @@ def _reconcile_targets(
                 "residual": bool(guardrail_breach),
                 "guardrail_breach": guardrail_breach,
                 "delta_q10_pct": _round(delta_q10, 4),
+                "delta_q50_pct": _round(delta_q50, 4),
                 "delta_q90_pct": _round(delta_q90, 4),
                 "width_pct_before": _round(width_before, 4),
                 "width_pct_after": _round(width_after, 4),
@@ -496,9 +535,10 @@ def reconcile_forecast_coherence(
 ) -> dict[str, Any]:
     """Reconcile quantiles toward coherence and emit the coherence section.
 
-    Only current-forecast quantiles are ever moved (leakage-safe); the median and
-    the ``price_usd`` point forecast are never changed. Quantiles are perturbed by
-    the smallest amount that removes a crossing and every movement is capped by
+    Only current-forecast quantiles are ever moved (leakage-safe); the
+    ``price_usd`` point forecast is never changed. q10/q90 are perturbed by the
+    smallest amount that removes a crossing; q50 flips are reconciled only when
+    they lack magnitude or matured sample evidence. Every movement is capped by
     ``max_quantile_adjustment_pct`` unless the interval would grow by more than
     ``max_width_growth_rel``, which would degrade marginal calibration.
 
@@ -524,6 +564,9 @@ def reconcile_forecast_coherence(
     )
     outcomes = _reconcile_targets(
         horizons,
+        base=base,
+        flip_threshold_pct=flip_threshold_pct,
+        min_evidence_samples=min_evidence_samples,
         max_quantile_adjustment_pct=max_quantile_adjustment_pct,
         max_width_growth_rel=max_width_growth_rel,
     )
@@ -592,9 +635,8 @@ def _build_reconciled_predictions(
         horizon = by_key.get(key)
         if horizon is not None:
             updated["q10_usd"] = _round(horizon.final_q10_usd, 4)
+            updated["q50_usd"] = _round(horizon.final_q50_usd, 4)
             updated["q90_usd"] = _round(horizon.final_q90_usd, 4)
-            if horizon.q50 is not None:
-                updated["q50_usd"] = _round(horizon.q50, 4)
         reconciled[key] = updated
     return reconciled
 
@@ -633,8 +675,10 @@ def _build_section(
             "q50_usd": _round(horizon.q50, 4),
             "q90_usd": _round(horizon.q90, 4),
             "reconciled_q10_usd": _round(horizon.final_q10_usd, 4),
+            "reconciled_q50_usd": _round(horizon.final_q50_usd, 4),
             "reconciled_q90_usd": _round(horizon.final_q90_usd, 4),
             "reconciliation_delta_q10_pct": outcome.get("delta_q10_pct"),
+            "reconciliation_delta_q50_pct": outcome.get("delta_q50_pct"),
             "reconciliation_delta_q90_pct": outcome.get("delta_q90_pct"),
             "width_pct_before": outcome.get("width_pct_before"),
             "width_pct_after": outcome.get("width_pct_after"),
