@@ -47,7 +47,6 @@ jobs:
 
       - name: Run non-mutating recovery drill
         id: drill
-        continue-on-error: true
         run: |
           PYTHONPATH=src python -m btc_timesfm.history.disaster_recovery \
             --archive .drill/latest-backup.sqlite.gz \

@@ -6,6 +6,7 @@ on:
     - cron: "17 05 * * *"
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
