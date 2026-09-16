@@ -202,15 +202,11 @@ class CrossingDetectionTests(unittest.TestCase):
         )
         result = _reconcile(predictions)
         flip = next(
-            item
-            for item in _flip_records(result["section"])
-            if item["shorter_horizon"] == "2h"
+            item for item in _flip_records(result["section"]) if item["shorter_horizon"] == "2h"
         )
         self.assertTrue(flip["flipped"])
         self.assertEqual(result["reconciled_predictions"]["4h"]["q50_usd"], 99.0)
-        self.assertEqual(
-            result["section"]["horizons"]["4h"]["reconciliation_delta_q50_pct"], 0.0
-        )
+        self.assertEqual(result["section"]["horizons"]["4h"]["reconciliation_delta_q50_pct"], 0.0)
 
     def test_suppressed_q50_flip_respects_the_adjustment_guardrail(self) -> None:
         predictions = forecast(
