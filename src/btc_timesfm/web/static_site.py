@@ -357,10 +357,14 @@ def _render_latest(data: dict[str, Any]) -> str:
         prob = item.get("direction_probability")
         thresholds = item.get("thresholds")
         extras = []
-        if isinstance(prob, dict) and prob.get("p_up") is not None and prob.get("p_down") is not None:
+        if (
+            isinstance(prob, dict)
+            and prob.get("p_up") is not None
+            and prob.get("p_down") is not None
+        ):
             extras.append(
                 f'<div class="sub">P(up): {_ratio_pct(prob["p_up"], digits=0)} | '
-                f'P(down): {_ratio_pct(prob["p_down"], digits=0)}</div>'
+                f"P(down): {_ratio_pct(prob['p_down'], digits=0)}</div>"
             )
         if isinstance(thresholds, dict) and thresholds.get("edge_status") == "no_edge":
             extras.append('<div class="sub">No measurable edge</div>')
