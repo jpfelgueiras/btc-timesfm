@@ -292,9 +292,7 @@ def filter_explorer_rows(
     rows: list[dict[str, Any]], state: dict[str, str | int | None], *, now: datetime
 ) -> list[dict[str, Any]]:
     cutoff_days = state["days"]
-    cutoff = (
-        now - timedelta(days=int(str(cutoff_days))) if cutoff_days != "all" else None
-    )
+    cutoff = now - timedelta(days=int(str(cutoff_days))) if cutoff_days != "all" else None
     selected = [
         row
         for row in rows
@@ -311,7 +309,9 @@ def filter_explorer_rows(
     ]
     sort = state["sort"]
     if sort == "horizon":
-        return sorted(selected, key=lambda row: (row["horizon_hours"], row["origin_at"]), reverse=True)
+        return sorted(
+            selected, key=lambda row: (row["horizon_hours"], row["origin_at"]), reverse=True
+        )
     if sort == "error":
         return sorted(
             selected,
@@ -528,32 +528,32 @@ def _render_explorer(data: dict[str, Any]) -> str:
             f'data-horizon="{row["horizon_hours"]}" data-status="{row["status"]}" '
             f'data-regime="{html.escape(str(row.get("regime") or ""))}">'
             f'<td><a href="?{query}#{anchor}">{html.escape(str(row["origin_at"]))}</a></td>'
-            f'<td>+{row["horizon_hours"]}h</td><td>{_money(row["predicted_price_usd"])}</td>'
-            f'<td>{_money(row["actual_target_price_usd"])}</td><td>{_pct(row["absolute_error_pct"])}</td>'
+            f"<td>+{row['horizon_hours']}h</td><td>{_money(row['predicted_price_usd'])}</td>"
+            f"<td>{_money(row['actual_target_price_usd'])}</td><td>{_pct(row['absolute_error_pct'])}</td>"
             f'<td><span class="status {css}">{label}</span></td></tr>'
         )
         details.append(
             f'<details id="{anchor}" class="forecast-detail" data-origin="{html.escape(str(row["origin_at"]))}">'
-            f'<summary>{html.escape(str(row["origin_at"]))} · +{row["horizon_hours"]}h · {label}</summary>'
-            f'<dl><dt>BTC at origin</dt><dd>{_money(row["source_price_usd"])}</dd>'
-            f'<dt>Forecast</dt><dd>{_money(row["predicted_price_usd"])} ({float(row["predicted_change_pct"]):+.2f}%)</dd>'
-            f'<dt>80% interval</dt><dd>{_money(row["q10_usd"])} – {_money(row["q90_usd"])}</dd>'
-            f'<dt>Actual outcome</dt><dd>{_money(row["actual_target_price_usd"])} ({_pct(row["actual_change_pct"])})</dd>'
-            f'<dt>Error / direction</dt><dd>{_pct(row["absolute_error_pct"])} / {label}</dd>'
-            f'<dt>Target / regime</dt><dd>{html.escape(str(row["target_at"]))} / {html.escape(str(row.get("regime") or "unknown"))}</dd></dl></details>'
+            f"<summary>{html.escape(str(row['origin_at']))} · +{row['horizon_hours']}h · {label}</summary>"
+            f"<dl><dt>BTC at origin</dt><dd>{_money(row['source_price_usd'])}</dd>"
+            f"<dt>Forecast</dt><dd>{_money(row['predicted_price_usd'])} ({float(row['predicted_change_pct']):+.2f}%)</dd>"
+            f"<dt>80% interval</dt><dd>{_money(row['q10_usd'])} – {_money(row['q90_usd'])}</dd>"
+            f"<dt>Actual outcome</dt><dd>{_money(row['actual_target_price_usd'])} ({_pct(row['actual_change_pct'])})</dd>"
+            f"<dt>Error / direction</dt><dd>{_pct(row['absolute_error_pct'])} / {label}</dd>"
+            f"<dt>Target / regime</dt><dd>{html.escape(str(row['target_at']))} / {html.escape(str(row.get('regime') or 'unknown'))}</dd></dl></details>"
         )
-    return f'''<div class="explorer-controls" aria-label="Forecast explorer filters">
+    return f"""<div class="explorer-controls" aria-label="Forecast explorer filters">
 <label>Range <select id="explorer-days"><option value="all">All time</option><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option></select></label>
 <label>Horizon <select id="explorer-horizon">{options}</select></label>
 <label>Search <input id="explorer-search" type="search" maxlength="80" placeholder="Origin, regime, status"></label>
 <label>Sort <select id="explorer-sort"><option value="origin">Newest origin</option><option value="horizon">Horizon</option><option value="error">Lowest error</option></select></label>
 </div><p id="explorer-count" aria-live="polite">{len(rows)} forecasts</p>
-<div class="table-wrap recent-table"><table id="explorer-table"><thead><tr><th>Origin</th><th>Horizon</th><th>Forecast</th><th>Actual</th><th>Error</th><th>Status</th></tr></thead><tbody>{''.join(table_rows)}</tbody></table></div>
-<div id="forecast-details">{''.join(details)}</div>'''
+<div class="table-wrap recent-table"><table id="explorer-table"><thead><tr><th>Origin</th><th>Horizon</th><th>Forecast</th><th>Actual</th><th>Error</th><th>Status</th></tr></thead><tbody>{"".join(table_rows)}</tbody></table></div>
+<div id="forecast-details">{"".join(details)}</div>"""
 
 
 def _explorer_script() -> str:
-    return '''<script>(()=>{const $=id=>document.getElementById(id),table=$("explorer-table"),body=table?.tBodies[0],days=$("explorer-days"),horizon=$("explorer-horizon"),search=$("explorer-search"),sort=$("explorer-sort"),count=$("explorer-count");if(!body)return;const p=new URLSearchParams(location.search),valid=(el,v)=>[...el.options].some(o=>o.value===v);for(const [k,el] of [["days",days],["horizon",horizon],["q",search],["sort",sort]]){const v=p.get(k)||el.value;if(valid(el,v)||el===search)el.value=v}const apply=()=>{const q=search.value.trim().toLowerCase(),d=days.value,h=horizon.value,s=sort.value,cut=d==="all"?0:Date.now()-Number(d)*864e5;let rows=[...body.rows];rows.forEach(r=>{const ok=(!h||r.dataset.horizon===h)&&(!cut||Date.parse(r.dataset.origin)>=cut)&&(!q||r.textContent.toLowerCase().includes(q));r.hidden=!ok});rows.sort((a,b)=>s==="horizon"?b.dataset.horizon-a.dataset.horizon:s==="error"?(parseFloat(a.cells[4].textContent)||Infinity)-(parseFloat(b.cells[4].textContent)||Infinity):Date.parse(b.dataset.origin)-Date.parse(a.dataset.origin)).forEach(r=>body.append(r));const state=new URLSearchParams;d!=="all"&&state.set("days",d);h&&state.set("horizon",h);q&&state.set("q",q);s!=="origin"&&state.set("sort",s);history.replaceState(null,"",location.pathname+(state.size?"?"+state:"")+location.hash);count.textContent=rows.filter(r=>!r.hidden).length+" forecasts"};[days,horizon,search,sort].forEach(el=>el.addEventListener("input",apply));apply();const origin=p.get("origin");if(origin){const detail=[...document.querySelectorAll(".forecast-detail")].find(d=>d.dataset.origin===origin);if(detail){detail.open=true;detail.scrollIntoView()}}})();</script>'''
+    return """<script>(()=>{const $=id=>document.getElementById(id),table=$("explorer-table"),body=table?.tBodies[0],days=$("explorer-days"),horizon=$("explorer-horizon"),search=$("explorer-search"),sort=$("explorer-sort"),count=$("explorer-count");if(!body)return;const p=new URLSearchParams(location.search),valid=(el,v)=>[...el.options].some(o=>o.value===v);for(const [k,el] of [["days",days],["horizon",horizon],["q",search],["sort",sort]]){const v=p.get(k)||el.value;if(valid(el,v)||el===search)el.value=v}const apply=()=>{const q=search.value.trim().toLowerCase(),d=days.value,h=horizon.value,s=sort.value,cut=d==="all"?0:Date.now()-Number(d)*864e5;let rows=[...body.rows];rows.forEach(r=>{const ok=(!h||r.dataset.horizon===h)&&(!cut||Date.parse(r.dataset.origin)>=cut)&&(!q||r.textContent.toLowerCase().includes(q));r.hidden=!ok});rows.sort((a,b)=>s==="horizon"?b.dataset.horizon-a.dataset.horizon:s==="error"?(parseFloat(a.cells[4].textContent)||Infinity)-(parseFloat(b.cells[4].textContent)||Infinity):Date.parse(b.dataset.origin)-Date.parse(a.dataset.origin)).forEach(r=>body.append(r));const state=new URLSearchParams;d!=="all"&&state.set("days",d);h&&state.set("horizon",h);q&&state.set("q",q);s!=="origin"&&state.set("sort",s);history.replaceState(null,"",location.pathname+(state.size?"?"+state:"")+location.hash);count.textContent=rows.filter(r=>!r.hidden).length+" forecasts"};[days,horizon,search,sort].forEach(el=>el.addEventListener("input",apply));apply();const origin=p.get("origin");if(origin){const detail=[...document.querySelectorAll(".forecast-detail")].find(d=>d.dataset.origin===origin);if(detail){detail.open=true;detail.scrollIntoView()}}})();</script>"""
 
 
 def render_html(data: dict[str, Any]) -> str:
