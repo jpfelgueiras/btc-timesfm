@@ -381,7 +381,7 @@ After a reviewed promotion, `rollback_safeguards.py` retains the previous champi
 
 ## Read-only forecast API contract
 
-[`docs/FORECAST_API_CONTRACT.md`](docs/FORECAST_API_CONTRACT.md) defines the implementation-independent `/v1` read-only API for latest forecasts, historical forecast rows, and health. It includes immutable-history lineage, experiment run and configuration identities, calibrated intervals, confidence evidence, freshness, filtering, cursor pagination, availability, errors, and additive-only compatibility rules. The contract validators in `btc_timesfm.api.forecast_contract` validate response payloads; serving HTTP endpoints is intentionally deferred to issue #219.
+[`docs/FORECAST_API_CONTRACT.md`](docs/FORECAST_API_CONTRACT.md) defines the `/v1` read-only API for latest forecasts, historical forecast rows, and health. `btc_timesfm.api.forecast_service` is the authenticated standard-library WSGI implementation: it serves only canonical SQLite history, applies per-credential rate limits, validates every emitted contract body, appends audited reads, and exposes in-process operational metrics. See [`docs/FORECAST_API_SERVICE.md`](docs/FORECAST_API_SERVICE.md) for deployment and configuration.
 
 ## Tests
 
