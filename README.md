@@ -76,6 +76,12 @@ Those features classify the market as `range`, `trending` or `high_volatility`. 
 
 Every enabled feature is resolved through the versioned registry before a forecast or backtest manifest is written. Each manifest records the exact feature-set version, registry version, source schema versions, enabled feature names and a SHA-256 lineage digest under `experiment_manifest.configuration.feature_set`. Runs reject unregistered features and incompatible feature-set versions rather than publishing an ambiguous lineage.
 
+## External-source health
+
+Every forecast evaluates derivatives, microstructure and cross-asset inputs for freshness, feature completeness, upstream revisions and spot-provider disagreement. The dashboard-ready `source_health` block in `forecast.json` and `source_health.json` exposes per-source age, missingness, fallback use, revision and quarantine state plus aggregate counters.
+
+Optional inputs are fail-safe: unsafe sources are quarantined and excluded from the feature set while the validated BTC spot forecast continues. Configure thresholds with `BTC_SOURCE_HEALTH_MAX_OPTIONAL_AGE_HOURS`, `BTC_SOURCE_HEALTH_MAX_MISSING_FEATURE_RATIO`, `BTC_SOURCE_HEALTH_QUARANTINE_ON_REVISION`, and `BTC_SOURCE_HEALTH_QUARANTINE_ON_DISAGREEMENT`. Revision fingerprints are retained in `.state/source_health_state.json` across runs.
+
 ## Adaptive ensemble weighting
 
 For each horizon independently, the ensemble scores matured historical predictions from every underlying model and adjusts weights from measured out-of-sample performance.

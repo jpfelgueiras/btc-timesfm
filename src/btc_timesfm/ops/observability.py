@@ -30,6 +30,9 @@ DEFAULT_COUNTERS = {
     "drift_warnings": 0,
     "drift_severe": 0,
     "successful_posts": 0,
+    "source_quarantines": 0,
+    "source_revisions": 0,
+    "source_disagreements": 0,
 }
 STAGE_DOMAINS = {
     "market_data_fetch": "data",
