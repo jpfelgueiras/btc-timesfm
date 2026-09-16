@@ -98,7 +98,10 @@ def signal_row(
     score: dict[str, Any] | None,
     *,
     compact: bool = False,
+    withheld: bool = False,
 ) -> str:
+    if withheld:
+        return f"{horizon} WITHHELD | {previous_outcome_text(score, compact=compact)}"
     change = float(prediction["change_pct"])
     emoji, label = direction_signal(change)
     decimals = 1 if compact else 2
@@ -156,12 +159,22 @@ def _render_tweet(
 ) -> str:
     predictions = output["predictions"]
     reliability = output.get("forecast_reliability", {})
+    abstention = output.get("abstention_policy", {})
+    withheld = isinstance(abstention, dict) and abstention.get("withhold_forecast") is True
 
     lines = ["₿ BTC SIGNAL"]
     lines.extend(
-        signal_row(horizon, predictions[horizon], reliability.get(horizon), compact=compact)
+        signal_row(
+            horizon,
+            predictions[horizon],
+            reliability.get(horizon),
+            compact=compact,
+            withheld=withheld,
+        )
         for horizon in HORIZONS
     )
+    if withheld:
+        lines.insert(1, "FORECAST WITHHELD")
     if include_confidence:
         confidence = confidence_text(output, compact=compact_confidence)
         if confidence:

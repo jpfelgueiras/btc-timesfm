@@ -24,6 +24,7 @@ from btc_timesfm.forecasting.conformal_calibration import (
 from btc_timesfm.forecasting.conditional_calibration import (
     build_conditional_calibration_section,
 )
+from btc_timesfm.forecasting.abstention_policy import build_abstention_policy
 from btc_timesfm.forecasting.dynamic_thresholds import build_dynamic_threshold_section
 from btc_timesfm.forecasting.multi_horizon_coherence import assert_forecast_coherent
 from btc_timesfm.data.cross_asset_signals import (
@@ -529,6 +530,14 @@ def main() -> None:
         now=forecast_origin,
         predictions=engine_output["predictions"],
     )
+    abstention_policy = build_abstention_policy(
+        engine_output["predictions"],
+        data_health={"healthy": selection.primary.healthy or selection.secondary.healthy},
+        drift_report=drift_report,
+        forecast_confidence=forecast_confidence,
+        dynamic_thresholds=dynamic_thresholds,
+        direction_probability=direction_probability,
+    )
     generated_at = datetime.now(timezone.utc)
     experiment_manifest = build_experiment_manifest(
         run_type="production_forecast",
@@ -575,6 +584,7 @@ def main() -> None:
         "conditional_calibration": conditional_calibration,
         "dynamic_thresholds": dynamic_thresholds,
         "multi_horizon_coherence": multi_horizon_coherence,
+        "abstention_policy": abstention_policy,
         **engine_output,
         "forecast_reliability": reliability,
         "performance_summary": summary,
