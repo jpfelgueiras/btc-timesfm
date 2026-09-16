@@ -29,6 +29,8 @@ exposed here.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import os
 from datetime import datetime, timedelta, timezone
@@ -45,8 +47,10 @@ from btc_timesfm.forecasting.conformal_calibration import (
     _sample,
 )
 
-CONDITIONAL_CALIBRATION_VERSION = 1
+CONDITIONAL_CALIBRATION_VERSION = 2
 DEFAULT_HORIZONS = (2, 4, 8, 16)
+DEFAULT_SEGMENT_DIMENSIONS = ("regime", "volatility", "liquidity", "data_quality")
+DEFAULT_AGGREGATE_COVERAGE_TOLERANCE = 0.05
 DEFAULT_VOLATILITY_FEATURE_KEYS = (
     "volatility_6h_pct",
     "realized_vol_6h_pct",
@@ -97,6 +101,15 @@ def _finite_float(value: Any) -> float | None:
 
 def _round(value: float | None, digits: int = 6) -> float | None:
     return round(value, digits) if value is not None else None
+
+
+def _canonical_json(value: object) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def _manifest_id(payload: dict[str, Any]) -> str:
+    digest = hashlib.sha256(_canonical_json(payload).encode()).hexdigest()[:16]
+    return f"conditional-calibration-v{CONDITIONAL_CALIBRATION_VERSION}-{digest}"
 
 
 def _validate_config(
@@ -402,6 +415,42 @@ def bucket_calibration_details(
         )
 
     selected = dict(bucket_entries[selected_bucket])
+    aggregate_coverage = (
+        float(
+            np.mean(
+                [
+                    sample["score"] <= float(bucket_entries[sample["bucket"]]["multiplier"])
+                    for sample in marginal_samples
+                ]
+            )
+        )
+        if marginal_samples
+        else None
+    )
+    aggregate_within_tolerance = coverage_within_tolerance(
+        aggregate_coverage,
+        target_coverage=target_coverage,
+        tolerance=DEFAULT_AGGREGATE_COVERAGE_TOLERANCE,
+    )
+    fallback_reasons: list[str] = []
+    if selected["mode"] in {"shrunken", "marginal_fallback"}:
+        fallback_reasons.append("low_segment_evidence")
+    if not bool(selected["within_tolerance"]):
+        fallback_reasons.append("selected_segment_coverage_unverified")
+    if not aggregate_within_tolerance:
+        fallback_reasons.append("aggregate_coverage_tolerance")
+    if fallback_reasons:
+        selected["applied_multiplier"] = round(marginal_multiplier, 4)
+        width_before = _finite_float(selected.get("average_interval_width_pct_before"))
+        selected["average_interval_width_pct_after"] = (
+            _round(width_before * marginal_multiplier) if width_before is not None else None
+        )
+        selected["decision"] = "marginal_fallback"
+        selected["fallback_reasons"] = fallback_reasons
+    else:
+        selected["applied_multiplier"] = selected["multiplier"]
+        selected["decision"] = "validated_segment"
+        selected["fallback_reasons"] = []
 
     violations = sorted(
         name
@@ -426,6 +475,12 @@ def bucket_calibration_details(
             "coverage_after": _round(empirical_coverage(marginal_samples, marginal_multiplier)),
             "average_interval_width_pct": _round(_average_width_pct(marginal_samples)),
         },
+        "aggregate_guard": {
+            "coverage_after": _round(aggregate_coverage),
+            "coverage_tolerance": DEFAULT_AGGREGATE_COVERAGE_TOLERANCE,
+            "within_tolerance": aggregate_within_tolerance,
+            "protected": True,
+        },
         "selected": selected,
         "buckets": bucket_entries,
         "coverage_violations": {
@@ -449,7 +504,7 @@ def _recalibrated_interval(
         return None
     if not all(math.isfinite(value) for value in (price, q10, q90)) or price <= 0:
         return None
-    conditional = float(details["selected"]["multiplier"])
+    conditional = float(details["selected"]["applied_multiplier"])
     engine_multiplier = _finite_float(prediction.get("interval_calibration_multiplier"))
     marginal_multiplier = max(float(details["marginal"]["multiplier"]), _EPSILON)
     if engine_multiplier is not None and engine_multiplier > 0.0:
@@ -464,6 +519,46 @@ def _recalibrated_interval(
         "q90_usd": round(price + half_width, 2),
         "half_width_usd": round(half_width, 2),
         "multiplier": round(conditional, 4),
+    }
+
+
+def _coverage_width_report(horizons: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    per_horizon: dict[str, Any] = {}
+    aggregate_coverage: list[float] = []
+    aggregate_width: list[float] = []
+    fallback_horizons: list[str] = []
+    for horizon, details in horizons.items():
+        selected = details["selected"]
+        coverage = _finite_float(selected.get("coverage_after"))
+        width = _finite_float(selected.get("average_interval_width_pct_after"))
+        if coverage is not None:
+            aggregate_coverage.append(coverage)
+        if width is not None:
+            aggregate_width.append(width)
+        if selected["decision"] != "validated_segment":
+            fallback_horizons.append(horizon)
+        per_horizon[horizon] = {
+            "segment": details["selected_bucket"],
+            "samples": selected["samples"],
+            "coverage": coverage,
+            "target_coverage": details["target_coverage"],
+            "interval_width_pct": width,
+            "decision": selected["decision"],
+            "fallback_reasons": selected["fallback_reasons"],
+            "aggregate_tolerance_protected": details["aggregate_guard"]["within_tolerance"],
+        }
+    return {
+        "per_horizon": per_horizon,
+        "aggregate": {
+            "mean_segment_coverage": _round(float(np.mean(aggregate_coverage)))
+            if aggregate_coverage
+            else None,
+            "mean_interval_width_pct": _round(float(np.mean(aggregate_width)))
+            if aggregate_width
+            else None,
+            "fallback_horizons": fallback_horizons,
+            "all_horizons_validated": not fallback_horizons,
+        },
     }
 
 
@@ -538,8 +633,25 @@ def build_conditional_calibration_section(
     for key in horizon_results:
         if horizon_results[key]["base_interval"] is not None:
             predictions_present += 1
+    coverage_width_report = _coverage_width_report(horizon_results)
+    manifest_payload = {
+        "version": CONDITIONAL_CALIBRATION_VERSION,
+        "horizons": list(horizon_results),
+        "target_coverage": target_coverage,
+        "history_limit": history_limit,
+        "min_samples": min_samples,
+        "coverage_tolerance": tolerance,
+        "aggregate_coverage_tolerance": DEFAULT_AGGREGATE_COVERAGE_TOLERANCE,
+        "vol_bucket_cuts": [float(cuts[0]), float(cuts[1])],
+        "segment_facilities": list(DEFAULT_SEGMENT_DIMENSIONS),
+    }
     return {
         "version": CONDITIONAL_CALIBRATION_VERSION,
+        "manifest": {
+            **manifest_payload,
+            "id": _manifest_id(manifest_payload),
+            "generated_at": generated_at.isoformat(),
+        },
         "meaning": (
             "regime- and realized-volatility-conditional 80% interval calibration: "
             "per-bucket conformal multipliers with shrinkage toward the marginal "
@@ -560,6 +672,17 @@ def build_conditional_calibration_section(
             "sparse_horizons": sparse_horizons,
             "coverage_violation_buckets": total_violations,
             "prediction_horizons_with_base_interval": predictions_present,
+            "aggregate_coverage_tolerance": DEFAULT_AGGREGATE_COVERAGE_TOLERANCE,
+        },
+        "coverage_width_report": coverage_width_report,
+        "fallback_policy": {
+            "mode": "conservative_marginal",
+            "triggers": [
+                "low_segment_evidence",
+                "selected_segment_coverage_unverified",
+                "aggregate_coverage_tolerance",
+            ],
+            "rule": "use the marginal multiplier unless segment and aggregate coverage are healthy",
         },
         "leakage_guard": {
             "source": "matured_snapshot_history",

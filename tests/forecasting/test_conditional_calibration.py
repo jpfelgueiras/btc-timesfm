@@ -265,7 +265,8 @@ class ConditionalCalibrationTests(unittest.TestCase):
             predictions=predictions,
             min_samples=20,
         )
-        self.assertEqual(section["version"], 1)
+        self.assertEqual(section["version"], 2)
+        self.assertTrue(section["manifest"]["id"].startswith("conditional-calibration-v2-"))
         self.assertEqual(set(section["horizons"]), {"2h", "4h", "8h", "16h"})
         self.assertEqual(section["overall"]["horizon_count"], 4)
         self.assertEqual(section["overall"]["verified_horizons"], 4)
@@ -283,6 +284,43 @@ class ConditionalCalibrationTests(unittest.TestCase):
         self.assertTrue(section["leakage_guard"]["origin_time_only"])
         self.assertEqual(section["leakage_guard"]["reassignment"], "origin_time_only")
         json.dumps(section)
+
+    def test_unhealthy_segment_or_aggregate_uses_conservative_marginal_fallback(self) -> None:
+        history = [
+            snapshot(
+                START + timedelta(hours=index), actual=200.0, regime="range", volatility_6h_pct=0.5
+            )
+            for index in range(25)
+        ]
+        details = bucket_calibration_details(
+            history,
+            {},
+            2,
+            regime="range",
+            market_features={"volatility_6h_pct": 0.5},
+            min_samples=20,
+        )
+        selected = details["selected"]
+        self.assertEqual(selected["decision"], "marginal_fallback")
+        self.assertIn("aggregate_coverage_tolerance", selected["fallback_reasons"])
+        self.assertEqual(selected["applied_multiplier"], details["marginal"]["multiplier"])
+
+    def test_coverage_width_report_is_horizon_specific_and_versioned(self) -> None:
+        section = build_conditional_calibration_section(
+            mature_samples(25, regime="range", volatility_6h_pct=0.5),
+            {},
+            regime="range",
+            market_features={"volatility_6h_pct": 0.5},
+            min_samples=20,
+        )
+        report = section["coverage_width_report"]
+        self.assertEqual(set(report["per_horizon"]), {"2h", "4h", "8h", "16h"})
+        self.assertIn("mean_segment_coverage", report["aggregate"])
+        self.assertIn("segment_facilities", section["manifest"])
+        self.assertEqual(
+            section["manifest"]["segment_facilities"],
+            ["regime", "volatility", "liquidity", "data_quality"],
+        )
 
     def test_sparse_buckets_never_claim_precision_in_section(self) -> None:
         history = mature_samples(2, regime="range", volatility_6h_pct=2.0)
@@ -359,11 +397,11 @@ class ConditionalCalibrationTests(unittest.TestCase):
                 predictions=predictions,
                 forecast_origin=START + timedelta(hours=24, minutes=59),
             )
-            self.assertEqual(section["version"], 1)
-            self.assertEqual(set(section["horizons"]), {"2h", "4h", "8h", "16h"})
-            self.assertTrue(section["leakage_guard"]["origin_time_only"])
-            self.assertIsNotNone(section["horizons"]["2h"]["recalibrated_interval"])
-            json.dumps(section)
+        self.assertEqual(section["version"], 2)
+        self.assertEqual(set(section["horizons"]), {"2h", "4h", "8h", "16h"})
+        self.assertTrue(section["leakage_guard"]["origin_time_only"])
+        self.assertIsNotNone(section["horizons"]["2h"]["recalibrated_interval"])
+        json.dumps(section)
 
     def test_invalid_configuration_is_rejected(self) -> None:
         with self.assertRaises(ValueError):

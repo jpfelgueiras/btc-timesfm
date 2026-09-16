@@ -1,6 +1,6 @@
-# Regime- and volatility-conditional interval calibration
+# Horizon- and segment-conditional interval calibration
 
-Marginally calibrated intervals restore ~80% coverage on average, but a market currently in a regime or volatility state where intervals under-cover keeps being under-covered. Issue #155 re-calibrates the conformal interval adjustment per *(regime, realized-volatility)* bucket and applies the bucket's multiplier to the current forecast.
+Marginally calibrated intervals restore ~80% coverage on average, but a market currently in a regime or volatility state where intervals under-cover keeps being under-covered. The version 2 contract calibrates independently per production horizon and *(regime, realized-volatility)* segment, using the timestamp-safe segment vocabulary from #214 (`regime`, `volatility`, `liquidity`, `data_quality`) where applicable. It never replaces aggregate calibration with a segment result unless both are healthy.
 
 ## Bucket definition
 
@@ -22,6 +22,12 @@ multiplier = weight * conformal_multiplier + (1 - weight) * marginal_multiplier
 
 Sparse and empty buckets always report their sample size, coverage and shrinkage (`mode=shrunken` / `mode=marginal_fallback`), so they never silently claim precision. Buckets with enough samples use the raw conformal multiplier and report whether the resulting coverage is within `BTC_CONDITIONAL_COVERAGE_TOLERANCE` (default 0.10) of the target.
 
+## Conservative decision guard
+
+A selected segment is applied only when it has adequate evidence, meets its segment coverage tolerance, and the aggregate observed coverage after bucket decisions is within the stricter 0.05 aggregate tolerance. Low evidence or an unhealthy segment/aggregate produces `decision=marginal_fallback`; the published interval uses the marginal multiplier. This protects aggregate calibration rather than allowing a locally fitted segment to degrade it.
+
+`conditional_calibration.manifest` is versioned and fingerprinted from the horizons, thresholds, bucket cuts and recognized segment facilities. `coverage_width_report` gives the selected segment, evidence, achieved coverage, interval width, decision and fallback reasons for each horizon plus aggregate means.
+
 ## No-look-ahead guarantee
 
 Bucket labels are derived only from snapshot fields known at forecast time. Calibration consumes only matured snapshots whose origin is at or before the forecast origin (`now`); an explicit origin cutoff excludes any snapshot that postdates the forecast. Reassignment is origin-time-only and verified by tests that would catch look-ahead leakage (e.g. buckets computed from outcomes, or future origins feeding calibration).
@@ -32,12 +38,15 @@ Bucket labels are derived only from snapshot fields known at forecast time. Cali
 
 ```text
 conditional_calibration.version
+conditional_calibration.manifest.{id, generated_at, segment_facilities}
 conditional_calibration.horizons.<horizon>.selected_bucket
-conditional_calibration.horizons.<horizon>.selected.{samples, mode, shrinkage, multiplier, coverage_after, verified}
+conditional_calibration.horizons.<horizon>.selected.{samples, mode, shrinkage, multiplier, applied_multiplier, coverage_after, verified, decision, fallback_reasons}
 conditional_calibration.horizons.<horizon>.buckets.<bucket>.{samples, multiplier, shrinkage, coverage_before, coverage_after, verified}
 conditional_calibration.horizons.<horizon>.recalibrated_interval.{q10_usd, q50_usd, q90_usd, half_width_usd, multiplier}
 conditional_calibration.horizons.<horizon>.coverage_violations
 conditional_calibration.overall.{verified_horizons, sparse_horizons, coverage_violation_buckets}
+conditional_calibration.coverage_width_report.{per_horizon, aggregate}
+conditional_calibration.fallback_policy
 conditional_calibration.leakage_guard
 ```
 
