@@ -33,15 +33,39 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-test.txt
 
-      - name: Unit tests
+      - name: Restore flaky-test log
+        uses: actions/cache/restore@v6
+        with:
+          path: .state/flaky-tests.json
+          key: flaky-tests-${{ github.ref_name }}
+          restore-keys: |
+            flaky-tests-main
+
+      - name: Unit tests with retry and quarantine
         id: unit
         continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          PYTHONPATH=src unittest-parallel \
-            -s tests -p 'test_*.py' -t . \
-            --coverage \
-            --coverage-rcfile pyproject.toml \
-            --coverage-branch
+          open_issues="$(gh issue list --state open --limit 1000 --json number --jq '.[].number' | xargs)"
+          issue_args=""
+          for issue in $open_issues; do
+            issue_args="$issue_args --open-issue $issue"
+          done
+          PYTHONPATH=src python -m btc_timesfm.ops.flaky_tests \
+            --log .state/flaky-tests.json \
+            --quarantines .github/flaky-test-quarantine.json \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            $issue_args -- \
+            unittest-parallel -s tests -p 'test_*.py' -t . \
+            --coverage --coverage-rcfile pyproject.toml --coverage-branch
+
+      - name: Save flaky-test log
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: .state/flaky-tests.json
+          key: flaky-tests-${{ github.ref_name }}
 
       - name: Coverage floor
         id: coverage
@@ -88,6 +112,7 @@ jobs:
             src/btc_timesfm/data/derivatives_signals.py \
             src/btc_timesfm/forecasting/diversified_model.py \
             src/btc_timesfm/ops/drift_detection.py \
+            src/btc_timesfm/ops/flaky_tests.py \
             src/btc_timesfm/forecasting/experiment_manifest.py \
             src/btc_timesfm/forecasting/forecast_confidence.py \
             src/btc_timesfm/history/history_audit.py \
