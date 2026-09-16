@@ -17,20 +17,19 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: btc-backtest-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backtest:
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
+      - uses: ./.github/actions/python-setup
         with:
-          python-version: "3.11"
-          cache: pip
+          requirements-file: requirements.txt
 
       - name: Cache Hugging Face model
         uses: actions/cache@v6
@@ -39,11 +38,6 @@ jobs:
           key: timesfm-3-${{ runner.os }}-v1
           restore-keys: |
             timesfm-3-${{ runner.os }}-
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
 
       - name: Validate historical data and run walk-forward backtest
         run: PYTHONPATH=src python -m btc_timesfm.ops.validated_entrypoints backtest --days "${{ inputs.days }}" --samples "${{ inputs.samples }}"

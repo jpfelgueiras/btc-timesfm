@@ -9,19 +9,17 @@ permissions:
   actions: read
   contents: read
 
+concurrency:
+  group: forecast-performance-dashboard
+  cancel-in-progress: false
+
 jobs:
   dashboard:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.11"
+      - uses: ./.github/actions/python-setup
 
       - name: Restore durable forecast history
         env:

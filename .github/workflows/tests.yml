@@ -12,6 +12,10 @@ permissions:
   contents: read
   issues: read
 
+concurrency:
+  group: ci-quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality-gates:
     name: Unit tests + quality
@@ -19,20 +23,9 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
+      - uses: ./.github/actions/python-setup
         with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: requirements-test.txt
-
-      - name: Install test dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-test.txt
+          requirements-file: requirements-test.txt
 
       - name: Restore flaky-test log
         uses: actions/cache/restore@v6
@@ -97,6 +90,12 @@ jobs:
         continue-on-error: true
         run: ruff format --check .
 
+      - name: Workflow contract check
+        id: workflows
+        if: always()
+        continue-on-error: true
+        run: python scripts/lint_workflows.py
+
       - name: Type check critical modules
         id: typecheck
         if: always()
@@ -147,10 +146,11 @@ jobs:
           COVERAGE: ${{ steps.coverage.outcome }}
           LINT: ${{ steps.lint.outcome }}
           FORMAT: ${{ steps.format.outcome }}
+          WORKFLOWS: ${{ steps.workflows.outcome }}
           TYPECHECK: ${{ steps.typecheck.outcome }}
         run: |
           failed=0
-          for gate in UNIT COVERAGE LINT FORMAT TYPECHECK; do
+          for gate in UNIT COVERAGE LINT FORMAT WORKFLOWS TYPECHECK; do
             outcome="${!gate}"
             echo "$gate: $outcome"
             if [ "$outcome" != "success" ]; then
@@ -158,30 +158,3 @@ jobs:
             fi
           done
           exit "$failed"
-
-  # Compatibility aliases retained for the required status-check names on main.
-  unit-tests-required-compat:
-    name: Unit tests
-    needs: quality-gates
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Mirror quality-gate result
-        env:
-          RESULT: ${{ needs.quality-gates.result }}
-        run: |
-          echo "Unit tests + quality: $RESULT"
-          test "$RESULT" = "success"
-
-  unit-tests-legacy-compat:
-    name: unit-tests
-    needs: quality-gates
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Mirror quality-gate result
-        env:
-          RESULT: ${{ needs.quality-gates.result }}
-        run: |
-          echo "Unit tests + quality: $RESULT"
-          test "$RESULT" = "success"

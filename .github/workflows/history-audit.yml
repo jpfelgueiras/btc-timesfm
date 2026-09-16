@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: forecast-history-audit
+  cancel-in-progress: false
+
 env:
   HISTORY_RELEASE_TAG: forecast-history-v1
 
@@ -18,8 +22,7 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
+      - uses: ./.github/actions/python-setup
 
       - name: Restore durable forecast database
         id: restore
