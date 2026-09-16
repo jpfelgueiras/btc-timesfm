@@ -159,8 +159,11 @@ def _render_tweet(
 ) -> str:
     predictions = output["predictions"]
     reliability = output.get("forecast_reliability", {})
-    abstention = output.get("abstention_policy", {})
-    withheld = isinstance(abstention, dict) and abstention.get("withhold_forecast") is True
+    abstention = output.get("abstention_policy")
+    withheld = isinstance(abstention, dict) and (
+        abstention.get("withhold_forecast") is True
+        or abstention.get("public_directional_claim_allowed") is not True
+    )
 
     lines = ["₿ BTC SIGNAL"]
     lines.extend(

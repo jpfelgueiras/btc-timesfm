@@ -112,18 +112,24 @@ class VisualTweetTests(unittest.TestCase):
         self.assertNotIn("Confidence", tweet)
         self.assertNotIn("📊 Conf", tweet)
 
-    def test_withheld_forecast_never_formats_directional_claims(self) -> None:
-        output = sample_output()
-        output["abstention_policy"] = {
-            "state": "forecast_withheld",
-            "withhold_forecast": True,
-            "reasons": ["market data health is degraded"],
-        }
-        tweet = build_visual_tweet(output)
-        self.assertIn("FORECAST WITHHELD", tweet)
-        self.assertIn("2h WITHHELD", tweet)
-        self.assertNotIn("🟢 UP", tweet)
-        self.assertLessEqual(len(tweet), 280)
+    def test_abstention_policy_never_formats_directional_claims(self) -> None:
+        for state, withhold_forecast in (
+            ("forecast_withheld", True),
+            ("degraded_inputs", False),
+            ("low_confidence_no_measurable_edge", False),
+        ):
+            with self.subTest(state=state):
+                output = sample_output()
+                output["abstention_policy"] = {
+                    "state": state,
+                    "withhold_forecast": withhold_forecast,
+                    "public_directional_claim_allowed": False,
+                }
+                tweet = build_visual_tweet(output)
+                self.assertIn("FORECAST WITHHELD", tweet)
+                self.assertIn("2h WITHHELD", tweet)
+                self.assertNotIn("🟢 UP", tweet)
+                self.assertLessEqual(len(tweet), 280)
 
     def test_consensus_reports_dominant_direction_for_legacy_callers(self) -> None:
         predictions = sample_output()["predictions"]
