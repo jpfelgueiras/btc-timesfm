@@ -15,6 +15,7 @@ from btc_timesfm.history.history_store import DEFAULT_DB_PATH, ENSEMBLE_MODEL, F
 from btc_timesfm.web.charts import render_charts
 from btc_timesfm.research.edge_attribution_report import build_report as build_edge_report
 from btc_timesfm.research.performance_dashboard import build_report
+from btc_timesfm.web.historical_explorer import build_explorer_data, render_explorer
 
 DEFAULT_OUTPUT_DIR = Path("site")
 DEFAULT_RECENT_ROWS = 80
@@ -163,6 +164,7 @@ def build_site_data(
     now: datetime | None = None,
     recent_limit: int = DEFAULT_RECENT_ROWS,
     latest_snapshot: dict[str, Any] | None = None,
+    configuration_roles: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     current_time = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     report = build_report(rows, now=current_time)
@@ -233,6 +235,9 @@ def build_site_data(
             "horizons": sorted({int(row["horizon_hours"]) for row in ensemble}),
             "rows": [_explorer_row(row) for row in ensemble],
         },
+        "historical_explorer": build_explorer_data(
+            rows, now=current_time, configuration_roles=configuration_roles
+        ),
         "matured_rows": report["matured_rows"],
         "horizons": report["horizons"],
         "low_sample_threshold": report["low_sample_threshold"],
@@ -702,7 +707,8 @@ td {{ font-size:.9rem; }}
 select,input {{ background:var(--panel); border:1px solid var(--line); border-radius:7px; color:var(--text); padding:8px; font:inherit; }}
 select:focus,input:focus,summary:focus,a:focus {{ outline:3px solid var(--blue); outline-offset:2px; }}
 dl {{ display:grid; grid-template-columns:max-content 1fr; gap:8px 18px; padding:0 18px 18px; }} dt {{ color:var(--muted); }} dd {{ margin:0; }}
-
+.explorer-table {{ border:1px solid var(--line); border-radius:14px; background:var(--panel); }}
+.explorer-table small {{ color:var(--muted); font-size:.75rem; }}
 .empty {{ padding:28px; border:1px dashed var(--line); border-radius:14px; color:var(--muted); }}
 .note {{ margin-top:26px; padding:16px 18px; border-left:3px solid var(--blue); background:rgba(117,167,255,.06); color:var(--muted); }}
 footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
@@ -759,6 +765,7 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
   <p>Browse the durable ledger. Pending rows have not reached their target candle; matured rows are immutable historical predictions compared with actual BTC prices.</p>
   {_render_explorer(data)}
 </section>
+{render_explorer(data.get("historical_explorer", {}))}
 <section id="recent" aria-labelledby="recent-heading">
   <h2 id="recent-heading">Recent forecast ledger</h2>
   <p>Pending rows have not reached their target candle yet. Matured rows are immutable historical predictions compared with the actual BTC price.</p>
