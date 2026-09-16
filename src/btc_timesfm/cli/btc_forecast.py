@@ -26,6 +26,7 @@ from btc_timesfm.forecasting.conditional_calibration import (
 )
 from btc_timesfm.forecasting.abstention_policy import build_abstention_policy
 from btc_timesfm.forecasting.dynamic_thresholds import build_dynamic_threshold_section
+from btc_timesfm.forecasting.forecast_attribution import build_forecast_attribution
 from btc_timesfm.forecasting.multi_horizon_coherence import assert_forecast_coherent
 from btc_timesfm.data.cross_asset_signals import (
     fetch_cross_asset_snapshot,
@@ -417,6 +418,32 @@ def build_dynamic_threshold(
     )
 
 
+def build_forecast_attribution_section(
+    engine_output: dict[str, Any],
+    *,
+    abstention_policy: dict[str, Any],
+    dynamic_thresholds: dict[str, Any],
+    direction_probability: dict[str, Any],
+) -> dict[str, Any]:
+    """Assemble the evidence-based attribution section for forecast.json.
+
+    Attribution derives only from the ensemble outputs plus the sections that
+    were already computed leak-free for this origin, so every claim it reports
+    (weights, regime evidence, measured edge, abstention state) is reproducible
+    from the same forecast JSON alone.
+    """
+    return build_forecast_attribution(
+        predictions=engine_output["predictions"],
+        model_weights=engine_output["model_weights"],
+        weighting_diagnostics=engine_output["weighting_diagnostics"],
+        regime=str(engine_output["regime"]),
+        features=engine_output.get("market_features", {}),
+        abstention_policy=abstention_policy,
+        dynamic_thresholds=dynamic_thresholds,
+        direction_probability=direction_probability,
+    )
+
+
 def main() -> None:
     seed_everything()
     selection = fetch_redundant_hourly(512)
@@ -538,6 +565,12 @@ def main() -> None:
         dynamic_thresholds=dynamic_thresholds,
         direction_probability=direction_probability,
     )
+    forecast_attribution = build_forecast_attribution_section(
+        engine_output,
+        abstention_policy=abstention_policy,
+        dynamic_thresholds=dynamic_thresholds,
+        direction_probability=direction_probability,
+    )
     generated_at = datetime.now(timezone.utc)
     experiment_manifest = build_experiment_manifest(
         run_type="production_forecast",
@@ -585,6 +618,7 @@ def main() -> None:
         "dynamic_thresholds": dynamic_thresholds,
         "multi_horizon_coherence": multi_horizon_coherence,
         "abstention_policy": abstention_policy,
+        "forecast_attribution": forecast_attribution,
         **engine_output,
         "forecast_reliability": reliability,
         "performance_summary": summary,
