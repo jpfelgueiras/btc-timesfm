@@ -26,8 +26,12 @@ def _model_disagreement(predictions: dict[str, Any]) -> list[str]:
         if not isinstance(prediction, dict):
             disagreements.append(f"{horizon} prediction is unavailable")
             continue
+        agreement_value = prediction.get("model_agreement")
+        if agreement_value is None:
+            disagreements.append(f"{horizon} model agreement is unavailable")
+            continue
         try:
-            agreement = float(prediction.get("model_agreement"))
+            agreement = float(agreement_value)
         except (TypeError, ValueError):
             disagreements.append(f"{horizon} model agreement is unavailable")
             continue
