@@ -29,10 +29,38 @@ def _make_valid_data(*, schema_version: int = SCHEMA_VERSION) -> dict:
             "low_sample_threshold": 5,
             "horizons": ["2h", "4h"],
             "windows": {
-                "7d": {"days": 7, "matured_rows": 10, "paired_samples": 5, "by_horizon": {}, "by_regime": {}, "by_volatility_bucket": {}},
-                "30d": {"days": 30, "matured_rows": 20, "paired_samples": 10, "by_horizon": {}, "by_regime": {}, "by_volatility_bucket": {}},
-                "90d": {"days": 90, "matured_rows": 30, "paired_samples": 15, "by_horizon": {}, "by_regime": {}, "by_volatility_bucket": {}},
-                "all": {"days": None, "matured_rows": 50, "paired_samples": 25, "by_horizon": {}, "by_regime": {}, "by_volatility_bucket": {}},
+                "7d": {
+                    "days": 7,
+                    "matured_rows": 10,
+                    "paired_samples": 5,
+                    "by_horizon": {},
+                    "by_regime": {},
+                    "by_volatility_bucket": {},
+                },
+                "30d": {
+                    "days": 30,
+                    "matured_rows": 20,
+                    "paired_samples": 10,
+                    "by_horizon": {},
+                    "by_regime": {},
+                    "by_volatility_bucket": {},
+                },
+                "90d": {
+                    "days": 90,
+                    "matured_rows": 30,
+                    "paired_samples": 15,
+                    "by_horizon": {},
+                    "by_regime": {},
+                    "by_volatility_bucket": {},
+                },
+                "all": {
+                    "days": None,
+                    "matured_rows": 50,
+                    "paired_samples": 25,
+                    "by_horizon": {},
+                    "by_regime": {},
+                    "by_volatility_bucket": {},
+                },
             },
             "reproducibility": {},
         },
@@ -41,7 +69,11 @@ def _make_valid_data(*, schema_version: int = SCHEMA_VERSION) -> dict:
         "horizons": ["2h", "4h"],
         "low_sample_threshold": 5,
         "multi_horizon_coherence": None,
-        "database_verification": {"integrity": "ok", "schema_version": 1, "supported_schema_version": 1},
+        "database_verification": {
+            "integrity": "ok",
+            "schema_version": 1,
+            "supported_schema_version": 1,
+        },
     }
 
 
@@ -49,8 +81,8 @@ def _make_valid_html() -> str:
     """Build minimal valid HTML matching the site contract."""
     return (
         "<!doctype html>\n"
-        "<html lang=\"en\">\n"
-        "<head><meta charset=\"utf-8\"><title>BTC TimesFM Forecasts</title></head>\n"
+        '<html lang="en">\n'
+        '<head><meta charset="utf-8"><title>BTC TimesFM Forecasts</title></head>\n'
         "<body>\n"
         "<main>\n"
         "<section><h1>Forecasts & accuracy</h1></section>\n"
@@ -132,9 +164,7 @@ class TestValidateSiteOutput(unittest.TestCase):
     def _write_site(self, html: str, data: dict) -> Path:
         tmpdir = Path(self._tmpdir.name)
         (tmpdir / "index.html").write_text(html, encoding="utf-8")
-        (tmpdir / "data.json").write_text(
-            json.dumps(data, sort_keys=True) + "\n", encoding="utf-8"
-        )
+        (tmpdir / "data.json").write_text(json.dumps(data, sort_keys=True) + "\n", encoding="utf-8")
         return tmpdir
 
     def setUp(self) -> None:
@@ -167,7 +197,7 @@ class TestValidateSiteOutput(unittest.TestCase):
 
     def test_html_missing_required_section(self) -> None:
         bad_html = (
-            "<!doctype html>\n<html lang=\"en\">\n<head></head>\n"
+            '<!doctype html>\n<html lang="en">\n<head></head>\n'
             "<body><main><h1>Forecasts &amp; accuracy</h1>"
             "</main></body></html>"
         )
@@ -176,9 +206,7 @@ class TestValidateSiteOutput(unittest.TestCase):
         self.assertTrue(any("Accuracy" in e and "missing" in e.lower() for e in result["errors"]))
 
     def test_html_placeholder_marker_fails(self) -> None:
-        html_with_todo = _make_valid_html().replace(
-            "</main>", "<div>TODO add footer</div></main>"
-        )
+        html_with_todo = _make_valid_html().replace("</main>", "<div>TODO add footer</div></main>")
         result = validate_site_output(self._write_site(html_with_todo, _make_valid_data()))
         self.assertFalse(result["passed"])
         self.assertTrue(any("Placeholder" in e or "placeholder" in e for e in result["errors"]))
@@ -259,9 +287,7 @@ class TestContractFromGenerator(unittest.TestCase):
                 direction=None,
             ),
         ]
-        data = build_site_data(
-            rows, now=datetime(2026, 9, 7, 13, tzinfo=timezone.utc)
-        )
+        data = build_site_data(rows, now=datetime(2026, 9, 7, 13, tzinfo=timezone.utc))
         data["database_verification"] = {
             "integrity": "ok",
             "schema_version": 1,
