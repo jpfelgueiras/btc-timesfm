@@ -64,6 +64,7 @@ def _instrument_forecast(observer: PipelineObserver, btc_forecast: Any) -> None:
     original_drift = btc_forecast.evaluate_production_drift
     original_manifest = btc_forecast.build_experiment_manifest
     original_source_health = btc_forecast.evaluate_source_health
+    original_retention = btc_forecast.retain_optional_sources
     original_store: type[Any] = btc_forecast.ForecastHistoryStore
 
     def fetch_observed(limit: int = 512):
@@ -150,6 +151,11 @@ def _instrument_forecast(observer: PipelineObserver, btc_forecast: Any) -> None:
         observer.event("source_health_evaluated", status="success", **metrics)
         return report
 
+    def retention_observed(*args: Any, **kwargs: Any):
+        report = original_retention(*args, **kwargs)
+        observer.event("optional_source_inputs_retained", status="success", **report)
+        return report
+
     def manifest_observed(*args: Any, **kwargs: Any):
         manifest = original_manifest(*args, **kwargs)
         observer.set_experiment_id(manifest.get("run_id"))
@@ -193,6 +199,7 @@ def _instrument_forecast(observer: PipelineObserver, btc_forecast: Any) -> None:
     btc_forecast.build_forecast = build_forecast_observed
     btc_forecast.evaluate_production_drift = drift_observed
     btc_forecast.evaluate_source_health = source_health_observed
+    btc_forecast.retain_optional_sources = retention_observed
     btc_forecast.build_experiment_manifest = manifest_observed
     btc_forecast.ForecastHistoryStore = ObservedForecastHistoryStore
 

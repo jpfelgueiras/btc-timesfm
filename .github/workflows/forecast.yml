@@ -100,6 +100,10 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --pattern 'pipeline_health.json' \
               --dir .state >/dev/null 2>&1 || true
+            gh release download "$HISTORY_RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern 'optional_source_retention.json' \
+              --dir .state >/dev/null 2>&1 || true
             touch .state/history_restored_from_release
             echo "Restored durable production state from release $HISTORY_RELEASE_TAG"
           else
@@ -212,6 +216,9 @@ jobs:
           fi
           if [ -f .state/pipeline_health.json ]; then
             assets+=(.state/pipeline_health.json)
+          fi
+          if [ -f .state/optional_source_retention.json ]; then
+            assets+=(.state/optional_source_retention.json)
           fi
 
           if [ -f .state/history_restored_from_release ]; then
@@ -360,6 +367,9 @@ jobs:
           if [ -f .state/pipeline_health.json ]; then
             assets+=(.state/pipeline_health.json)
           fi
+          if [ -f .state/optional_source_retention.json ]; then
+            assets+=(.state/optional_source_retention.json)
+          fi
           if [ "${#assets[@]}" -gt 0 ]; then
             gh release upload "$HISTORY_RELEASE_TAG" "${assets[@]}" \
               --repo "$GITHUB_REPOSITORY" --clobber
@@ -412,6 +422,10 @@ jobs:
             x_post_status.json
             market_data_validation.json
             market_data_source.json
+            source_health.json
+            derivatives_signal.json
+            microstructure_signal.json
+            cross_asset_signal.json
             drift_report.json
             drift_summary.md
             pipeline_health_report.json
@@ -419,6 +433,7 @@ jobs:
             forecast_observability.json
             forecast_observability.jsonl
             .state/pipeline_health.json
+            .state/optional_source_retention.json
             .state/x_post_registry.json
             .state/x_post_prepared.json
             .state/uploaded_backup_verification.json

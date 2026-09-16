@@ -63,6 +63,17 @@ class SourceHealthTests(unittest.TestCase):
             self.assertIn("revised", source["quarantine_reasons"])
             self.assertTrue(json.loads(state.read_text()))
 
+    def test_unavailable_optional_source_is_observable_and_quarantined(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            unavailable = snapshot(features={})
+            unavailable["status"] = "unavailable"
+            unavailable["quality"] = {"missing_features": ["signal"], "provider_errors": {"api": "Timeout"}}
+            report = self.health({"derivatives": unavailable}, Path(directory) / "state.json")
+            source = report["sources"]["derivatives"]
+            self.assertEqual(source["status"], "unavailable")
+            self.assertEqual(source["quarantine_reasons"], ["incomplete"])
+            self.assertIn("derivatives", report["quarantined_sources"])
+
     def test_provider_disagreement_is_reported_and_quarantined(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             report = evaluate_source_health(

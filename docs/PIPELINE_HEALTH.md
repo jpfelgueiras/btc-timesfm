@@ -60,5 +60,7 @@ If the secret is absent, notification is a no-op. The core health/circuit behavi
 - `market_data_validation.json` — current data-health signal
 - `drift_report.json` — current drift signal
 - `x_post_status.json` — X preflight/publication signal
+- `source_health.json` — optional-source quarantine and degradation signal
+- `.state/optional_source_retention.json` — bounded immutable optional-source replay inputs
 
 All health-state transitions are deterministic from these observations plus the persisted prior state and configured cooldown/thresholds.

@@ -45,6 +45,7 @@ from btc_timesfm.forecasting.experiment_manifest import build_experiment_manifes
 from btc_timesfm.forecasting.forecast_engine import TARGET_HOURS, build_forecast, load_timesfm
 from btc_timesfm.data.market_data_sources import fetch_redundant_hourly
 from btc_timesfm.data.source_health import evaluate_source_health, persist_source_health
+from btc_timesfm.data.optional_source_retention import retain_optional_sources
 from btc_timesfm.history.history_store import DEFAULT_DB_PATH, ForecastHistoryStore
 
 
@@ -493,6 +494,12 @@ def main() -> None:
         market_comparison=selection.comparison,
     )
     persist_source_health(source_health)
+    optional_snapshots = {
+        "derivatives": derivatives_snapshot,
+        "microstructure": microstructure_snapshot,
+        "cross_asset": cross_asset_snapshot,
+    }
+    retention = retain_optional_sources(optional_snapshots, origin_at=forecast_origin)
     quarantined_sources = set(source_health["quarantined_sources"])
     if quarantined_sources:
         print(f"Quarantined optional sources: {', '.join(sorted(quarantined_sources))}")
@@ -521,11 +528,6 @@ def main() -> None:
 
     model = load_timesfm()
     engine_output = build_forecast(model, data, history, adaptive_confidence=adaptive_confidence)
-    optional_snapshots = {
-        "derivatives": derivatives_snapshot,
-        "microstructure": microstructure_snapshot,
-        "cross_asset": cross_asset_snapshot,
-    }
     market_features = engine_output.get("market_features")
     if isinstance(market_features, dict):
         for name, snapshot in optional_snapshots.items():
@@ -599,6 +601,7 @@ def main() -> None:
             "microstructure_signals": microstructure_manifest(microstructure_snapshot),
             "cross_asset_signals": cross_asset_manifest(cross_asset_snapshot),
             "source_health": source_health,
+            "optional_source_retention": retention,
         },
         model_names=sorted(engine_output.get("model_predictions", {})),
         enabled_features=sorted(
@@ -628,6 +631,12 @@ def main() -> None:
         "microstructure_signals": microstructure_snapshot,
         "cross_asset_signals": cross_asset_snapshot,
         "source_health": source_health,
+        "optional_source_retention": retention,
+        "optional_source_degradation": {
+            "status": "degraded" if quarantined_sources else "healthy",
+            "quarantined_sources": sorted(quarantined_sources),
+            "excluded_feature_sources": sorted(quarantined_sources - {"market_data"}),
+        },
         "drift_detection": drift_report,
         "interval_calibration_evaluation": interval_calibration_evaluation,
         "forecast_confidence": forecast_confidence,
