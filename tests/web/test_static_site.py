@@ -142,17 +142,58 @@ class StaticSiteTests(unittest.TestCase):
         ]
         data = build_site_data(rows, now=datetime(2026, 9, 7, 13, tzinfo=timezone.utc))
 
-        horizon = data["persistence_edge"]["by_horizon"]["2h"]
-        self.assertEqual(horizon["samples"], 1)
-        self.assertEqual(horizon["mae_delta_pct_points"], 2.0)
-        self.assertTrue(horizon["unstable_or_low_sample"])
-        self.assertEqual(
-            data["persistence_edge"]["by_regime"]["trending"]["mae_delta_pct_points"], 2.0
-        )
-        self.assertEqual(
-            data["persistence_edge"]["by_volatility_bucket"]["high"]["mae_delta_pct_points"],
-            2.0,
-        )
+        windows = data["persistence_edge"]["windows"]
+        self.assertEqual(tuple(windows), ("7d", "30d", "90d", "all"))
+        for window in windows.values():
+            horizon = window["by_horizon"]["2h"]
+            self.assertEqual(horizon["samples"], 1)
+            self.assertEqual(horizon["mae_delta_pct_points"], 2.0)
+            self.assertTrue(horizon["unstable_or_low_sample"])
+            self.assertEqual(window["by_regime"]["trending"]["mae_delta_pct_points"], 2.0)
+            self.assertEqual(
+                window["by_volatility_bucket"]["high"]["mae_delta_pct_points"], 2.0
+            )
+
+    def test_persistence_edge_windows_exclude_old_pairs(self) -> None:
+        rows = []
+        for origin, ensemble_error, persistence_error in (
+            ("2026-09-07T10:00:00+00:00", 1.0, 3.0),
+            ("2026-08-20T10:00:00+00:00", 4.0, 1.0),
+            ("2026-07-01T10:00:00+00:00", 4.0, 1.0),
+            ("2026-05-01T10:00:00+00:00", 4.0, 1.0),
+        ):
+            rows.extend(
+                [
+                    self._row(
+                        origin=origin,
+                        horizon=2,
+                        predicted=101.0,
+                        change=1.0,
+                        actual=101.0,
+                        error=ensemble_error,
+                        direction=1,
+                    ),
+                    self._row(
+                        origin=origin,
+                        horizon=2,
+                        predicted=100.0,
+                        change=0.0,
+                        actual=101.0,
+                        error=persistence_error,
+                        direction=0,
+                        model="persistence",
+                    ),
+                ]
+            )
+        data = build_site_data(rows, now=datetime(2026, 9, 7, 13, tzinfo=timezone.utc))
+        windows = data["persistence_edge"]["windows"]
+
+        self.assertEqual(windows["7d"]["by_horizon"]["2h"]["samples"], 1)
+        self.assertEqual(windows["30d"]["by_horizon"]["2h"]["samples"], 2)
+        self.assertEqual(windows["90d"]["by_horizon"]["2h"]["samples"], 3)
+        self.assertEqual(windows["all"]["by_horizon"]["2h"]["samples"], 4)
+        self.assertEqual(windows["7d"]["by_horizon"]["2h"]["mae_delta_pct_points"], 2.0)
+        self.assertEqual(windows["all"]["by_horizon"]["2h"]["mae_delta_pct_points"], -1.75)
 
     def test_render_html_contains_predictions_accuracy_and_ledger(self) -> None:
         rows = [
@@ -176,6 +217,10 @@ class StaticSiteTests(unittest.TestCase):
         self.assertIn("$102", page)
         self.assertIn("Ensemble edge vs persistence", page)
         self.assertIn("Paired samples", page)
+        self.assertIn("7 days", page)
+        self.assertIn("30 days", page)
+        self.assertIn("90 days", page)
+        self.assertIn("All time", page)
         self.assertIn("Recent forecast ledger", page)
         self.assertIn("No X/Twitter dependency", page)
         self.assertIn("Pending", page)

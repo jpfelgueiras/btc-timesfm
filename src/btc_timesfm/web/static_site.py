@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -111,18 +111,34 @@ def _accuracy_summary(report: dict[str, Any]) -> dict[str, Any]:
 def _edge_summary(
     rows: list[dict[str, Any]], *, now: datetime, low_sample_threshold: int
 ) -> dict[str, Any]:
-    report = build_edge_report(
-        rows,
-        now=now,
-        low_sample_threshold=low_sample_threshold,
-        bootstrap_iterations=1000,
-    )
+    windows: dict[str, Any] = {}
+    for label, days in (("7d", 7), ("30d", 30), ("90d", 90), ("all", None)):
+        selected = rows
+        if days is not None:
+            cutoff = now - timedelta(days=days)
+            selected = [
+                row
+                for row in rows
+                if row.get("origin_at") and _parse_timestamp(row["origin_at"]) >= cutoff
+            ]
+        report = build_edge_report(
+            selected,
+            now=now,
+            low_sample_threshold=low_sample_threshold,
+            bootstrap_iterations=1000,
+        )
+        windows[label] = {
+            "days": days,
+            "matured_rows": report["matured_rows"],
+            "paired_samples": report["paired_samples"],
+            "by_horizon": report["by_dimension"]["horizon"],
+            "by_regime": report["by_dimension"]["regime"],
+            "by_volatility_bucket": report["by_dimension"]["volatility_bucket"],
+        }
     return {
-        "low_sample_threshold": report["low_sample_threshold"],
+        "low_sample_threshold": low_sample_threshold,
         "horizons": report["horizons"],
-        "by_horizon": report["by_dimension"]["horizon"],
-        "by_regime": report["by_dimension"]["regime"],
-        "by_volatility_bucket": report["by_dimension"]["volatility_bucket"],
+        "windows": windows,
         "reproducibility": report["reproducibility"],
     }
 
@@ -318,26 +334,32 @@ def _render_edge_rows(segments: dict[str, Any]) -> str:
 def _render_persistence_edge(data: dict[str, Any]) -> str:
     edge = data["persistence_edge"]
     threshold = int(edge["low_sample_threshold"])
-    sections = [("Per horizon", edge["by_horizon"])]
-    for label, segments in (
-        ("By regime", edge["by_regime"]),
-        ("By volatility", edge["by_volatility_bucket"]),
-    ):
-        if segments:
-            sections.append((label, segments))
-    tables = []
-    for label, segments in sections:
-        tables.append(
-            f"<h3>{html.escape(label)}</h3>"
-            '<div class="table-wrap edge-table"><table><thead><tr>'
-            "<th>Segment</th><th>Paired samples</th><th>MAE edge</th><th>95% CI</th>"
-            "<th>Result</th><th>Evidence</th></tr></thead>"
-            f"<tbody>{_render_edge_rows(segments)}</tbody></table></div>"
+    labels = {"7d": "7 days", "30d": "30 days", "90d": "90 days", "all": "All time"}
+    windows = []
+    for window in ("7d", "30d", "90d", "all"):
+        summary = edge["windows"].get(window, {})
+        sections = [("Per horizon", summary.get("by_horizon", {}))]
+        for label, key in (("By regime", "by_regime"), ("By volatility", "by_volatility_bucket")):
+            segments = summary.get(key, {})
+            if segments:
+                sections.append((label, segments))
+        tables = []
+        for label, segments in sections:
+            tables.append(
+                f"<h3>{html.escape(label)}</h3>"
+                '<div class="table-wrap edge-table"><table><thead><tr>'
+                "<th>Segment</th><th>Paired samples</th><th>MAE edge</th><th>95% CI</th>"
+                "<th>Result</th><th>Evidence</th></tr></thead>"
+                f"<tbody>{_render_edge_rows(segments)}</tbody></table></div>"
+            )
+        windows.append(
+            f'<details {"open" if window == "30d" else ""}>'
+            f"<summary>{labels[window]}</summary>{''.join(tables)}</details>"
         )
     return (
         "<p>Positive MAE edge means lower ensemble error than persistence. "
         f"Cells with fewer than {threshold} paired forecasts or an inconclusive confidence interval "
-        "are marked inconclusive.</p>" + "".join(tables)
+        "are marked inconclusive.</p>" + "".join(windows)
     )
 
 
