@@ -351,6 +351,8 @@ PYTHONPATH=src python -m btc_timesfm.research.optimizer --days 120 --samples 48
 
 The promotion policy is intentionally manual for now. A `candidate_worth_review` result is evidence to inspect and rerun with a larger sample, not authorization to deploy it. Automatic parameter PR creation should only be considered after the weekly optimizer has shown stable recommendations over multiple independent runs.
 
+After a reviewed promotion, `rollback_safeguards.py` retains the previous champion manifest/configuration and evaluates matured live MAE, direction quality, calibration error and protected horizons. Its machine-readable, versioned thresholds require enough samples and two consecutive material degradation evaluations, except that a protected-horizon regression can immediately recommend a rollback. The resulting recommendation includes evidence and sample counts but never mutates production or merges a change; any rollback remains review-required. See `docs/PROMOTION_POLICY.md`.
+
 ## Tests
 
 Run the complete unit-test suite:

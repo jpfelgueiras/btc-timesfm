@@ -85,6 +85,14 @@ The policy never needs X cookies or other secrets.
 
 Therefore a decision can be audited from the report contents without relying on an undocumented manual judgment.
 
+## Post-promotion rollback safeguards
+
+`rollback_safeguards.py` evaluates a promoted configuration against the retained previous champion using a machine-readable live report. The promotion record stores both immutable manifests/configuration IDs and SHA-256 fingerprints of the review decision and champion report, making the rollback target reproducible.
+
+The versioned rollback policy requires 32 matured live samples by default, then evaluates relative MAE degradation, direction-accuracy drop, calibration-error increase, and every protected 2h/4h/8h/16h horizon. A single protected-horizon regression beyond 5% vetoes continued promotion; other material degradation must recur in two consecutive evaluations. This prevents transient noise from immediately recommending a rollback.
+
+Pass `--history-db .state/forecast_history.sqlite` to build the live report directly from durable matured ensemble outcomes; alternatively supply the same machine-readable values as `--live-report`. `rollback_recommendation.json` includes the previous champion, promoted configuration, policy thresholds, live sample count, all live evidence, failed checks, consecutive breach count, and reason. `rollback_summary.md` is suitable for an Actions summary. A `recommend_rollback` decision is only a recommendation for a guarded rollback PR or manual change: the safeguard never edits production configuration, opens a PR, merges, or otherwise mutates production.
+
 ## Relationship to future automation
 
 Issue #41 deliberately stops at a reviewable decision. Future optimizer-generated parameter PRs must consume this decision and may only proceed when it is `review`; they must still go through standard branch/PR/CI controls and must never auto-merge their own recommendation.
