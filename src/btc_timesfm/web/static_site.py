@@ -182,12 +182,16 @@ def build_site_data(
             continue
         chart_rows.append(
             {
-                "model_name": row.get("model_name"), "origin_at": row.get("origin_at"),
-                "horizon_hours": row.get("horizon_hours"), "q10_usd": _safe_float(row.get("q10_usd")),
-                "q50_usd": _safe_float(row.get("q50_usd")), "q90_usd": _safe_float(row.get("q90_usd")),
+                "model_name": row.get("model_name"),
+                "origin_at": row.get("origin_at"),
+                "horizon_hours": row.get("horizon_hours"),
+                "q10_usd": _safe_float(row.get("q10_usd")),
+                "q50_usd": _safe_float(row.get("q50_usd")),
+                "q90_usd": _safe_float(row.get("q90_usd")),
                 "actual_target_price_usd": _safe_float(row.get("actual_target_price_usd")),
                 "absolute_error_pct": _safe_float(row.get("absolute_error_pct")),
-                "direction_correct": row.get("direction_correct"), "within_q10_q90": row.get("within_q10_q90"),
+                "direction_correct": row.get("direction_correct"),
+                "within_q10_q90": row.get("within_q10_q90"),
                 "regime": row.get("regime"),
             }
         )

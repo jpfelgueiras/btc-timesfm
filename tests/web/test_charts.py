@@ -8,10 +8,17 @@ from btc_timesfm.web.charts import MAX_CHART_PAYLOAD_BYTES, render_charts
 class ChartTests(unittest.TestCase):
     def _row(self, **changes: object) -> dict[str, object]:
         row: dict[str, object] = {
-            "model_name": "ensemble", "origin_at": "2026-09-07T10:00:00+00:00",
-            "horizon_hours": 2, "q10_usd": 98.0, "q50_usd": 100.0, "q90_usd": 102.0,
-            "actual_target_price_usd": 101.0, "absolute_error_pct": 1.0,
-            "direction_correct": 1, "within_q10_q90": 1, "regime": "trending",
+            "model_name": "ensemble",
+            "origin_at": "2026-09-07T10:00:00+00:00",
+            "horizon_hours": 2,
+            "q10_usd": 98.0,
+            "q50_usd": 100.0,
+            "q90_usd": 102.0,
+            "actual_target_price_usd": 101.0,
+            "absolute_error_pct": 1.0,
+            "direction_correct": 1,
+            "within_q10_q90": 1,
+            "regime": "trending",
         }
         row.update(changes)
         return row
@@ -28,7 +35,12 @@ class ChartTests(unittest.TestCase):
 
     def test_degenerate_and_missing_values_are_bounded_and_have_fallback(self) -> None:
         html, _ = render_charts(
-            [self._row(q10_usd=100.0, q50_usd=100.0, q90_usd=100.0, actual_target_price_usd=100.0), self._row(q10_usd=None)],
+            [
+                self._row(
+                    q10_usd=100.0, q50_usd=100.0, q90_usd=100.0, actual_target_price_usd=100.0
+                ),
+                self._row(q10_usd=None),
+            ],
             ["2h", "4h"],
             5,
         )
@@ -39,7 +51,7 @@ class ChartTests(unittest.TestCase):
         self.assertIn("No matured forecasts with q10", html)
 
     def test_escapes_untrusted_regime_text(self) -> None:
-        html, _ = render_charts([self._row(regime='<script>alert(1)</script>')], ["2h"], 1)
+        html, _ = render_charts([self._row(regime="<script>alert(1)</script>")], ["2h"], 1)
 
         self.assertNotIn("<script>", html)
         self.assertIn("&lt;script&gt;", html)
