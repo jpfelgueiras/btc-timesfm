@@ -46,6 +46,7 @@ source = [
     "btc_timesfm.ops.rollback_safeguards",
     "btc_timesfm.ops.schedule_guard",
     "btc_timesfm.forecasting.statistical_significance",
+    "btc_timesfm.research.segment_evaluation",
     "btc_timesfm.forecasting.multi_horizon_coherence",
     "btc_timesfm.x.format_tweet",
     "btc_timesfm.x.post_to_x",

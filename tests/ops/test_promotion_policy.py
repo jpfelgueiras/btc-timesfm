@@ -63,6 +63,21 @@ def _candidate(
             {"fold": index, "mae_pct": fold_mae}
             for index, fold_mae in enumerate(fold_maes, start=1)
         ],
+        "segment_rows": [
+            {
+                "origin_at": f"2026-08-{day:02d}T00:00:00+00:00",
+                "target_at": f"2026-08-{day:02d}T02:00:00+00:00",
+                "horizon_hours": 2,
+                "absolute_error_pct": mae,
+                "segments": {
+                    "regime": "range",
+                    "volatility": "normal",
+                    "liquidity": "normal",
+                    "data_quality": "clean",
+                },
+            }
+            for day in range(1, 9)
+        ],
     }
 
 
@@ -187,6 +202,40 @@ class PromotionPolicyTests(unittest.TestCase):
         low_samples = evaluate_promotion(_report(small), health=_health())
         self.assertEqual(low_samples["decision"], "keep")
         self.assertFalse(low_samples["checks"]["review_requirements"]["enough_samples"])
+
+    def test_protected_segment_degradation_requires_explicit_approval(self) -> None:
+        challenger = _candidate("good", mae=0.95, fold_maes=(0.95, 0.95, 0.95))
+        origins = [f"2026-08-{day:02d}T00:00:00+00:00" for day in range(1, 9)]
+        challenger["segment_rows"] = [
+            {
+                "origin_at": origin,
+                "target_at": origin.replace("T00:00:00", "T02:00:00"),
+                "horizon_hours": 2,
+                "absolute_error_pct": 1.2,
+                "segments": {
+                    "regime": "high_volatility",
+                    "volatility": "high",
+                    "liquidity": "low",
+                    "data_quality": "clean",
+                },
+            }
+            for origin in origins
+        ]
+        report = _report(challenger)
+        report["evaluation_at"] = "2026-09-16T00:00:00+00:00"
+        report["candidates"][0]["segment_rows"] = [
+            {**row, "absolute_error_pct": 1.0} for row in challenger["segment_rows"]
+        ]
+        report["candidates"][1]["segment_rows"] = challenger["segment_rows"]
+        rejected = evaluate_promotion(report, health=_health())
+        self.assertEqual(rejected["decision"], "reject")
+        self.assertFalse(
+            rejected["checks"]["hard_veto"]["no_unapproved_protected_segment_degradation"]
+        )
+        approved = evaluate_promotion(
+            report, health=_health(), approved_protected_segment_degradation=True
+        )
+        self.assertEqual(approved["decision"], "review")
 
     def test_policy_identity_is_stable_and_changes_with_policy(self) -> None:
         first = policy_identity(PromotionPolicy())
