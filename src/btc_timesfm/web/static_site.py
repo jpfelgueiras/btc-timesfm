@@ -9,6 +9,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlencode
 
 from btc_timesfm.history.history_store import DEFAULT_DB_PATH, ENSEMBLE_MODEL, ForecastHistoryStore
 from btc_timesfm.web.charts import render_charts
@@ -17,6 +18,7 @@ from btc_timesfm.research.performance_dashboard import build_report
 
 DEFAULT_OUTPUT_DIR = Path("site")
 DEFAULT_RECENT_ROWS = 80
+MAX_SITE_BYTES = 5 * 1024 * 1024
 
 
 def _safe_float(value: Any) -> float | None:
@@ -215,6 +217,11 @@ def build_site_data(
         ),
         "recent": recent,
         "chart_rows": chart_rows,
+        "explorer": {
+            "version": 1,
+            "horizons": sorted({int(row["horizon_hours"]) for row in ensemble}),
+            "rows": [_explorer_row(row) for row in ensemble],
+        },
         "matured_rows": report["matured_rows"],
         "horizons": report["horizons"],
         "low_sample_threshold": report["low_sample_threshold"],
@@ -224,6 +231,93 @@ def build_site_data(
             else None
         ),
     }
+
+
+def _explorer_row(row: dict[str, Any]) -> dict[str, Any]:
+    actual = _safe_float(row.get("actual_target_price_usd"))
+    return {
+        "origin_at": row["origin_at"],
+        "horizon_hours": int(row["horizon_hours"]),
+        "target_at": row["target_at"],
+        "source_price_usd": float(row["source_price_usd"]),
+        "predicted_price_usd": float(row["predicted_price_usd"]),
+        "predicted_change_pct": float(row["predicted_change_pct"]),
+        "q10_usd": _safe_float(row.get("q10_usd")),
+        "q50_usd": _safe_float(row.get("q50_usd")),
+        "q90_usd": _safe_float(row.get("q90_usd")),
+        "actual_target_price_usd": actual,
+        "actual_change_pct": _safe_float(row.get("actual_change_pct")),
+        "absolute_error_pct": _safe_float(row.get("absolute_error_pct")),
+        "direction_correct": row.get("direction_correct"),
+        "regime": row.get("regime"),
+        "status": "matured" if actual is not None else "pending",
+    }
+
+
+def explorer_url_state(query: str, horizons: list[int]) -> dict[str, str | int | None]:
+    params = parse_qs(query.lstrip("?"), keep_blank_values=False)
+    valid_horizons = {str(horizon) for horizon in horizons}
+    horizon = params.get("horizon", [""])[0]
+    search = params.get("q", [""])[0].strip()[:80]
+    days = params.get("days", ["all"])[0]
+    sort = params.get("sort", ["origin"])[0]
+    origin = params.get("origin", [""])[0].strip()
+    return {
+        "horizon": int(horizon) if horizon in valid_horizons else None,
+        "q": search,
+        "days": days if days in {"7", "30", "90", "all"} else "all",
+        "sort": sort if sort in {"origin", "horizon", "error"} else "origin",
+        "origin": origin if _valid_origin(origin) else None,
+    }
+
+
+def _valid_origin(value: str) -> bool:
+    try:
+        _parse_timestamp(value)
+    except ValueError:
+        return False
+    return True
+
+
+def explorer_query(state: dict[str, str | int | None]) -> str:
+    values = [
+        (key, str(state[key]))
+        for key in ("days", "horizon", "q", "sort", "origin")
+        if state.get(key) not in (None, "", "all", "origin")
+    ]
+    return urlencode(values)
+
+
+def filter_explorer_rows(
+    rows: list[dict[str, Any]], state: dict[str, str | int | None], *, now: datetime
+) -> list[dict[str, Any]]:
+    cutoff_days = state["days"]
+    cutoff = now - timedelta(days=int(str(cutoff_days))) if cutoff_days != "all" else None
+    selected = [
+        row
+        for row in rows
+        if (state["horizon"] is None or row["horizon_hours"] == state["horizon"])
+        and (cutoff is None or _parse_timestamp(row["origin_at"]) >= cutoff)
+        and (
+            not state["q"]
+            or str(state["q"]).lower()
+            in " ".join(
+                str(row.get(key) or "")
+                for key in ("origin_at", "regime", "status", "horizon_hours")
+            ).lower()
+        )
+    ]
+    sort = state["sort"]
+    if sort == "horizon":
+        return sorted(
+            selected, key=lambda row: (row["horizon_hours"], row["origin_at"]), reverse=True
+        )
+    if sort == "error":
+        return sorted(
+            selected,
+            key=lambda row: (row["absolute_error_pct"] is None, row["absolute_error_pct"] or 0),
+        )
+    return sorted(selected, key=lambda row: (row["origin_at"], row["horizon_hours"]), reverse=True)
 
 
 def _status_label(row: dict[str, Any]) -> tuple[str, str]:
@@ -416,6 +510,52 @@ def _render_recent(data: dict[str, Any]) -> str:
     """
 
 
+def _render_explorer(data: dict[str, Any]) -> str:
+    explorer = data["explorer"]
+    rows = explorer["rows"]
+    horizons = explorer["horizons"]
+    options = '<option value="">All horizons</option>' + "".join(
+        f'<option value="{horizon}">+{horizon}h</option>' for horizon in horizons
+    )
+    table_rows = []
+    details = []
+    for index, row in enumerate(rows):
+        label, css = _status_label(row)
+        anchor = f"forecast-{index}"
+        query = explorer_query({"origin": str(row["origin_at"])})
+        table_rows.append(
+            f'<tr data-origin="{html.escape(str(row["origin_at"]))}" '
+            f'data-horizon="{row["horizon_hours"]}" data-status="{row["status"]}" '
+            f'data-regime="{html.escape(str(row.get("regime") or ""))}">'
+            f'<td><a href="?{query}#{anchor}">{html.escape(str(row["origin_at"]))}</a></td>'
+            f"<td>+{row['horizon_hours']}h</td><td>{_money(row['predicted_price_usd'])}</td>"
+            f"<td>{_money(row['actual_target_price_usd'])}</td><td>{_pct(row['absolute_error_pct'])}</td>"
+            f'<td><span class="status {css}">{label}</span></td></tr>'
+        )
+        details.append(
+            f'<details id="{anchor}" class="forecast-detail" data-origin="{html.escape(str(row["origin_at"]))}">'
+            f"<summary>{html.escape(str(row['origin_at']))} · +{row['horizon_hours']}h · {label}</summary>"
+            f"<dl><dt>BTC at origin</dt><dd>{_money(row['source_price_usd'])}</dd>"
+            f"<dt>Forecast</dt><dd>{_money(row['predicted_price_usd'])} ({float(row['predicted_change_pct']):+.2f}%)</dd>"
+            f"<dt>80% interval</dt><dd>{_money(row['q10_usd'])} – {_money(row['q90_usd'])}</dd>"
+            f"<dt>Actual outcome</dt><dd>{_money(row['actual_target_price_usd'])} ({_pct(row['actual_change_pct'])})</dd>"
+            f"<dt>Error / direction</dt><dd>{_pct(row['absolute_error_pct'])} / {label}</dd>"
+            f"<dt>Target / regime</dt><dd>{html.escape(str(row['target_at']))} / {html.escape(str(row.get('regime') or 'unknown'))}</dd></dl></details>"
+        )
+    return f"""<div class="explorer-controls" aria-label="Forecast explorer filters">
+<label>Range <select id="explorer-days"><option value="all">All time</option><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option></select></label>
+<label>Horizon <select id="explorer-horizon">{options}</select></label>
+<label>Search <input id="explorer-search" type="search" maxlength="80" placeholder="Origin, regime, status"></label>
+<label>Sort <select id="explorer-sort"><option value="origin">Newest origin</option><option value="horizon">Horizon</option><option value="error">Lowest error</option></select></label>
+</div><p id="explorer-count" aria-live="polite">{len(rows)} forecasts</p>
+<div class="table-wrap recent-table"><table id="explorer-table"><thead><tr><th>Origin</th><th>Horizon</th><th>Forecast</th><th>Actual</th><th>Error</th><th>Status</th></tr></thead><tbody>{"".join(table_rows)}</tbody></table></div>
+<div id="forecast-details">{"".join(details)}</div>"""
+
+
+def _explorer_script() -> str:
+    return """<script>(()=>{const $=id=>document.getElementById(id),table=$("explorer-table"),body=table?.tBodies[0],days=$("explorer-days"),horizon=$("explorer-horizon"),search=$("explorer-search"),sort=$("explorer-sort"),count=$("explorer-count");if(!body)return;const p=new URLSearchParams(location.search),valid=(el,v)=>[...el.options].some(o=>o.value===v);for(const [k,el] of [["days",days],["horizon",horizon],["q",search],["sort",sort]]){const v=p.get(k)||el.value;if(valid(el,v)||el===search)el.value=v}const apply=()=>{const q=search.value.trim().toLowerCase(),d=days.value,h=horizon.value,s=sort.value,cut=d==="all"?0:Date.now()-Number(d)*864e5;let rows=[...body.rows];rows.forEach(r=>{const ok=(!h||r.dataset.horizon===h)&&(!cut||Date.parse(r.dataset.origin)>=cut)&&(!q||r.textContent.toLowerCase().includes(q));r.hidden=!ok});rows.sort((a,b)=>s==="horizon"?b.dataset.horizon-a.dataset.horizon:s==="error"?(parseFloat(a.cells[4].textContent)||Infinity)-(parseFloat(b.cells[4].textContent)||Infinity):Date.parse(b.dataset.origin)-Date.parse(a.dataset.origin)).forEach(r=>body.append(r));const state=new URLSearchParams;d!=="all"&&state.set("days",d);h&&state.set("horizon",h);q&&state.set("q",q);s!=="origin"&&state.set("sort",s);history.replaceState(void 0,"",location.pathname+(state.size?"?"+state:"")+location.hash);count.textContent=rows.filter(r=>!r.hidden).length+" forecasts"};[days,horizon,search,sort].forEach(el=>el.addEventListener("input",apply));apply();const origin=p.get("origin");if(origin){const detail=[...document.querySelectorAll(".forecast-detail")].find(d=>d.dataset.origin===origin);if(detail){detail.open=true;detail.scrollIntoView()}}})();</script>"""
+
+
 def render_html(data: dict[str, Any]) -> str:
     charts, chart_summary = render_charts(
         list(data.get("chart_rows", [])), list(data["horizons"]), int(data["low_sample_threshold"])
@@ -469,6 +609,12 @@ td {{ font-size:.9rem; }}
 .status.good {{ background:rgba(49,209,124,.1); color:var(--green); }}
 .status.bad {{ background:rgba(255,100,111,.1); color:var(--red); }}
 .recent-table {{ border:1px solid var(--line); border-radius:14px; background:var(--panel); }}
+.explorer-controls {{ display:flex; flex-wrap:wrap; gap:12px; margin:12px 0; }}
+.explorer-controls label {{ color:var(--muted); font-size:.85rem; display:grid; gap:4px; }}
+select,input {{ background:var(--panel); border:1px solid var(--line); border-radius:7px; color:var(--text); padding:8px; font:inherit; }}
+select:focus,input:focus,summary:focus,a:focus {{ outline:3px solid var(--blue); outline-offset:2px; }}
+dl {{ display:grid; grid-template-columns:max-content 1fr; gap:8px 18px; padding:0 18px 18px; }} dt {{ color:var(--muted); }} dd {{ margin:0; }}
+
 .empty {{ padding:28px; border:1px dashed var(--line); border-radius:14px; color:var(--muted); }}
 .note {{ margin-top:26px; padding:16px 18px; border-left:3px solid var(--blue); background:rgba(117,167,255,.06); color:var(--muted); }}
 footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
@@ -507,13 +653,18 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
       {_render_persistence_edge(data)}
     </section>
     <section>
-      <h2>Recent forecast ledger</h2>
-  <p>Pending rows have not reached their target candle yet. Matured rows are immutable historical predictions compared with the actual BTC price.</p>
+      <h2>Forecast explorer</h2>
+  <p>Browse the durable ledger. Pending rows have not reached their target candle; matured rows are immutable historical predictions compared with actual BTC prices.</p>
+  {_render_explorer(data)}
+</section>
+<section>
+  <h2>Recent forecast ledger</h2>
   {_render_recent(data)}
 </section>
 <div class="note">Experimental forecasting only — not financial advice. Historical accuracy does not guarantee future performance.</div>
 <footer>Generated {html.escape(str(data["generated_at"]))} from {int(data["matured_rows"])} matured forecast rows.</footer>
 </main>
+{_explorer_script()}
 </body>
 </html>
 """
@@ -542,11 +693,13 @@ def generate_site(
         latest_snapshot=latest_snapshot,
     )
     data["database_verification"] = verification
+    page = render_html(data)
+    json_data = json.dumps(data, indent=2, sort_keys=True) + "\n"
+    if len(page.encode("utf-8")) + len(json_data.encode("utf-8")) > MAX_SITE_BYTES:
+        raise RuntimeError(f"site exceeds {MAX_SITE_BYTES} byte budget")
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "index.html").write_text(render_html(data), encoding="utf-8")
-    (output_dir / "data.json").write_text(
-        json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    (output_dir / "index.html").write_text(page, encoding="utf-8")
+    (output_dir / "data.json").write_text(json_data, encoding="utf-8")
     (output_dir / ".nojekyll").write_text("", encoding="utf-8")
     return data
 
