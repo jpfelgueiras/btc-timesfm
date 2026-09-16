@@ -53,6 +53,10 @@ jobs:
             --db .state/forecast_history.sqlite \
             --output-dir site
 
+      - name: Validate site output contract
+        run: |
+          PYTHONPATH=src python -m btc_timesfm.web.contract_validation site
+
       - name: Configure Pages
         uses: actions/configure-pages@v6
 

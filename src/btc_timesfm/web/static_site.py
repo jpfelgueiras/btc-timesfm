@@ -205,6 +205,7 @@ def build_site_data(
         )
 
     return {
+        "schema_version": 1,
         "generated_at": current_time.isoformat(),
         "latest": latest,
         "latest_age_hours": round(latest_age_hours, 2) if latest_age_hours is not None else None,
