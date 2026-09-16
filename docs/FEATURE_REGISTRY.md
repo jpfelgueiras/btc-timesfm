@@ -15,3 +15,9 @@ The registry provides a lineage contract for each feature set, allowing to:
 - Validate a `feature_set` dictionary against the current registry contract.
 
 The lineage hash ensures that if any feature definition or the set of enabled features changes, the lineage hash changes, thus flagging the feature set as incompatible if not updated.
+
+## Optional-source degradation and replay
+
+Derivatives, microstructure, and cross-asset inputs are optional. A stale, incomplete, revised, or unavailable optional source is quarantined by source health and its features are excluded; validated spot data remains sufficient to produce the forecast. `forecast.json` and the experiment manifest record the source-health decision, excluded sources, and active feature set.
+
+`.state/optional_source_retention.json` keeps immutable raw optional-source snapshots for the configured bounded window (default 168 hours and 336 records; override with `BTC_OPTIONAL_SOURCE_RETENTION_HOURS` and `BTC_OPTIONAL_SOURCE_RETENTION_MAX_RECORDS`). `replay_optional_sources()` reconstructs feature groups from a deep copy of a retained record and never writes retention state or canonical forecast history.
