@@ -43,7 +43,7 @@ from btc_timesfm.forecasting.statistical_significance import (
 from btc_timesfm.research.champion_challenger import configuration_manifest
 
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 SHADOW_REPORT_VERSION = 1
 SHADOW_POLICY_VERSION = 1
@@ -241,8 +241,38 @@ def _migration_1_initial_shadow_store(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migration_2_monitoring_audit(connection: sqlite3.Connection) -> None:
+    columns = {
+        str(row[1]) for row in connection.execute("PRAGMA table_info(shadow_forecasts)").fetchall()
+    }
+    if "data_lineage_id" not in columns:
+        connection.execute("ALTER TABLE shadow_forecasts ADD COLUMN data_lineage_id TEXT")
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS shadow_failures (
+            configuration_id TEXT,
+            origin_at TEXT,
+            stage TEXT NOT NULL,
+            error_type TEXT NOT NULL,
+            message TEXT NOT NULL,
+            observed_at TEXT NOT NULL,
+            PRIMARY KEY (configuration_id, origin_at, stage, error_type, message),
+            FOREIGN KEY (configuration_id)
+                REFERENCES configurations(configuration_id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_shadow_failures_observed_at
+            ON shadow_failures(observed_at)
+        """
+    )
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial_shadow_store", _migration_1_initial_shadow_store),
+    Migration(2, "monitoring_audit", _migration_2_monitoring_audit),
 )
 
 
@@ -369,6 +399,7 @@ def validate_database(
         "configurations",
         "shadow_forecasts",
         "shadow_outcomes",
+        "shadow_failures",
     }
     missing = sorted(required_tables - tables)
     if missing:
@@ -610,6 +641,7 @@ class ShadowStore:
         model_weights: Mapping[str, Any],
         predictions: Mapping[str, Any],
         forecast_sha256: str,
+        data_lineage_id: str | None = None,
         created_at: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
         """Persist one shadow forecast idempotently keyed by (config, origin)."""
@@ -624,8 +656,8 @@ class ShadowStore:
                 INSERT OR IGNORE INTO shadow_forecasts(
                     configuration_id, origin_at, latest_close_at, latest_close_usd,
                     regime, model_predictions, model_weights, predictions,
-                    forecast_sha256, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    forecast_sha256, data_lineage_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     configuration_id,
@@ -637,6 +669,7 @@ class ShadowStore:
                     _canonical_json(dict(model_weights)),
                     _canonical_json(dict(predictions)),
                     forecast_sha256,
+                    data_lineage_id,
                     created,
                 ),
             )
@@ -720,6 +753,44 @@ class ShadowStore:
     def count_outcomes(self) -> int:
         with self._connect() as connection:
             return int(connection.execute("SELECT COUNT(*) FROM shadow_outcomes").fetchone()[0])
+
+    def record_failure(
+        self,
+        *,
+        stage: str,
+        error: Exception,
+        configuration_id: str | None = None,
+        origin_at: str | None = None,
+        observed_at: str | None = None,
+    ) -> bool:
+        if not stage:
+            raise ValueError("stage must be a non-empty string")
+        if configuration_id is not None:
+            self.get_configuration(configuration_id)
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT OR IGNORE INTO shadow_failures(
+                    configuration_id, origin_at, stage, error_type, message, observed_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    configuration_id,
+                    origin_at,
+                    stage,
+                    type(error).__name__,
+                    str(error),
+                    observed_at or _utc_now_iso(),
+                ),
+            )
+        return cursor.rowcount > 0
+
+    def load_failures(self) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM shadow_failures ORDER BY observed_at, stage"
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def mature_outcomes(
         self,
@@ -828,7 +899,14 @@ class ShadowStore:
         champion_forecasts = {
             str(row["origin_at"]): row for row in self.load_forecasts(champion["configuration_id"])
         }
-        common_origins = sorted(set(challenger_forecasts) & set(champion_forecasts))
+        shared_origins = sorted(set(challenger_forecasts) & set(champion_forecasts))
+        common_origins = [
+            origin_at
+            for origin_at in shared_origins
+            if challenger_forecasts[origin_at].get("data_lineage_id")
+            and challenger_forecasts[origin_at].get("data_lineage_id")
+            == champion_forecasts[origin_at].get("data_lineage_id")
+        ]
 
         outcomes = self._load_outcome_rows()
         challenger_outcomes = outcomes.get(configuration_id, {})
@@ -861,6 +939,8 @@ class ShadowStore:
             "fully_matured_samples": fully_matured,
             "matured_horizons": matured_by_horizon,
             "common_origin_count": len(common_origins),
+            "identical_data_lineage": len(common_origins) == len(shared_origins),
+            "lineage_mismatch_count": len(shared_origins) - len(common_origins),
             "first_origin_at": first_origin,
             "last_origin_at": last_origin,
             "observation_window_days": observation_window_days,
@@ -905,6 +985,7 @@ class ShadowStore:
                 connection.execute("SELECT COUNT(*) FROM shadow_forecasts").fetchone()[0]
             )
             outcomes = int(connection.execute("SELECT COUNT(*) FROM shadow_outcomes").fetchone()[0])
+            failures = int(connection.execute("SELECT COUNT(*) FROM shadow_failures").fetchone()[0])
             first_last = connection.execute(
                 "SELECT MIN(origin_at), MAX(origin_at) FROM shadow_forecasts"
             ).fetchone()
@@ -922,6 +1003,7 @@ class ShadowStore:
             "by_role": by_role,
             "shadow_forecasts": forecasts,
             "matured_outcomes": outcomes,
+            "observable_failures": failures,
             "first_shadow_origin_at": first_last[0],
             "latest_shadow_origin_at": first_last[1],
             "database_bytes": self.path.stat().st_size if self.path.exists() else 0,
@@ -1315,6 +1397,13 @@ def run_shadow(
     origin_at = latest_close_at
     latest_close_usd = float(production["latest_close_usd"])
     regime = str(production.get("regime") or "range")
+    manifest = production.get("experiment_manifest")
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("data_id"), str):
+        raise ValueError("production snapshot is missing experiment_manifest.data_id")
+    data_lineage_id = str(manifest["data_id"])
+    manifest_origin = manifest.get("data", {}).get("latest_close_at")
+    if manifest_origin is not None and str(manifest_origin) != origin_at:
+        raise ValueError("production snapshot manifest origin does not match latest_close_at")
     model_predictions = production.get("model_predictions")
     if not isinstance(model_predictions, dict):
         raise ValueError("production snapshot is missing model_predictions")
@@ -1341,6 +1430,7 @@ def run_shadow(
         model_weights=model_weights,
         predictions=predictions,
         forecast_sha256=_forecast_sha256(origin_at, predictions),
+        data_lineage_id=data_lineage_id,
         created_at=generated_at,
     )
 
@@ -1373,34 +1463,55 @@ def run_shadow(
         if history is None:
             history = _history_snapshots(store, configuration_id, exclude_origin_at=origin_at)
             challenger_history[configuration_id] = history
-        challenger_predictions_value, weights = shadow_predictions(
-            record["parameters"],
-            production,
-            actual_by_timestamp,
-            history,
-        )
-        _row, persisted = store.record_forecast(
-            configuration_id=configuration_id,
-            origin_at=origin_at,
-            latest_close_at=latest_close_at,
-            latest_close_usd=latest_close_usd,
-            regime=regime,
-            model_predictions=model_predictions,
-            model_weights=weights,
-            predictions=challenger_predictions_value,
-            forecast_sha256=_forecast_sha256(origin_at, challenger_predictions_value),
-            created_at=generated_at,
-        )
-        challenger_results.append(
-            {
-                "name": record["name"],
-                "configuration_id": configuration_id,
-                "approval_status": record["approval_status"],
-                "origin_at": origin_at,
-                "challenger_persisted": persisted,
-                "champion_persisted": champion_persisted,
-            }
-        )
+        try:
+            challenger_predictions_value, weights = shadow_predictions(
+                record["parameters"],
+                production,
+                actual_by_timestamp,
+                history,
+            )
+            _row, persisted = store.record_forecast(
+                configuration_id=configuration_id,
+                origin_at=origin_at,
+                latest_close_at=latest_close_at,
+                latest_close_usd=latest_close_usd,
+                regime=regime,
+                model_predictions=model_predictions,
+                model_weights=weights,
+                predictions=challenger_predictions_value,
+                forecast_sha256=_forecast_sha256(origin_at, challenger_predictions_value),
+                data_lineage_id=data_lineage_id,
+                created_at=generated_at,
+            )
+            challenger_results.append(
+                {
+                    "name": record["name"],
+                    "configuration_id": configuration_id,
+                    "approval_status": record["approval_status"],
+                    "origin_at": origin_at,
+                    "challenger_persisted": persisted,
+                    "champion_persisted": champion_persisted,
+                    "status": "recorded",
+                }
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            store.record_failure(
+                stage="shadow_prediction",
+                error=error,
+                configuration_id=configuration_id,
+                origin_at=origin_at,
+                observed_at=generated_at,
+            )
+            challenger_results.append(
+                {
+                    "name": record["name"],
+                    "configuration_id": configuration_id,
+                    "approval_status": record["approval_status"],
+                    "origin_at": origin_at,
+                    "status": "failed",
+                    "error_type": type(error).__name__,
+                }
+            )
 
     return {
         "schema_version": SHADOW_REPORT_VERSION,
@@ -1411,6 +1522,11 @@ def run_shadow(
             "name": champion_record["name"],
             "persisted": champion_persisted,
             "public_predictions_reused": True,
+        },
+        "data_lineage": {
+            "data_id": data_lineage_id,
+            "origin_at": origin_at,
+            "identical_to_public_forecast": True,
         },
         "challengers": challenger_results,
         "production_output_changed": False,

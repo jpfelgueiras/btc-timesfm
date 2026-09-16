@@ -58,6 +58,10 @@ def _production_snapshot(index: int, *, price: float, offset: float = 6.0) -> di
     origin_at = _iso(_origin_timestamp(index))
     return {
         "generated_at": origin_at,
+        "experiment_manifest": {
+            "data_id": f"data-test-{index}",
+            "data": {"latest_close_at": origin_at},
+        },
         "latest_close_at": origin_at,
         "latest_close_usd": price,
         "regime": "range",
@@ -101,6 +105,7 @@ def _record_static(
         model_weights={},
         predictions=predictions,
         forecast_sha256="static-test-sha",
+        data_lineage_id=f"data-test-{index}",
     )
 
 
@@ -200,6 +205,10 @@ class ShadowDeploymentTests(unittest.TestCase):
             row["origin_at"] for row in self.store.load_forecasts(challenger["configuration_id"])
         }
         self.assertEqual(champion_origins, challenger_origins)
+        self.assertEqual(
+            self.store.load_forecasts(champion_id)[0]["data_lineage_id"],
+            self.store.load_forecasts(challenger["configuration_id"])[0]["data_lineage_id"],
+        )
         self.assertNotEqual(
             self.store.load_forecasts(champion_id)[0]["predictions"],
             self.store.load_forecasts(challenger["configuration_id"])[0]["predictions"],
@@ -211,6 +220,24 @@ class ShadowDeploymentTests(unittest.TestCase):
         self.assertEqual(result["challengers"], [])
         self.assertEqual(self.store.count_forecasts(pending["configuration_id"]), 0)
 
+    def test_shadow_run_requires_public_data_lineage(self) -> None:
+        production = _production_snapshot(0, price=100.0)
+        del production["experiment_manifest"]
+        with self.assertRaisesRegex(ValueError, "experiment_manifest.data_id"):
+            run_shadow(self.store, production, _actuals_for(1))
+
+    def test_challenger_failure_is_observable_without_stopping_champion(self) -> None:
+        result = run_shadow(
+            self.store,
+            _production_snapshot(0, price=100.0),
+            _actuals_for(1),
+            configs=[{"name": "invalid", "parameters": {"enabled_models": ["ar1"]}}],
+        )
+        self.assertTrue(result["shadow_champion"]["persisted"])
+        self.assertEqual(result["challengers"][0]["status"], "failed")
+        self.assertEqual(len(self.store.load_failures()), 1)
+        self.assertEqual(self.store.stats()["observable_failures"], 1)
+
     # --- evaluation ---------------------------------------------------------
 
     def test_evaluation_compares_champion_and_persistence_on_identical_origins(self) -> None:
@@ -220,6 +247,8 @@ class ShadowDeploymentTests(unittest.TestCase):
 
         self.assertEqual(evaluation["significance"]["identical_origins"], 35)
         self.assertEqual(evaluation["maturity"]["common_origin_count"], 35)
+        self.assertTrue(evaluation["maturity"]["identical_data_lineage"])
+        self.assertEqual(evaluation["maturity"]["lineage_mismatch_count"], 0)
         self.assertEqual(evaluation["maturity"]["live_samples"], 35)
         self.assertEqual(evaluation["maturity"]["fully_matured_samples"], 35)
         self.assertEqual(evaluation["metrics"]["champion"]["samples"], 35)
