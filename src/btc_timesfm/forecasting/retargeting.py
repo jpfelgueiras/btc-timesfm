@@ -8,9 +8,8 @@ All retargeting is strictly out-of-sample (no look-ahead).
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, Tuple
 
-import numpy as np
 
 # Retargeting variant signatures:
 # Predictions (dict), EconomicValue (data), DirectionProbabilities (data), CalibrationData (data)
