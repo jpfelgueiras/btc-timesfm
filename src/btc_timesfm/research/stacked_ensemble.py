@@ -113,16 +113,32 @@ def _comparison(candidate: list[dict[str, float]], baseline: list[dict[str, floa
     return paired_bootstrap_comparison([x["absolute_error_pct"] for x in candidate], [x["absolute_error_pct"] for x in baseline], metric="mae_pct", lower_is_better=True, iterations=iterations, min_samples=minimum, seed=DEFAULT_SEED)
 
 
-def build_experiment_manifest(report: dict[str, Any], *, data_id: str = "durable-history") -> dict[str, Any]:
+def _evaluated_data_fingerprint(
+    samples: list[dict[str, Any]], actual_by_timestamp: dict[int, float]
+) -> str:
+    latest_origin = max(int(sample["origin_timestamp"]) for sample in samples)
+    evaluated_actuals = {
+        str(timestamp): actual
+        for timestamp, actual in actual_by_timestamp.items()
+        if int(timestamp) <= latest_origin
+    }
+    payload = {"samples": samples, "actual_by_timestamp": evaluated_actuals}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def build_experiment_manifest(report: dict[str, Any], *, data_fingerprint: str) -> dict[str, Any]:
     """Return a deterministic registry-compatible manifest for a stack evaluation."""
     configuration = report["configuration"]
-    digest = hashlib.sha256(json.dumps(configuration, sort_keys=True).encode("utf-8")).hexdigest()
+    configuration_digest = hashlib.sha256(
+        json.dumps(configuration, sort_keys=True).encode("utf-8")
+    ).hexdigest()
     return {
         "manifest_version": 1,
-        "run_id": f"stacked-ensemble-{digest[:16]}",
+        "run_id": f"stacked-ensemble-{configuration_digest[:8]}-{data_fingerprint[:8]}",
         "run_type": "stacked_ensemble",
-        "configuration_id": f"cfg-{digest[:20]}",
-        "data_id": data_id,
+        "configuration_id": f"cfg-{configuration_digest[:20]}",
+        "data_id": f"data-{data_fingerprint[:20]}",
+        "data": {"evaluated_input_sha256": data_fingerprint},
         "configuration": {"stacking": configuration, "specialists": report["specialists"]},
         "metrics": {"by_horizon": report["by_horizon"], "by_regime": report["by_regime"]},
         "decision": "candidate",
@@ -192,7 +208,10 @@ def evaluate_stacked_ensemble(samples: list[dict[str, Any]], actual_by_timestamp
         comparison = _comparison(candidate, baseline, bootstrap_iterations, bootstrap_min_samples)
         return {"stack": _metrics(candidate), "baseline": _metrics(baseline), "comparison": comparison, "low_sample": len(candidate) < low_sample_threshold, "inconclusive": len(candidate) < low_sample_threshold or comparison["conclusion"] == "inconclusive"}
     report = {"stacking_version": STACKING_VERSION, "specialists": list(SPECIALISTS), "samples": len(ordered), "folds": fold_reports, "configuration": {"folds": folds, "min_train_samples": min_train_samples, "purge_hours": max(TARGET_HOURS), "meta_learner": "nonnegative_simplex_ridge", "low_sample_threshold": low_sample_threshold}, "by_horizon": {horizon: {"vs_production": segment(stacked[horizon], production[horizon]), "vs_persistence": segment(stacked[horizon], persistence[horizon])} for horizon in stacked}, "by_regime": {regime: {horizon: {"vs_production": segment(values["stack"], values["production"]), "vs_persistence": segment(values["stack"], values["persistence"])} for horizon, values in horizons.items()} for regime, horizons in by_regime.items()}, "regime_samples": dict(Counter(regimes))}
-    report["experiment_manifest"] = build_experiment_manifest(report)
+    report["experiment_manifest"] = build_experiment_manifest(
+        report,
+        data_fingerprint=_evaluated_data_fingerprint(ordered, actual_by_timestamp),
+    )
     return report
 
 

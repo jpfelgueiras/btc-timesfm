@@ -53,6 +53,16 @@ class StackedEnsembleTests(unittest.TestCase):
         altered[max(altered) + 3600] = 1_000_000.0
         self.assertEqual(first, evaluate_stacked_ensemble(samples, altered, min_train_samples=12))
 
+    def test_manifest_id_changes_when_evaluated_input_changes(self) -> None:
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        samples = [sample(index, int((start + timedelta(hours=index * 2)).timestamp())) for index in range(28)]
+        actuals = {entry["origin_timestamp"] + hour * 3600: float(entry["actuals"][f"{hour}h"]) for entry in samples for hour in HORIZONS}
+        first = evaluate_stacked_ensemble(samples, actuals, min_train_samples=12)
+        samples[-1]["actuals"]["2h"] += 1.0
+        second = evaluate_stacked_ensemble(samples, actuals, min_train_samples=12)
+        self.assertNotEqual(first["experiment_manifest"]["data_id"], second["experiment_manifest"]["data_id"])
+        self.assertNotEqual(first["experiment_manifest"]["run_id"], second["experiment_manifest"]["run_id"])
+
 
 if __name__ == "__main__":
     unittest.main()
