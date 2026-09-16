@@ -42,22 +42,39 @@ DEFAULT_HISTORY_LIMIT = 200
 DEFAULT_LOW_SAMPLE_THRESHOLD = DEFAULT_MIN_PAIRED_SAMPLES
 
 
-def _ensemble_price(current: float, forecasts: dict[str, dict[str, Any]], weights: dict[str, float], horizon: str) -> float:
-    active = [(name, weight) for name, weight in weights.items() if weight > 0 and name in forecasts]
+def _ensemble_price(
+    current: float, forecasts: dict[str, dict[str, Any]], weights: dict[str, float], horizon: str
+) -> float:
+    active = [
+        (name, weight) for name, weight in weights.items() if weight > 0 and name in forecasts
+    ]
     if not active:
         raise ValueError("specialist has no active model weights")
     total = sum(weight for _, weight in active)
-    change = sum(weight * math.log(float(forecasts[name][horizon]["price_usd"]) / current) for name, weight in active)
+    change = sum(
+        weight * math.log(float(forecasts[name][horizon]["price_usd"]) / current)
+        for name, weight in active
+    )
     return current * math.exp(change / total)
 
 
-def _horizon_weights(names: list[str], regime: str, hour: int, history: list[dict[str, Any]], actuals: dict[int, float]) -> dict[str, float]:
+def _horizon_weights(
+    names: list[str],
+    regime: str,
+    hour: int,
+    history: list[dict[str, Any]],
+    actuals: dict[int, float],
+) -> dict[str, float]:
     limit = {2: 80, 4: 120, 8: 160, 16: 240}[hour]
-    weights, _ = correlation_aware_model_weights(names, regime, hour, history, actuals, history_limit=limit)
+    weights, _ = correlation_aware_model_weights(
+        names, regime, hour, history, actuals, history_limit=limit
+    )
     return weights
 
 
-def _specialist_predictions(sample: dict[str, Any], history: list[dict[str, Any]], actuals: dict[int, float]) -> tuple[dict[str, dict[str, float]], str]:
+def _specialist_predictions(
+    sample: dict[str, Any], history: list[dict[str, Any]], actuals: dict[int, float]
+) -> tuple[dict[str, dict[str, float]], str]:
     forecast = sample["forecast"]
     current = float(sample["current_price"])
     models = forecast["model_predictions"]
@@ -68,10 +85,17 @@ def _specialist_predictions(sample: dict[str, Any], history: list[dict[str, Any]
     sparse = False
     for hour in TARGET_HOURS:
         horizon = f"{hour}h"
-        production, diagnostics = correlation_aware_model_weights(names, baseline_regime, hour, history, actuals, history_limit=DEFAULT_HISTORY_LIMIT)
+        production, diagnostics = correlation_aware_model_weights(
+            names, baseline_regime, hour, history, actuals, history_limit=DEFAULT_HISTORY_LIMIT
+        )
         sparse = sparse or diagnostics.get("source") == "insufficient_history"
         output["production"][horizon] = _ensemble_price(current, models, production, horizon)
-        output["horizon"][horizon] = _ensemble_price(current, models, _horizon_weights(names, baseline_regime, hour, history, actuals), horizon)
+        output["horizon"][horizon] = _ensemble_price(
+            current,
+            models,
+            _horizon_weights(names, baseline_regime, hour, history, actuals),
+            horizon,
+        )
     expert = choose_expert(regime, sparse)
     for hour in TARGET_HOURS:
         horizon = f"{hour}h"
@@ -100,17 +124,37 @@ def _fit_weights(features: np.ndarray, targets: np.ndarray) -> np.ndarray:
 
 
 def _score(current: float, predicted: float, actual: float) -> dict[str, float]:
-    return {"absolute_error_pct": abs(predicted - actual) / actual * 100.0, "direction_correct": float((predicted - current) * (actual - current) >= 0.0)}
+    return {
+        "absolute_error_pct": abs(predicted - actual) / actual * 100.0,
+        "direction_correct": float((predicted - current) * (actual - current) >= 0.0),
+    }
 
 
 def _metrics(scores: list[dict[str, float]]) -> dict[str, float | int | None]:
     if not scores:
         return {"samples": 0, "mae_pct": None, "direction_accuracy": None}
-    return {"samples": len(scores), "mae_pct": round(float(np.mean([x["absolute_error_pct"] for x in scores])), 6), "direction_accuracy": round(float(np.mean([x["direction_correct"] for x in scores])), 6)}
+    return {
+        "samples": len(scores),
+        "mae_pct": round(float(np.mean([x["absolute_error_pct"] for x in scores])), 6),
+        "direction_accuracy": round(float(np.mean([x["direction_correct"] for x in scores])), 6),
+    }
 
 
-def _comparison(candidate: list[dict[str, float]], baseline: list[dict[str, float]], iterations: int, minimum: int) -> dict[str, Any]:
-    return paired_bootstrap_comparison([x["absolute_error_pct"] for x in candidate], [x["absolute_error_pct"] for x in baseline], metric="mae_pct", lower_is_better=True, iterations=iterations, min_samples=minimum, seed=DEFAULT_SEED)
+def _comparison(
+    candidate: list[dict[str, float]],
+    baseline: list[dict[str, float]],
+    iterations: int,
+    minimum: int,
+) -> dict[str, Any]:
+    return paired_bootstrap_comparison(
+        [x["absolute_error_pct"] for x in candidate],
+        [x["absolute_error_pct"] for x in baseline],
+        metric="mae_pct",
+        lower_is_better=True,
+        iterations=iterations,
+        min_samples=minimum,
+        seed=DEFAULT_SEED,
+    )
 
 
 def _evaluated_data_fingerprint(
@@ -123,7 +167,9 @@ def _evaluated_data_fingerprint(
         if int(timestamp) <= latest_origin
     }
     payload = {"samples": samples, "actual_by_timestamp": evaluated_actuals}
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
 
 
 def build_experiment_manifest(report: dict[str, Any], *, data_fingerprint: str) -> dict[str, Any]:
@@ -146,11 +192,25 @@ def build_experiment_manifest(report: dict[str, Any], *, data_fingerprint: str) 
     }
 
 
-def evaluate_stacked_ensemble(samples: list[dict[str, Any]], actual_by_timestamp: dict[int, float], *, folds: int = DEFAULT_CV_FOLDS, min_train_samples: int = DEFAULT_MIN_TRAIN_SAMPLES, low_sample_threshold: int = DEFAULT_LOW_SAMPLE_THRESHOLD, bootstrap_iterations: int = DEFAULT_BOOTSTRAP_ITERATIONS, bootstrap_min_samples: int = DEFAULT_MIN_PAIRED_SAMPLES) -> dict[str, Any]:
+def evaluate_stacked_ensemble(
+    samples: list[dict[str, Any]],
+    actual_by_timestamp: dict[int, float],
+    *,
+    folds: int = DEFAULT_CV_FOLDS,
+    min_train_samples: int = DEFAULT_MIN_TRAIN_SAMPLES,
+    low_sample_threshold: int = DEFAULT_LOW_SAMPLE_THRESHOLD,
+    bootstrap_iterations: int = DEFAULT_BOOTSTRAP_ITERATIONS,
+    bootstrap_min_samples: int = DEFAULT_MIN_PAIRED_SAMPLES,
+) -> dict[str, Any]:
     """Evaluate a stack whose meta-learner is fit solely on each purged fold's train origins."""
     ordered = sorted(samples, key=lambda item: int(item["origin_timestamp"]))
     origins = [int(item["origin_timestamp"]) for item in ordered]
-    split = build_purged_walk_forward_folds(origins, folds=folds, min_train_samples=min_train_samples, max_target_hours=max(TARGET_HOURS))
+    split = build_purged_walk_forward_folds(
+        origins,
+        folds=folds,
+        min_train_samples=min_train_samples,
+        max_target_hours=max(TARGET_HOURS),
+    )
     all_specialists: list[dict[str, dict[str, float]]] = []
     regimes: list[str] = []
     history: list[dict[str, Any]] = []
@@ -179,10 +239,14 @@ def evaluate_stacked_ensemble(samples: list[dict[str, Any]], actual_by_timestamp
                 if actual is None:
                     continue
                 current = float(ordered[index]["current_price"])
-                train_x.append([all_specialists[index][name][horizon] / current for name in SPECIALISTS])
+                train_x.append(
+                    [all_specialists[index][name][horizon] / current for name in SPECIALISTS]
+                )
                 train_y.append(float(actual) / current)
             weights = _fit_weights(np.asarray(train_x), np.asarray(train_y))
-            report["weights"][horizon] = {name: round(float(weights[pos]), 6) for pos, name in enumerate(SPECIALISTS)}
+            report["weights"][horizon] = {
+                name: round(float(weights[pos]), 6) for pos, name in enumerate(SPECIALISTS)
+            }
             for index in fold.validation_indices:
                 actual = ordered[index].get("actuals", {}).get(horizon)
                 if actual is None:
@@ -192,22 +256,71 @@ def evaluate_stacked_ensemble(samples: list[dict[str, Any]], actual_by_timestamp
                 candidate = float(values @ weights)
                 actual_value = float(actual)
                 candidate_score = _score(current, candidate, actual_value)
-                production_score = _score(current, all_specialists[index]["production"][horizon], actual_value)
-                persistence_price = float(ordered[index]["forecast"]["model_predictions"]["persistence"][horizon]["price_usd"])
+                production_score = _score(
+                    current, all_specialists[index]["production"][horizon], actual_value
+                )
+                persistence_price = float(
+                    ordered[index]["forecast"]["model_predictions"]["persistence"][horizon][
+                        "price_usd"
+                    ]
+                )
                 persistence_score = _score(current, persistence_price, actual_value)
                 stacked[horizon].append(candidate_score)
                 production[horizon].append(production_score)
                 persistence[horizon].append(persistence_score)
                 bucket = regimes[index]
-                segment = by_regime.setdefault(bucket, {}).setdefault(horizon, {"stack": [], "production": [], "persistence": []})
+                segment = by_regime.setdefault(bucket, {}).setdefault(
+                    horizon, {"stack": [], "production": [], "persistence": []}
+                )
                 segment["stack"].append(candidate_score)
                 segment["production"].append(production_score)
                 segment["persistence"].append(persistence_score)
         fold_reports.append(report)
-    def segment(candidate: list[dict[str, float]], baseline: list[dict[str, float]]) -> dict[str, Any]:
+
+    def segment(
+        candidate: list[dict[str, float]], baseline: list[dict[str, float]]
+    ) -> dict[str, Any]:
         comparison = _comparison(candidate, baseline, bootstrap_iterations, bootstrap_min_samples)
-        return {"stack": _metrics(candidate), "baseline": _metrics(baseline), "comparison": comparison, "low_sample": len(candidate) < low_sample_threshold, "inconclusive": len(candidate) < low_sample_threshold or comparison["conclusion"] == "inconclusive"}
-    report = {"stacking_version": STACKING_VERSION, "specialists": list(SPECIALISTS), "samples": len(ordered), "folds": fold_reports, "configuration": {"folds": folds, "min_train_samples": min_train_samples, "purge_hours": max(TARGET_HOURS), "meta_learner": "nonnegative_simplex_ridge", "low_sample_threshold": low_sample_threshold}, "by_horizon": {horizon: {"vs_production": segment(stacked[horizon], production[horizon]), "vs_persistence": segment(stacked[horizon], persistence[horizon])} for horizon in stacked}, "by_regime": {regime: {horizon: {"vs_production": segment(values["stack"], values["production"]), "vs_persistence": segment(values["stack"], values["persistence"])} for horizon, values in horizons.items()} for regime, horizons in by_regime.items()}, "regime_samples": dict(Counter(regimes))}
+        return {
+            "stack": _metrics(candidate),
+            "baseline": _metrics(baseline),
+            "comparison": comparison,
+            "low_sample": len(candidate) < low_sample_threshold,
+            "inconclusive": len(candidate) < low_sample_threshold
+            or comparison["conclusion"] == "inconclusive",
+        }
+
+    report = {
+        "stacking_version": STACKING_VERSION,
+        "specialists": list(SPECIALISTS),
+        "samples": len(ordered),
+        "folds": fold_reports,
+        "configuration": {
+            "folds": folds,
+            "min_train_samples": min_train_samples,
+            "purge_hours": max(TARGET_HOURS),
+            "meta_learner": "nonnegative_simplex_ridge",
+            "low_sample_threshold": low_sample_threshold,
+        },
+        "by_horizon": {
+            horizon: {
+                "vs_production": segment(stacked[horizon], production[horizon]),
+                "vs_persistence": segment(stacked[horizon], persistence[horizon]),
+            }
+            for horizon in stacked
+        },
+        "by_regime": {
+            regime: {
+                horizon: {
+                    "vs_production": segment(values["stack"], values["production"]),
+                    "vs_persistence": segment(values["stack"], values["persistence"]),
+                }
+                for horizon, values in horizons.items()
+            }
+            for regime, horizons in by_regime.items()
+        },
+        "regime_samples": dict(Counter(regimes)),
+    }
     report["experiment_manifest"] = build_experiment_manifest(
         report,
         data_fingerprint=_evaluated_data_fingerprint(ordered, actual_by_timestamp),
@@ -222,7 +335,10 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("stacked_ensemble_report.json"))
     args = parser.parse_args()
     samples = json.loads(args.samples_json.read_text(encoding="utf-8"))
-    actuals = {int(key): float(value) for key, value in json.loads(args.actuals_json.read_text(encoding="utf-8")).items()}
+    actuals = {
+        int(key): float(value)
+        for key, value in json.loads(args.actuals_json.read_text(encoding="utf-8")).items()
+    }
     report = evaluate_stacked_ensemble(samples, actuals)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
