@@ -374,6 +374,8 @@ PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py' -v
 
 The adaptive tests cover sparse-history fallback, current-regime/all-regime selection, durable outcomes beyond the recent candle window, configurable rolling limits, interval-coverage scoring, persistence fallback and strict weight floors/caps. The history-store tests cover schema verification, idempotent manual reruns, first-write-wins predictions, exact-target maturation, write-once outcomes, rolling-cache migration, adaptive-history reconstruction and CSV/JSONL export. Optimizer tests cover bounded/reproducible candidate generation, temporary parameter isolation, chronological folds, strict origin-time outcome visibility and promotion guardrails.
 
+CI retries failed unit tests once, persistently records the raw and rerun outcomes, and permits a recurring rerun failure only through an open, visible tracking issue. See [`docs/FLAKY_TESTS.md`](docs/FLAKY_TESTS.md).
+
 ## Production output
 
 `forecast.json` contains the latest BTC/USD close, market features, regime, per-horizon adaptive model weights, weighting diagnostics, per-model forecasts, ensemble 2h/4h/8h/16h forecasts, model agreement, calibrated uncertainty, latest matured reliability, durable performance summary and `history_store` statistics.
