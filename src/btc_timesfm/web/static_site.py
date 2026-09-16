@@ -112,6 +112,7 @@ def build_site_data(
     *,
     now: datetime | None = None,
     recent_limit: int = DEFAULT_RECENT_ROWS,
+    latest_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     current_time = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     report = build_report(rows, now=current_time)
@@ -155,6 +156,11 @@ def build_site_data(
         "matured_rows": report["matured_rows"],
         "horizons": report["horizons"],
         "low_sample_threshold": report["low_sample_threshold"],
+        "multi_horizon_coherence": (
+            latest_snapshot.get("multi_horizon_coherence")
+            if isinstance(latest_snapshot, dict)
+            else None
+        ),
     }
 
 
@@ -380,7 +386,13 @@ def generate_site(
     ):
         raise RuntimeError(f"forecast history failed verification: {verification}")
 
-    data = build_site_data(store.export_rows(), recent_limit=recent_limit)
+    snapshots = store.load_snapshots(limit=1)
+    latest_snapshot = snapshots[0] if snapshots else None
+    data = build_site_data(
+        store.export_rows(),
+        recent_limit=recent_limit,
+        latest_snapshot=latest_snapshot,
+    )
     data["database_verification"] = verification
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "index.html").write_text(render_html(data), encoding="utf-8")

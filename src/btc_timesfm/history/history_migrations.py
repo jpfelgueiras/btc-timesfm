@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 
 @dataclass(frozen=True)
@@ -166,11 +166,22 @@ def _migration_4_add_drift_events(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migration_5_add_multi_horizon_coherence(connection: sqlite3.Connection) -> None:
+    columns = {
+        str(row[1]) for row in connection.execute("PRAGMA table_info(forecast_origins)").fetchall()
+    }
+    if "multi_horizon_coherence_json" not in columns:
+        connection.execute(
+            "ALTER TABLE forecast_origins ADD COLUMN multi_horizon_coherence_json TEXT"
+        )
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial_history_schema", _migration_1_initial_history_schema),
     Migration(2, "add_migration_audit", _migration_2_add_migration_audit),
     Migration(3, "add_experiment_manifests", _migration_3_add_experiment_manifests),
     Migration(4, "add_drift_events", _migration_4_add_drift_events),
+    Migration(5, "add_multi_horizon_coherence", _migration_5_add_multi_horizon_coherence),
 )
 
 

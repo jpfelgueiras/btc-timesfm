@@ -26,6 +26,12 @@ A second foundation model is intentionally not part of the scheduled ensemble ye
 
 Every production run forecasts +2h, +4h, +8h and +16h. The main `predictions` block is the ensemble result. `model_predictions` contains each underlying model/context separately.
 
+### Multi-horizon coherence
+
+Before publication, the ensemble reconciles each horizon's Q10/Q50/Q90 forecast into a coherent uncertainty envelope: Q10 bounds cannot rise and Q90 bounds cannot fall as the forecast horizon extends. The median and point forecast remain unchanged; reconciliation only widens affected intervals, and rejects a run if the required adjustment exceeds its per-quantile or interval-width calibration guardrail.
+
+`forecast.json` includes `multi_horizon_coherence` with the coherence score, complete violation log, per-horizon reconciliation deltas, guardrails and leakage audit. Direction flips are published only when both adjacent horizons have sufficient matured evidence; otherwise they are explicitly suppressed as sample-poor or below the neutral noise band. The same diagnostics are retained in durable history and exposed in the site's `data.json`.
+
 For a full step-by-step explanation, see [`docs/FORECAST_WORKS.md`](docs/FORECAST_WORKS.md).
 
 ## Why forecast returns instead of raw price?

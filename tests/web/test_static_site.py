@@ -83,6 +83,31 @@ class StaticSiteTests(unittest.TestCase):
         self.assertEqual(data["accuracy"]["all"]["2h"]["samples"], 1)
         self.assertAlmostEqual(data["accuracy"]["all"]["2h"]["direction_accuracy"], 1.0)
 
+    def test_build_site_data_exposes_latest_coherence_diagnostics(self) -> None:
+        snapshot = {
+            "multi_horizon_coherence": {
+                "coherence_score": 1.0,
+                "violation_log": {"crossing_entries": 0},
+            }
+        }
+        data = build_site_data(
+            [
+                self._row(
+                    origin="2026-09-07T12:00:00+00:00",
+                    horizon=2,
+                    predicted=102.0,
+                    change=2.0,
+                    actual=None,
+                    error=None,
+                    direction=None,
+                )
+            ],
+            now=datetime(2026, 9, 7, 13, tzinfo=timezone.utc),
+            latest_snapshot=snapshot,
+        )
+
+        self.assertEqual(data["multi_horizon_coherence"], snapshot["multi_horizon_coherence"])
+
     def test_render_html_contains_predictions_accuracy_and_ledger(self) -> None:
         rows = [
             self._row(
