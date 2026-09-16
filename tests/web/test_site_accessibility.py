@@ -16,6 +16,7 @@ class SiteAccessibilityTests(unittest.TestCase):
             "low_sample_threshold": 10,
             "chart_rows": [],
             "persistence_edge": {"low_sample_threshold": 10, "windows": {}},
+            "explorer": {"horizons": [], "rows": []},
             "recent": [],
             "matured_rows": 0,
         }

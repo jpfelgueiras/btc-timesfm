@@ -568,10 +568,10 @@ def _render_accuracy_table(data: dict[str, Any], window: str, label: str) -> str
             """
         )
     return (
-        f'<details {"open" if window == "30d" else ""}>'
+        f"<details {'open' if window == '30d' else ''}>"
         f"<summary>{html.escape(label)}</summary>"
         '<div class="table-wrap">'
-        f'<table><caption>Forecast accuracy for {html.escape(label)}</caption>'
+        f"<table><caption>Forecast accuracy for {html.escape(label)}</caption>"
         '<thead><tr><th scope="col">Horizon</th><th scope="col">Samples</th>'
         '<th scope="col">MAE</th><th scope="col">Direction</th>'
         '<th scope="col">80% coverage</th></tr></thead>'
