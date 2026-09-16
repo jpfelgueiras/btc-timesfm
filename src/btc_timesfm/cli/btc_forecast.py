@@ -44,6 +44,7 @@ from btc_timesfm.data.microstructure_signals import (
 from btc_timesfm.forecasting.experiment_manifest import build_experiment_manifest, seed_everything
 from btc_timesfm.forecasting.forecast_engine import TARGET_HOURS, build_forecast, load_timesfm
 from btc_timesfm.data.market_data_sources import fetch_redundant_hourly
+from btc_timesfm.data.source_health import evaluate_source_health, persist_source_health
 from btc_timesfm.history.history_store import DEFAULT_DB_PATH, ForecastHistoryStore
 
 
@@ -482,6 +483,19 @@ def main() -> None:
         f"Cross-asset signals: {cross_asset_snapshot['status']} | "
         f"features={len(cross_asset_snapshot.get('features', {}))}"
     )
+    source_health = evaluate_source_health(
+        {
+            "derivatives": derivatives_snapshot,
+            "microstructure": microstructure_snapshot,
+            "cross_asset": cross_asset_snapshot,
+        },
+        origin_at=forecast_origin,
+        market_comparison=selection.comparison,
+    )
+    persist_source_health(source_health)
+    quarantined_sources = set(source_health["quarantined_sources"])
+    if quarantined_sources:
+        print(f"Quarantined optional sources: {', '.join(sorted(quarantined_sources))}")
 
     actuals = dict(zip(data.timestamps, map(float, data.closes), strict=True))
     rolling_history = load_forecast_history()
@@ -507,16 +521,15 @@ def main() -> None:
 
     model = load_timesfm()
     engine_output = build_forecast(model, data, history, adaptive_confidence=adaptive_confidence)
-    derivative_features = derivatives_snapshot.get("features", {})
-    microstructure_features = microstructure_snapshot.get("features", {})
-    cross_asset_features = cross_asset_snapshot.get("features", {})
+    optional_snapshots = {
+        "derivatives": derivatives_snapshot,
+        "microstructure": microstructure_snapshot,
+        "cross_asset": cross_asset_snapshot,
+    }
     market_features = engine_output.get("market_features")
     if isinstance(market_features, dict):
-        for feature_group in (
-            derivative_features,
-            microstructure_features,
-            cross_asset_features,
-        ):
+        for name, snapshot in optional_snapshots.items():
+            feature_group = {} if name in quarantined_sources else snapshot.get("features", {})
             if not isinstance(feature_group, dict):
                 continue
             for name, value in feature_group.items():
@@ -585,6 +598,7 @@ def main() -> None:
             "derivatives_signals": derivatives_manifest(derivatives_snapshot),
             "microstructure_signals": microstructure_manifest(microstructure_snapshot),
             "cross_asset_signals": cross_asset_manifest(cross_asset_snapshot),
+            "source_health": source_health,
         },
         model_names=sorted(engine_output.get("model_predictions", {})),
         enabled_features=sorted(
@@ -613,6 +627,7 @@ def main() -> None:
         "derivatives_signals": derivatives_snapshot,
         "microstructure_signals": microstructure_snapshot,
         "cross_asset_signals": cross_asset_snapshot,
+        "source_health": source_health,
         "drift_detection": drift_report,
         "interval_calibration_evaluation": interval_calibration_evaluation,
         "forecast_confidence": forecast_confidence,

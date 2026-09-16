@@ -63,6 +63,7 @@ def _instrument_forecast(observer: PipelineObserver, btc_forecast: Any) -> None:
     original_build_forecast = btc_forecast.build_forecast
     original_drift = btc_forecast.evaluate_production_drift
     original_manifest = btc_forecast.build_experiment_manifest
+    original_source_health = btc_forecast.evaluate_source_health
     original_store: type[Any] = btc_forecast.ForecastHistoryStore
 
     def fetch_observed(limit: int = 512):
@@ -134,6 +135,21 @@ def _instrument_forecast(observer: PipelineObserver, btc_forecast: Any) -> None:
         )
         return report
 
+    def source_health_observed(*args: Any, **kwargs: Any):
+        report = original_source_health(*args, **kwargs)
+        metrics = report.get("metrics", {})
+        quarantined = int(metrics.get("quarantined_source_count", 0))
+        revisions = int(metrics.get("revised_source_count", 0))
+        disagreements = int(metrics.get("disagreement_count", 0))
+        if quarantined:
+            observer.increment("source_quarantines", quarantined)
+        if revisions:
+            observer.increment("source_revisions", revisions)
+        if disagreements:
+            observer.increment("source_disagreements", disagreements)
+        observer.event("source_health_evaluated", status="success", **metrics)
+        return report
+
     def manifest_observed(*args: Any, **kwargs: Any):
         manifest = original_manifest(*args, **kwargs)
         observer.set_experiment_id(manifest.get("run_id"))
@@ -176,6 +192,7 @@ def _instrument_forecast(observer: PipelineObserver, btc_forecast: Any) -> None:
     btc_forecast.load_timesfm = load_model_observed
     btc_forecast.build_forecast = build_forecast_observed
     btc_forecast.evaluate_production_drift = drift_observed
+    btc_forecast.evaluate_source_health = source_health_observed
     btc_forecast.build_experiment_manifest = manifest_observed
     btc_forecast.ForecastHistoryStore = ObservedForecastHistoryStore
 
