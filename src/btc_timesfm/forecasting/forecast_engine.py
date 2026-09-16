@@ -690,6 +690,8 @@ def ensemble_forecast(
             "q50_usd": round(price, 2),
             "q90_usd": round(q90, 2),
             "model_agreement": round(agreement, 4),
+            "model_disagreement_usd": round(dispersion, 4),
+            "model_disagreement_pct": round(dispersion / current_price * 100.0, 4),
             "weighting_mode": str(diagnostics["mode"]),
             "weighting_samples": int(diagnostics["sample_count"]),
             "interval_calibration_multiplier": round(multiplier, 4),

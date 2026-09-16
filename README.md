@@ -102,7 +102,7 @@ model_weights.16h
 weighting_diagnostics.<horizon>
 ```
 
-The diagnostics include adaptive/static mode, selected history source, configured history limit, per-model sample count, MAE, direction accuracy, signed bias, Q10-Q90 coverage and interval sample count, durable-vs-current-candle outcome counts, raw adaptive score, learned weight, final weight, persistence edge, blend factor and whether the persistence fallback was activated.
+The diagnostics include adaptive/static mode, selected history source, configured history limit, per-model sample count, MAE, direction accuracy, signed bias, Q10-Q90 coverage and interval sample count, durable-vs-current-candle outcome counts, raw adaptive score, learned weight, final weight, persistence edge, blend factor and whether the persistence fallback was activated. Each horizon also exposes `model_disagreement_usd` and `model_disagreement_pct` alongside model agreement, making dispersion available to uncertainty-aware consumers.
 
 This makes the weighting reproducible and observable while preserving strict no-look-ahead behavior. Sparse samples shrink toward the existing prior; sufficient samples can move each horizon and regime to a different learned model mix.
 
@@ -300,6 +300,10 @@ The backtest feeds only prior forecast snapshots into each new forecast, so adap
 The result is written to `backtest_report.json` with MAE %, mean signed error, direction accuracy, ensemble interval coverage and adaptive ensemble performance by regime.
 
 The most important comparisons are whether the adaptive ensemble beats the static ensemble and whether either consistently beats `persistence`.
+
+## Stacked specialist research
+
+`stacked_ensemble.py` evaluates a research-only non-negative stacked meta-learner over the production correlation-aware ensemble, horizon-specialized policy and regime-specialist policy. Its folds are purged walk-forward splits, and each horizon's learner is fit only on that fold's matured training labels. The report compares OOS stack performance with paired-bootstrap confidence intervals against production and persistence, segmented by horizon and regime; low-sample or unstable segments are inconclusive. See `docs/STACKED_ENSEMBLE.md`.
 
 ## Weekly walk-forward optimization
 
