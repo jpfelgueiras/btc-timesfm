@@ -18,6 +18,7 @@ from btc_timesfm.forecasting.experiment_manifest import (  # noqa: E402
     market_data_identity,
     seed_everything,
 )
+from btc_timesfm.forecasting.feature_registry import MARKET_FEATURE_NAMES  # noqa: E402
 from btc_timesfm.forecasting.forecast_engine import MarketData  # noqa: E402
 
 
@@ -88,16 +89,29 @@ class ExperimentManifestTests(unittest.TestCase):
         )
         self.assertNotEqual(base["configuration_id"], changed["configuration_id"])
 
-    def test_feature_set_version_is_recorded_in_configuration(self) -> None:
+    def test_feature_set_version_and_lineage_are_resolved_from_registry(self) -> None:
         manifest = build_experiment_manifest(
             run_type="research",
             data=make_data(),
             data_source="Binance BTCUSDT 1h",
             data_pair="BTC/USDT",
-            feature_set_version="feature-set-1234abcd",
+            enabled_features=list(MARKET_FEATURE_NAMES[:2]),
             created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         )
-        self.assertEqual(manifest["configuration"]["feature_set_version"], "feature-set-1234abcd")
+        feature_set = manifest["configuration"]["feature_set"]
+        self.assertTrue(feature_set["version"].startswith("feature-set-v1-"))
+        self.assertEqual(feature_set["enabled_features"], list(MARKET_FEATURE_NAMES[:2]))
+        self.assertEqual(manifest["configuration"]["feature_set_version"], feature_set["version"])
+
+    def test_unregistered_enabled_feature_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "not registered"):
+            build_experiment_manifest(
+                run_type="research",
+                data=make_data(),
+                data_source="Binance BTCUSDT 1h",
+                data_pair="BTC/USDT",
+                enabled_features=["unknown_feature"],
+            )
 
     def test_seed_everything_replays_python_and_numpy_randomness(self) -> None:
         seed_everything(42)

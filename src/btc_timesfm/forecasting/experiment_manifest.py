@@ -20,6 +20,7 @@ from btc_timesfm.forecasting.adaptive_weighting import (
     MIN_COVERAGE_SAMPLES,
     TARGET_INTERVAL_COVERAGE,
 )
+from btc_timesfm.forecasting.feature_registry import MARKET_FEATURE_NAMES, resolve_feature_set
 from btc_timesfm.forecasting.forecast_engine import (
     ADAPTIVE_DIRECTION_REWARD,
     ADAPTIVE_FULL_SAMPLES,
@@ -151,6 +152,7 @@ def build_experiment_manifest(
     run_parameters: dict[str, Any] | None = None,
     model_names: list[str] | None = None,
     feature_set_version: str | None = None,
+    enabled_features: list[str] | None = None,
     seed: int = DEFAULT_SEED,
     created_at: datetime | None = None,
     git_sha: str | None = None,
@@ -171,6 +173,9 @@ def build_experiment_manifest(
         "pair": data_pair,
         **market_data_identity(data),
     }
+    feature_set = resolve_feature_set(enabled_features or list(MARKET_FEATURE_NAMES))
+    if feature_set_version is not None and feature_set_version != feature_set["version"]:
+        raise ValueError("feature_set_version must resolve through the feature registry")
     dependencies: dict[str, str] = {
         "timesfm": _package_version("timesfm"),
         "numpy": np.__version__,
@@ -180,7 +185,8 @@ def build_experiment_manifest(
         "forecast": forecast_configuration(model_names),
         "run_parameters": run_parameters or {},
         "dependencies": dependencies,
-        "feature_set_version": feature_set_version,
+        "feature_set_version": feature_set["version"],
+        "feature_set": feature_set,
         "seed": seed,
     }
     configuration_hash = _sha256(configuration)
