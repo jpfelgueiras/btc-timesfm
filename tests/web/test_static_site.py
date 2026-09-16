@@ -150,9 +150,7 @@ class StaticSiteTests(unittest.TestCase):
             self.assertEqual(horizon["mae_delta_pct_points"], 2.0)
             self.assertTrue(horizon["unstable_or_low_sample"])
             self.assertEqual(window["by_regime"]["trending"]["mae_delta_pct_points"], 2.0)
-            self.assertEqual(
-                window["by_volatility_bucket"]["high"]["mae_delta_pct_points"], 2.0
-            )
+            self.assertEqual(window["by_volatility_bucket"]["high"]["mae_delta_pct_points"], 2.0)
 
     def test_persistence_edge_windows_exclude_old_pairs(self) -> None:
         rows = []

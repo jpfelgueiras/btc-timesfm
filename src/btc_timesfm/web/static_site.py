@@ -353,7 +353,7 @@ def _render_persistence_edge(data: dict[str, Any]) -> str:
                 f"<tbody>{_render_edge_rows(segments)}</tbody></table></div>"
             )
         windows.append(
-            f'<details {"open" if window == "30d" else ""}>'
+            f"<details {'open' if window == '30d' else ''}>"
             f"<summary>{labels[window]}</summary>{''.join(tables)}</details>"
         )
     return (
