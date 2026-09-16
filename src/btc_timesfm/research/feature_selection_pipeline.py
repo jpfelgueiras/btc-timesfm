@@ -155,7 +155,10 @@ def build_feature_selection_report(
             component["recommendation"] == "edge_detected"
             and component["no_material_horizon_regression"] is True
             and int(component["statistically_better_horizons"] or 0) > 0
-            and (not evidence_decisions or all(decision == "recommend_review" for decision in evidence_decisions))
+            and (
+                not evidence_decisions
+                or all(decision == "recommend_review" for decision in evidence_decisions)
+            )
         ):
             selected_groups.append(name)
 

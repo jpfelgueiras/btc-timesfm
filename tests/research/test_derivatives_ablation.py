@@ -66,7 +66,12 @@ class DerivativesAblationTests(unittest.TestCase):
             if "evidence" in item:
                 self.assertIn(
                     item["evidence"]["decision"],
-                    {"recommend_review", "do_not_promote_harmful", "do_not_promote_inconclusive", "insufficient_evidence"},
+                    {
+                        "recommend_review",
+                        "do_not_promote_harmful",
+                        "do_not_promote_inconclusive",
+                        "insufficient_evidence",
+                    },
                 )
 
 
