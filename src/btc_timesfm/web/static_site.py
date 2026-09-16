@@ -394,7 +394,7 @@ def _render_latest(data: dict[str, Any]) -> str:
     state = abstention.get("state") if isinstance(abstention, dict) else "healthy"
     state_display = ""
     if state != "healthy":
-        state_display = f'<div style="margin-top:8px"><span class="badge warn">{html.escape(state)}</span></div>'
+        state_display = f'<div style="margin-top:8px"><span class="badge warn">{html.escape(str(state))}</span></div>'
 
     attribution = latest.get("attribution")
     attribution_display = ""
