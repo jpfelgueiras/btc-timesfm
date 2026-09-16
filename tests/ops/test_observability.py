@@ -45,6 +45,8 @@ class ObservabilityTests(unittest.TestCase):
             self.assertGreaterEqual(report["stages"][0]["duration_ms"], 0.0)
             events = [json.loads(line) for line in (root / "events.jsonl").read_text().splitlines()]
             self.assertTrue(all(event["run_id"] == "test-run" for event in events))
+            finished = next(event for event in events if event["event"] == "stage_finished")
+            self.assertEqual(finished["domain"], "model")
             self.assertIn("stage_started", {event["event"] for event in events})
             self.assertIn("stage_finished", {event["event"] for event in events})
 

@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "service": "forecast-service",
+  "objectives": [
+    {
+      "name": "market-data-validation",
+      "domain": "data",
+      "description": "Validated market-data acquisition outcomes.",
+      "target_percent": 99.0,
+      "window_days": 30,
+      "min_events": 30,
+      "review_cadence_days": 90,
+      "threshold_basis": "One normalized acquisition/validation outcome per production run; 99% permits 0.30 failed outcomes per 30 runs."
+    },
+    {
+      "name": "forecast-model-execution",
+      "domain": "model",
+      "description": "Completed forecast-model inference outcomes.",
+      "target_percent": 99.0,
+      "window_days": 30,
+      "min_events": 30,
+      "review_cadence_days": 90,
+      "threshold_basis": "One normalized inference outcome per production run; target is measured only after 30 observations."
+    },
+    {
+      "name": "forecast-history-persistence",
+      "domain": "storage",
+      "description": "Durable forecast-history write outcomes.",
+      "target_percent": 99.9,
+      "window_days": 30,
+      "min_events": 30,
+      "review_cadence_days": 90,
+      "threshold_basis": "One normalized durable-history write outcome per publishable forecast; no more than 0.03 failures per 30 events."
+    },
+    {
+      "name": "service-api-dependencies",
+      "domain": "api",
+      "description": "Abstract external API dependency outcomes, ready for #218/#219 integrations.",
+      "target_percent": 99.0,
+      "window_days": 30,
+      "min_events": 30,
+      "review_cadence_days": 90,
+      "threshold_basis": "One normalized external dependency outcome per attempted call; provider instrumentation is supplied by #218/#219."
+    },
+    {
+      "name": "forecast-publication",
+      "domain": "publication",
+      "description": "Public forecast artifact and site publication outcomes.",
+      "target_percent": 99.0,
+      "window_days": 30,
+      "min_events": 30,
+      "review_cadence_days": 90,
+      "threshold_basis": "One normalized publication outcome per approved forecast run; freshness timing remains governed by freshness_slo.json."
+    }
+  ]
+}
