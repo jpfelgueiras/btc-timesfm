@@ -103,6 +103,7 @@ jobs:
             src/btc_timesfm/ops/pipeline_health.py \
             src/btc_timesfm/x/post_to_x.py \
             src/btc_timesfm/ops/promotion_policy.py \
+            src/btc_timesfm/ops/rollback_safeguards.py \
             src/btc_timesfm/research/regime_backtest.py \
             src/btc_timesfm/data/regime_detection.py \
             src/btc_timesfm/ops/schedule_guard.py \
