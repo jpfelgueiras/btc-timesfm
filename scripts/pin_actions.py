@@ -1,34 +1,31 @@
-import os
-import re
-from pathlib import Path
+from __future__ import annotations
+
+import argparse
+import subprocess
+from collections.abc import Sequence
 
 
-def pin_files():
-    workflows_dir = Path(".github/workflows")
-    actions_dir = Path(".github/actions")
+def resolve(action: str, revision: str) -> str:
+    result = subprocess.run(
+        ["git", "ls-remote", f"https://github.com/{action}.git", f"refs/tags/{revision}"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    sha, _, _ = result.stdout.partition("\t")
+    if len(sha) != 40:
+        raise ValueError(f"No immutable tag found for {action}@{revision}")
+    return sha
 
-    # Dummy SHA to satisfy lint_action_pins.py
-    DUMMY_SHA = "e000000000000000000000000000000000000000"
 
-    for path in list(workflows_dir.glob("*.yml")) + list(actions_dir.rglob("*.yml")):
-        with open(path, "r") as f:
-            content = f.read()
-
-        def repl(match):
-            action_name = match.group(1)
-            version = match.group(2)
-            # If it's already a SHA, skip it
-            if len(version) == 40:
-                return match.group(0)
-            if not action_name.startswith("./"):  # Skip local actions
-                return f"uses: {action_name}@{DUMMY_SHA} # {version}"
-            return match.group(0)
-
-        new_content = re.sub(r"uses:\s+([a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+)@([^\s#]+)", repl, content)
-
-        with open(path, "w") as f:
-            f.write(new_content)
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Resolve a GitHub Action tag to its commit SHA.")
+    parser.add_argument("action")
+    parser.add_argument("revision")
+    arguments = parser.parse_args(argv)
+    print(resolve(arguments.action, arguments.revision))
+    return 0
 
 
 if __name__ == "__main__":
-    pin_files()
+    raise SystemExit(main())

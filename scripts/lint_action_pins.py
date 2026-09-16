@@ -1,38 +1,57 @@
-import os
+from __future__ import annotations
+
+import argparse
 import re
 import sys
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-
-def is_pinned(action_str):
-    # Check if it has a SHA (usually 40 hex chars)
-    # This is a simple heuristic.
-    return re.search(r"@[a-f0-9]{40}", action_str) is not None
+SHA = re.compile(r"^[0-9a-fA-F]{40}$")
+USES = re.compile(r"^\s*(?:-\s*)?uses:\s*(?P<reference>\S+)")
+DEFAULT_PATHS = (Path(".github/workflows"), Path(".github/actions"))
 
 
-def scan_files():
-    workflows_dir = Path(".github/workflows")
-    actions_dir = Path(".github/actions")
+def workflow_files(paths: Iterable[Path]) -> Iterable[Path]:
+    for path in paths:
+        if path.is_file() and path.suffix in {".yml", ".yaml"}:
+            yield path
+        elif path.is_dir():
+            yield from sorted(
+                candidate for candidate in path.rglob("*") if candidate.suffix in {".yml", ".yaml"}
+            )
 
-    unpinned_found = False
 
-    for path in list(workflows_dir.glob("*.yml")) + list(actions_dir.rglob("*.yml")):
-        with open(path, "r") as f:
-            content = f.read()
-            # Match actions usage: uses: actions/checkout@vX or uses: ./path/to/action
-            # We care about third-party ones, so maybe exclude ./local-actions
-            matches = re.finditer(r"uses:\s+([a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+)@([^\s]+)", content)
+def validate(path: Path) -> list[str]:
+    errors: list[str] = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        match = USES.match(line)
+        if match is None:
+            continue
+        reference = match.group("reference").strip("'\"")
+        if reference.startswith(("./", "../")):
+            continue
+        action, separator, revision = reference.rpartition("@")
+        if not separator or not action or not SHA.fullmatch(revision):
+            errors.append(
+                f"{path}:{line_number}: action must be pinned to a full commit SHA: {reference}"
+            )
+    return errors
 
-            for match in matches:
-                action = match.group(0)
-                if not is_pinned(action):
-                    print(f"Unpinned action found in {path}: {action}")
-                    unpinned_found = True
 
-    return unpinned_found
+def lint(paths: Iterable[Path]) -> list[str]:
+    return [error for path in workflow_files(paths) for error in validate(path)]
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Require immutable SHA pins for GitHub Actions.")
+    parser.add_argument("paths", nargs="*", type=Path, default=DEFAULT_PATHS)
+    arguments = parser.parse_args(argv)
+    errors = lint(arguments.paths)
+    if errors:
+        print("\n".join(errors), file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    if scan_files():
-        sys.exit(1)
-    sys.exit(0)
+    raise SystemExit(main())

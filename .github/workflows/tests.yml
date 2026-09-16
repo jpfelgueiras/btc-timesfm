@@ -24,14 +24,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - uses: ./.github/actions/python-setup
         with:
           requirements-file: requirements-test.txt
 
       - name: Restore flaky-test log
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: .state/flaky-tests.json
           key: flaky-tests-${{ github.ref_name }}-${{ github.sha }}
@@ -60,7 +60,7 @@ jobs:
 
       - name: Save flaky-test log
         if: always()
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: .state/flaky-tests.json
           key: flaky-tests-${{ github.ref_name }}-${{ github.sha }}
@@ -98,6 +98,12 @@ jobs:
         if: always()
         continue-on-error: true
         run: python scripts/lint_workflows.py
+
+      - name: GitHub Action pin check
+        id: action-pins
+        if: always()
+        continue-on-error: true
+        run: python scripts/lint_action_pins.py
 
       - name: Type check critical modules
         id: typecheck
@@ -151,10 +157,11 @@ jobs:
           LINT: ${{ steps.lint.outcome }}
           FORMAT: ${{ steps.format.outcome }}
           WORKFLOWS: ${{ steps.workflows.outcome }}
+          ACTION_PINS: ${{ steps.action-pins.outcome }}
           TYPECHECK: ${{ steps.typecheck.outcome }}
         run: |
           failed=0
-          for gate in UNIT COVERAGE LINT FORMAT WORKFLOWS TYPECHECK; do
+          for gate in UNIT COVERAGE LINT FORMAT WORKFLOWS ACTION_PINS TYPECHECK; do
             outcome="${!gate}"
             echo "$gate: $outcome"
             if [ "$outcome" != "success" ]; then
@@ -172,7 +179,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - uses: ./.github/actions/python-setup
 
@@ -191,7 +198,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - uses: ./.github/actions/python-setup
 
