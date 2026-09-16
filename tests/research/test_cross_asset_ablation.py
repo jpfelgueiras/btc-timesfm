@@ -49,6 +49,19 @@ class CrossAssetAblationTests(unittest.TestCase):
         for item in first["horizons"].values():
             self.assertGreater(item["walk_forward_samples"], 0)
             self.assertIn("significance", item)
+            if "evidence" in item:
+                self.assertEqual(
+                    set(item["evidence"]),
+                    {
+                        "effect_size",
+                        "confidence_interval",
+                        "sample_count",
+                        "fold_stability",
+                        "decision",
+                        "significance",
+                    },
+                )
+                self.assertEqual(item["recommendation"], item["evidence"]["decision"])
             self.assertEqual(set(item["regimes"]), {"range", "trending"})
 
     def test_sparse_evidence_is_not_promoted(self) -> None:

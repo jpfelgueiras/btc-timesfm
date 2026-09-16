@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 
 from btc_timesfm.data.microstructure_signals import MICROSTRUCTURE_FEATURE_NAMES
-from btc_timesfm.forecasting.statistical_significance import paired_bootstrap_comparison
+from btc_timesfm.research.ablation_evidence import ablation_manifest, evaluate_horizon_evidence
 
 REPORT_PATH = Path("microstructure_ablation_report.json")
 SUMMARY_PATH = Path("microstructure_ablation_summary.md")
@@ -158,13 +158,10 @@ def evaluate_rows(rows: list[dict[str, Any]], *, min_train: int = 24) -> dict[st
 
         candidate_errors = [item["candidate_error"] for item in outcomes]
         baseline_errors = [item["baseline_error"] for item in outcomes]
-        significance = paired_bootstrap_comparison(
+        evidence = evaluate_horizon_evidence(
             candidate_errors,
             baseline_errors,
             metric="absolute_change_error_pct_points",
-            lower_is_better=True,
-            min_samples=32,
-            iterations=2000,
             seed=horizon,
         )
         regimes: dict[str, Any] = {}
@@ -200,15 +197,10 @@ def evaluate_rows(rows: list[dict[str, Any]], *, min_train: int = 24) -> dict[st
             )
             if outcomes
             else None,
-            "significance": significance,
+            "evidence": evidence,
+            "significance": evidence["significance"],
             "regimes": regimes,
-            "recommendation": (
-                "keep_for_research"
-                if significance["conclusion"] == "candidate_better"
-                else "drop_or_research"
-                if significance["conclusion"] == "baseline_better"
-                else "insufficient_evidence"
-            ),
+            "recommendation": evidence["decision"],
         }
     return report
 
@@ -242,6 +234,8 @@ def main() -> None:
     report = evaluate_rows(rows, min_train=args.min_train)
     report["database"] = str(args.db)
     report["feature_names"] = list(MICROSTRUCTURE_FEATURE_NAMES)
+    report["feature_sets"] = {"market_only": list(BASE_FEATURE_NAMES)}
+    report["experiment_manifest"] = ablation_manifest("microstructure", HORIZONS)
     REPORT_PATH.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     SUMMARY_PATH.write_text(render_summary(report))
     print(render_summary(report))

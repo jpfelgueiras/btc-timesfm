@@ -22,7 +22,7 @@ from btc_timesfm.data.cross_asset_signals import (
     snapshot_from_inputs,
 )
 from btc_timesfm.forecasting.forecast_engine import MarketData, detect_regime, market_features
-from btc_timesfm.forecasting.statistical_significance import paired_bootstrap_comparison
+from btc_timesfm.research.ablation_evidence import ablation_manifest, evaluate_horizon_evidence
 
 BTC_PAIR = "XBTUSD"
 REPORT_PATH = Path("cross_asset_ablation_report.json")
@@ -169,13 +169,10 @@ def evaluate_rows(
 
         baseline_errors = [item["baseline_error"] for item in outcomes]
         candidate_errors = [item["candidate_error"] for item in outcomes]
-        significance = paired_bootstrap_comparison(
+        evidence = evaluate_horizon_evidence(
             candidate_errors,
             baseline_errors,
             metric="absolute_change_error_pct_points",
-            lower_is_better=True,
-            min_samples=32,
-            iterations=2000,
             seed=100 + horizon,
         )
         regimes: dict[str, Any] = {}
@@ -210,16 +207,12 @@ def evaluate_rows(
             )
             if outcomes
             else None,
-            "significance": significance,
+            "evidence": evidence,
+            "significance": evidence["significance"],
             "regimes": regimes,
-            "recommendation": (
-                "keep_for_research"
-                if significance["conclusion"] == "candidate_better"
-                else "drop_or_research"
-                if significance["conclusion"] == "baseline_better"
-                else "insufficient_evidence"
-            ),
+            "recommendation": evidence["decision"],
         }
+
     return report
 
 
@@ -255,6 +248,8 @@ def main() -> None:
     report.update(
         {
             "feature_names": list(CROSS_ASSET_FEATURE_NAMES),
+            "feature_sets": {"market_only": list(BASE_FEATURE_NAMES)},
+            "experiment_manifest": ablation_manifest("cross_asset", HORIZONS),
             "feature_rows": len(rows),
             "providers": {
                 "btc": {"name": "kraken_spot", "pair": BTC_PAIR},

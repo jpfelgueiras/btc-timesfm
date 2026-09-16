@@ -26,7 +26,7 @@ from btc_timesfm.data.derivatives_signals import (
 )
 from btc_timesfm.forecasting.experiment_manifest import seed_everything
 from btc_timesfm.forecasting.forecast_engine import TARGET_HOURS, market_features
-from btc_timesfm.forecasting.statistical_significance import paired_bootstrap_comparison
+from btc_timesfm.research.ablation_evidence import ablation_manifest, evaluate_horizon_evidence
 
 
 REPORT_PATH = Path("derivatives_ablation_report.json")
@@ -207,11 +207,11 @@ def walk_forward_ablation(
             if base_mae not in (None, 0) and new_mae is not None
             else None
         )
-        significance = paired_bootstrap_comparison(
+        evidence = evaluate_horizon_evidence(
             augmented_errors,
             baseline_errors,
             metric=f"{horizon}_mae_pct",
-            lower_is_better=True,
+            seed=100 + hour,
         )
         by_horizon[horizon] = {
             "origins": origins,
@@ -227,7 +227,8 @@ def walk_forward_ablation(
                 and baseline["direction_accuracy"] is not None
                 else None
             ),
-            "significance": significance,
+            "evidence": evidence,
+            "significance": evidence["significance"],
         }
 
     improvements = [
@@ -237,7 +238,7 @@ def walk_forward_ablation(
     ]
     safe = bool(improvements) and min(improvements) >= -0.05
     significant = sum(
-        item["significance"].get("conclusion") == "candidate_better" for item in by_horizon.values()
+        item["evidence"]["decision"] == "recommend_review" for item in by_horizon.values()
     )
     mean_improvement = float(np.mean(improvements)) if improvements else 0.0
     recommendation = (
@@ -250,6 +251,7 @@ def walk_forward_ablation(
         "method": "paired_leakage_safe_walk_forward_ridge_ablation",
         "uses_future_information": False,
         "minimum_training_rows": min_train,
+        "experiment_manifest": ablation_manifest("derivatives", TARGET_HOURS),
         "feature_sets": {
             "market_only": list(MARKET_FEATURE_NAMES),
             "market_plus_derivatives": list(MARKET_FEATURE_NAMES + DERIVATIVE_FEATURE_NAMES),

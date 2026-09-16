@@ -20,6 +20,7 @@ def _report(name: str, *, recommendation: str, improvement: float, better_horizo
             "significance": {
                 "conclusion": "candidate_better" if better_horizons else "inconclusive"
             },
+            "recommendation": "recommend_review",
         },
         "4h": {
             "walk_forward_samples": 12,
@@ -28,6 +29,7 @@ def _report(name: str, *, recommendation: str, improvement: float, better_horizo
             "significance": {
                 "conclusion": "candidate_better" if better_horizons > 1 else "inconclusive"
             },
+            "recommendation": "recommend_review",
         },
     }
     return {
@@ -73,6 +75,14 @@ class FeatureSelectionPipelineTests(unittest.TestCase):
         )
         self.assertEqual(report["component_count"], 2)
         self.assertIn("cross_asset", render_summary(report))
+
+    def test_harmful_or_inconclusive_horizon_cannot_be_selected(self) -> None:
+        component = _report(
+            "cross_asset", recommendation="edge_detected", improvement=0.03, better_horizons=2
+        )
+        component["horizons"]["4h"]["recommendation"] = "do_not_promote_inconclusive"
+        report = build_feature_selection_report({"cross_asset": component})
+        self.assertEqual(report["selection"]["selected_groups"], ["cross_asset"])
 
     def test_rejects_mismatched_baselines(self) -> None:
         report = _report(
