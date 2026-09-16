@@ -29,6 +29,9 @@ jobs:
     timeout-minutes: 20
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - uses: ./.github/actions/python-setup
         with:
           requirements-file: requirements-test.txt

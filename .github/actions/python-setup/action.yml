@@ -1,21 +1,13 @@
 name: Python workflow setup
-description: Check out the repository, configure Python and install dependencies.
+description: Configure Python and install dependencies after the workflow checks out the repository.
 inputs:
   requirements-file:
     description: Requirements file to install. Leave empty when no dependencies are needed.
     required: false
     default: ""
-  checkout-ref:
-    description: Git ref to check out.
-    required: false
-    default: ""
 runs:
   using: composite
   steps:
-    - name: Checkout
-      uses: actions/checkout@v7
-      with:
-        ref: ${{ inputs.checkout-ref }}
     - name: Set up Python
       uses: actions/setup-python@v7
       with:

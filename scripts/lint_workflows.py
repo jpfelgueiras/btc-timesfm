@@ -54,9 +54,15 @@ def validate(path: Path) -> list[str]:
                 for field in REQUIRED_JOB_FIELDS
                 if field not in body
             )
+            checkout_index = body.find("uses: actions/checkout@")
+            setup_index = body.find("uses: ./.github/actions/python-setup")
+            if checkout_index == -1 or checkout_index > setup_index:
+                errors.append(
+                    f"{path}: job {name} must check out the repository before shared Python setup"
+                )
         if "uses: actions/upload-artifact@" in body and "retention-days:" not in body:
             errors.append(f"{path}: job {name} artifact is missing retention-days")
-        if "uses: actions/checkout@" in body or "uses: actions/setup-python@" in body:
+        if "uses: actions/setup-python@" in body:
             errors.append(f"{path}: job {name} bypasses the shared Python setup composite")
     return errors
 

@@ -28,9 +28,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: ./.github/actions/python-setup
+      - name: Checkout trusted main branch
+        uses: actions/checkout@v7
         with:
-          checkout-ref: main
+          ref: main
+
+      - uses: ./.github/actions/python-setup
 
       - name: Download durable forecast history
         env:

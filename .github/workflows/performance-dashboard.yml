@@ -19,6 +19,9 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - uses: ./.github/actions/python-setup
 
       - name: Restore durable forecast history
