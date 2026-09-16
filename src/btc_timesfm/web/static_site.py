@@ -765,7 +765,7 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
   <p>Browse the durable ledger. Pending rows have not reached their target candle; matured rows are immutable historical predictions compared with actual BTC prices.</p>
   {_render_explorer(data)}
 </section>
-{render_explorer(data["historical_explorer"])}
+{render_explorer(data.get("historical_explorer", {}))}
 <section id="recent" aria-labelledby="recent-heading">
   <h2 id="recent-heading">Recent forecast ledger</h2>
   <p>Pending rows have not reached their target candle yet. Matured rows are immutable historical predictions compared with the actual BTC price.</p>
