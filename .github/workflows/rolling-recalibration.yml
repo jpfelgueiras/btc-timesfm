@@ -1,0 +1,47 @@
+name: Rolling calibration audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      rollback:
+        description: Roll back the latest applied recalibration
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "23 5 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rolling-calibration-audit
+  cancel-in-progress: false
+
+jobs:
+  recalibrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/python-setup
+      - name: Restore calibration input
+        run: |
+          mkdir -p .state
+          test -f .state/rolling_recalibration_input.json || printf '%s\n' '{"history": [], "actual_by_timestamp": {}, "current_multipliers": {}}' > .state/rolling_recalibration_input.json
+      - name: Build safe recalibration report
+        run: |
+          PYTHONPATH=src python -m btc_timesfm.forecasting.rolling_recalibration \
+            --input .state/rolling_recalibration_input.json \
+            --audit .state/rolling_recalibration_audit.json \
+            --report .state/rolling_recalibration_report.json \
+            ${{ inputs.rollback && '--rollback' || '' }}
+      - name: Add report to summary
+        if: always()
+        run: cat .state/rolling_recalibration_report.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: rolling-recalibration-${{ github.run_id }}
+          path: .state/rolling_recalibration_*.json
+          retention-days: 90

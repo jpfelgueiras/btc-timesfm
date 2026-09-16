@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import math
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
 import numpy as np
@@ -217,7 +217,7 @@ def collect_bucket_samples(
             continue
         if now is not None:
             origin = _origin_time(snapshot)
-            if origin is None or origin > now:
+            if origin is None or origin + timedelta(hours=hour) > now:
                 continue
         sample = _bucket_sample(snapshot, actual_by_timestamp, hour, cuts)
         if sample is None:
