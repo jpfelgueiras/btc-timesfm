@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  issues: read
 
 jobs:
   quality-gates:
@@ -37,9 +38,10 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: .state/flaky-tests.json
-          key: flaky-tests-${{ github.ref_name }}
+          key: flaky-tests-${{ github.ref_name }}-${{ github.sha }}
           restore-keys: |
-            flaky-tests-main
+            flaky-tests-${{ github.ref_name }}-
+            flaky-tests-main-
 
       - name: Unit tests with retry and quarantine
         id: unit
@@ -65,7 +67,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: .state/flaky-tests.json
-          key: flaky-tests-${{ github.ref_name }}
+          key: flaky-tests-${{ github.ref_name }}-${{ github.sha }}
 
       - name: Coverage floor
         id: coverage
