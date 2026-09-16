@@ -367,6 +367,10 @@ The promotion policy is intentionally manual for now. A `candidate_worth_review`
 
 After a reviewed promotion, `rollback_safeguards.py` retains the previous champion manifest/configuration and evaluates matured live MAE, direction quality, calibration error and protected horizons. Its machine-readable, versioned thresholds require enough samples and two consecutive material degradation evaluations, except that a protected-horizon regression can immediately recommend a rollback. The resulting recommendation includes evidence and sample counts but never mutates production or merges a change; any rollback remains review-required. See `docs/PROMOTION_POLICY.md`.
 
+## Read-only forecast API contract
+
+[`docs/FORECAST_API_CONTRACT.md`](docs/FORECAST_API_CONTRACT.md) defines the implementation-independent `/v1` read-only API for latest forecasts, historical forecast rows, and health. It includes immutable-history lineage, experiment run and configuration identities, calibrated intervals, confidence evidence, freshness, filtering, cursor pagination, availability, errors, and additive-only compatibility rules. The contract validators in `btc_timesfm.api.forecast_contract` validate response payloads; serving HTTP endpoints is intentionally deferred to issue #219.
+
 ## Tests
 
 Run the complete unit-test suite:
