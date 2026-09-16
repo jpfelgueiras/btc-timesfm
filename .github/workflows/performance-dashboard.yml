@@ -6,6 +6,7 @@ on:
     - cron: "17 05 * * *"
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -31,6 +32,9 @@ jobs:
             --pattern forecast_history.sqlite.gz \
             --output .state/forecast_history.sqlite.gz
           gzip -dc .state/forecast_history.sqlite.gz > .state/forecast_history.sqlite
+          gh run download --repo "$GITHUB_REPOSITORY" \
+            --name forecast-history-disaster-recovery \
+            --dir .state/disaster-recovery || true
 
       - name: Verify durable history
         run: PYTHONPATH=src python -m btc_timesfm.history.history_store --db .state/forecast_history.sqlite verify
@@ -42,7 +46,8 @@ jobs:
             --db .state/forecast_history.sqlite \
             --json dashboard/performance_dashboard.json \
             --markdown dashboard/performance_dashboard.md \
-            --html dashboard/performance_dashboard.html
+            --html dashboard/performance_dashboard.html \
+            --disaster-recovery-report .state/disaster-recovery/disaster_recovery_report.json
 
       - name: Add dashboard to Actions summary
         run: cat dashboard/performance_dashboard.md >> "$GITHUB_STEP_SUMMARY"

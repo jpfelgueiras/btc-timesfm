@@ -41,6 +41,24 @@ def row(
 
 
 class PerformanceDashboardTests(unittest.TestCase):
+    def test_disaster_recovery_report_is_included_and_rendered(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            report_path = Path(directory) / "drill.json"
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "status": "passed",
+                        "checked_at": "2026-09-05T22:00:00+00:00",
+                        "restore_duration_ms": 12.5,
+                        "row_counts": {"forecast_origins": 2, "forecast_predictions": 4},
+                    }
+                )
+            )
+            report = build_report([], now=NOW, disaster_recovery_report_path=report_path)
+
+        self.assertEqual(report["disaster_recovery"]["status"], "passed")
+        self.assertIn("Disaster-recovery drill", render_markdown(report))
+
     def test_required_horizons_and_persistence_are_always_visible(self) -> None:
         report = build_report(
             [

@@ -1,0 +1,79 @@
+name: Forecast history disaster-recovery drill
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "43 6 * * 1"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: btc-timesfm-forecast
+  cancel-in-progress: false
+
+env:
+  HISTORY_RELEASE_TAG: forecast-history-v1
+  RUNBOOK_PATH: docs/DISASTER_RECOVERY.md
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Restore latest backup archive to scratch storage
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p .drill
+          gh release download "$HISTORY_RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'forecast_history.backup-*.sqlite.gz' \
+            --dir .drill
+          archive="$(python3 - <<'PY'
+          from pathlib import Path
+          archives = list(Path('.drill').glob('forecast_history.backup-*.sqlite.gz'))
+          if not archives:
+              raise SystemExit('No versioned forecast-history backup assets are available')
+          print(max(archives, key=lambda path: path.stat().st_mtime))
+          PY
+          )"
+          cp "$archive" .drill/latest-backup.sqlite.gz
+
+      - name: Run non-mutating recovery drill
+        id: drill
+        run: |
+          PYTHONPATH=src python -m btc_timesfm.history.disaster_recovery \
+            --archive .drill/latest-backup.sqlite.gz \
+            --report .drill/disaster_recovery_report.json
+
+      - name: Add drill report to job summary
+        if: always() && hashFiles('.drill/disaster_recovery_report.json') != ''
+        run: |
+          echo '## Forecast history disaster-recovery drill' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat .drill/disaster_recovery_report.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload drill report
+        if: always() && hashFiles('.drill/disaster_recovery_report.json') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: forecast-history-disaster-recovery
+          path: .drill/disaster_recovery_report.json
+          retention-days: 90
+
+      - name: Create failure issue
+        if: steps.drill.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Forecast history disaster-recovery drill failed" \
+            --body "The scheduled recovery drill failed in run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Follow [$RUNBOOK_PATH]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/$RUNBOOK_PATH)."
+          exit 1
