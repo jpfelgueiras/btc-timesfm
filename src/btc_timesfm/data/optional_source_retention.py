@@ -24,7 +24,9 @@ class OptionalSourceRetentionConfig:
         retention_hours = float(
             os.environ.get("BTC_OPTIONAL_SOURCE_RETENTION_HOURS", cls.retention_hours)
         )
-        max_records = int(os.environ.get("BTC_OPTIONAL_SOURCE_RETENTION_MAX_RECORDS", cls.max_records))
+        max_records = int(
+            os.environ.get("BTC_OPTIONAL_SOURCE_RETENTION_MAX_RECORDS", cls.max_records)
+        )
         if retention_hours <= 0:
             raise ValueError("BTC_OPTIONAL_SOURCE_RETENTION_HOURS must be positive")
         if max_records <= 0:
@@ -53,7 +55,11 @@ def _load(path: Path) -> list[dict[str, Any]]:
     except (FileNotFoundError, OSError, json.JSONDecodeError):
         return []
     records = payload.get("records") if isinstance(payload, dict) else None
-    return [record for record in records if isinstance(record, dict)] if isinstance(records, list) else []
+    return (
+        [record for record in records if isinstance(record, dict)]
+        if isinstance(records, list)
+        else []
+    )
 
 
 def retain_optional_sources(
@@ -117,6 +123,8 @@ def replay_optional_sources(
     for source, snapshot in snapshots.items():
         if not isinstance(source, str) or not isinstance(snapshot, dict):
             continue
-        reconstructed = reconstruct(source, snapshot) if reconstruct else snapshot.get("features", {})
+        reconstructed = (
+            reconstruct(source, snapshot) if reconstruct else snapshot.get("features", {})
+        )
         features[source] = dict(reconstructed) if isinstance(reconstructed, Mapping) else {}
     return {"origin_at": origin, "snapshots": snapshots, "features": features, "replayed": True}

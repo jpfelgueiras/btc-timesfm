@@ -67,7 +67,10 @@ class SourceHealthTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             unavailable = snapshot(features={})
             unavailable["status"] = "unavailable"
-            unavailable["quality"] = {"missing_features": ["signal"], "provider_errors": {"api": "Timeout"}}
+            unavailable["quality"] = {
+                "missing_features": ["signal"],
+                "provider_errors": {"api": "Timeout"},
+            }
             report = self.health({"derivatives": unavailable}, Path(directory) / "state.json")
             source = report["sources"]["derivatives"]
             self.assertEqual(source["status"], "unavailable")
