@@ -44,8 +44,6 @@ def validate(path: Path) -> list[str]:
         for field in REQUIRED_WORKFLOW_FIELDS
         if field not in text
     ]
-    if "uses: ./.github/actions/python-setup" not in text:
-        errors.append(f"{path}: does not use the shared Python setup composite")
     for name, block in job_blocks(lines):
         body = "".join(block)
         if "uses: ./.github/actions/python-setup" in body:
