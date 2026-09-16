@@ -104,6 +104,13 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --pattern 'optional_source_retention.json' \
               --dir .state >/dev/null 2>&1 || true
+            gh release download "$HISTORY_RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern 'shadow_deployment.sqlite.gz' \
+              --dir .state >/dev/null 2>&1 || true
+            if [ -f .state/shadow_deployment.sqlite.gz ]; then
+              gzip -df .state/shadow_deployment.sqlite.gz
+            fi
             touch .state/history_restored_from_release
             echo "Restored durable production state from release $HISTORY_RELEASE_TAG"
           else
@@ -183,6 +190,9 @@ jobs:
             --format csv --output .state/forecast_history.csv
           gzip -c .state/forecast_history.sqlite > .state/forecast_history.sqlite.gz
           gzip -c .state/forecast_history.csv > .state/forecast_history.csv.gz
+          PYTHONPATH=src python -m btc_timesfm.research.shadow_deployment \
+            --db .state/shadow_deployment.sqlite verify
+          gzip -c .state/shadow_deployment.sqlite > .state/shadow_deployment.sqlite.gz
 
           canonical_bytes="$(stat -c%s .state/forecast_history.sqlite.gz)"
           if [ "$canonical_bytes" -gt "$HISTORY_BACKUP_MAX_BYTES" ]; then
@@ -207,6 +217,7 @@ jobs:
           assets=(
             .state/forecast_history.sqlite.gz
             .state/forecast_history.csv.gz
+            .state/shadow_deployment.sqlite.gz
           )
           if [ -f .state/forecast_history.previous.sqlite.gz ]; then
             assets+=(.state/forecast_history.previous.sqlite.gz)
@@ -326,6 +337,9 @@ jobs:
             cat .state/backup_retention_plan.json >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
           fi
+          if [ -f shadow_deployment_summary.md ]; then
+            cat shadow_deployment_summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo '' >> "$GITHUB_STEP_SUMMARY"
           echo '## X post' >> "$GITHUB_STEP_SUMMARY"
           cat tweet.txt >> "$GITHUB_STEP_SUMMARY"
@@ -432,6 +446,9 @@ jobs:
             pipeline_health_summary.md
             forecast_observability.json
             forecast_observability.jsonl
+            shadow_deployment_report.json
+            shadow_deployment_summary.md
+            .state/shadow_deployment.sqlite
             .state/pipeline_health.json
             .state/optional_source_retention.json
             .state/x_post_registry.json

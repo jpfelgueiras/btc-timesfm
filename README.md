@@ -19,6 +19,7 @@ The production forecast no longer feeds raw BTC prices into one TimesFM context.
 - stores per-model predictions so TimesFM can be compared directly with the simple baselines
 - persists every logical production forecast in a durable SQLite history database
 - includes walk-forward backtesting plus a scheduled weekly recommendation-only optimizer
+- continuously shadows approved champion/challenger configurations on every production origin without changing public forecasts, weights, or publication
 
 A second foundation model is intentionally not part of the scheduled ensemble yet: loading another large checkpoint every run would substantially increase GitHub Actions runtime. The architecture now makes it straightforward to add one later if backtests show it is worth the extra compute.
 
@@ -263,6 +264,17 @@ Before each mutation, the workflow keeps the successfully restored database as `
 The workflow will only overwrite an existing Release when that same run successfully restored it first. This prevents a transient download/authentication failure from replacing the real dataset with a newly initialized empty database.
 
 The small `.state/previous_forecast.json` Actions cache remains in place for fast scheduler decisions. It is not the long-term source of truth, but it also provides a bootstrap source for recent forecasts if the durable database is being created for the first time.
+
+## Continuous shadow monitoring
+
+Every successful production origin also runs the approved challenger configurations in
+shadow mode. The champion row reuses the exact public prediction and both sides use
+the same origin and manifest data lineage. Shadow rows stay in a separate durable
+SQLite asset, score only when the exact target candle arrives, and record challenger
+execution failures without changing public forecasts, weights, history, or X
+publication. The Actions report is recommendation-only: even an eligible challenger
+requires human review and the normal policy/CI path. See
+[`docs/SHADOW_DEPLOYMENT.md`](docs/SHADOW_DEPLOYMENT.md).
 
 ## Segment-aware evaluation and promotion
 

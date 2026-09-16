@@ -31,6 +31,8 @@ parameters automatically.
 - `mature_shadow_outcomes` — fills outcomes from the same market data used for
   the champion.
 - `build_shadow_status` / `render_summary` — Actions-friendly status report.
+- `shadow_failures` — durable, idempotent failure records so a bad challenger
+  is observable without interrupting the champion or public publication.
 - a CLI (`python -m btc_timesfm.research.shadow_deployment`).
 
 ## Isolation guarantees
@@ -43,10 +45,14 @@ parameters automatically.
   `(configuration_id, origin_at)`; re-running the same origin inserts nothing.
 - **Approval is required.** Only `role="challenger"` configurations with
   `approval_status="approved"` run; pending/rejected configurations are skipped.
-- **Identical-origin evaluation.** Matured challenger outcomes are compared
-  against the champion and persistence on exactly the set of origins that both
-  configurations share, using the same deterministic paired-bootstrap method as
-  the research pipeline.
+- **Identical-origin and lineage evaluation.** The public snapshot's manifest
+  `data_id` is required and recorded at the same `latest_close_at` origin;
+  matured challenger outcomes are compared against the champion and persistence
+  on exactly the set of origins that both configurations share, using the same
+  deterministic paired-bootstrap method as the research pipeline.
+- **Observable failure isolation.** A challenger prediction failure is persisted
+  and reported, but never interrupts the champion, modifies a public forecast,
+  changes weights, or affects publication.
 
 ## Workflow
 

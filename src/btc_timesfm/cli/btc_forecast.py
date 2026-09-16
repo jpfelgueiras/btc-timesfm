@@ -47,6 +47,14 @@ from btc_timesfm.data.market_data_sources import fetch_redundant_hourly
 from btc_timesfm.data.source_health import evaluate_source_health, persist_source_health
 from btc_timesfm.data.optional_source_retention import retain_optional_sources
 from btc_timesfm.history.history_store import DEFAULT_DB_PATH, ForecastHistoryStore
+from btc_timesfm.research.shadow_deployment import (
+    DEFAULT_DB_PATH as SHADOW_DB_PATH,
+    ShadowStore,
+    build_shadow_status,
+    mature_shadow_outcomes,
+    render_summary,
+    run_shadow,
+)
 
 
 OUTPUT_PATH = Path("forecast.json")
@@ -57,6 +65,8 @@ HISTORY_LIMIT = 72
 DERIVATIVES_PATH = Path("derivatives_signal.json")
 MICROSTRUCTURE_PATH = Path("microstructure_signal.json")
 CROSS_ASSET_PATH = Path("cross_asset_signal.json")
+SHADOW_REPORT_PATH = Path("shadow_deployment_report.json")
+SHADOW_SUMMARY_PATH = Path("shadow_deployment_summary.md")
 
 # build_forecast resolves this function from forecast_engine's module globals.
 # Install the issue #6 policy once so production uses the durable-history-aware
@@ -662,6 +672,16 @@ def main() -> None:
         "rolling_cache_migration": migration,
         "latest_ingest": persisted,
     }
+
+    try:
+        shadow_store = ShadowStore(SHADOW_DB_PATH)
+        mature_shadow_outcomes(shadow_store, actuals)
+        run_shadow(shadow_store, output, actuals, generated_at=output["generated_at"])
+        shadow_status = build_shadow_status(shadow_store, generated_at=output["generated_at"])
+        SHADOW_REPORT_PATH.write_text(json.dumps(shadow_status, indent=2, sort_keys=True) + "\n")
+        SHADOW_SUMMARY_PATH.write_text(render_summary(shadow_status), encoding="utf-8")
+    except (OSError, RuntimeError, TypeError, ValueError) as error:
+        print(f"Shadow monitoring failed without affecting the public forecast: {error}")
 
     OUTPUT_PATH.write_text(json.dumps(output, indent=2) + "\n")
     tweet = build_tweet(output)
