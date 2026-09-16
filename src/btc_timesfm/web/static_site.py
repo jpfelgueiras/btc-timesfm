@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from btc_timesfm.history.history_store import DEFAULT_DB_PATH, ENSEMBLE_MODEL, ForecastHistoryStore
+from btc_timesfm.web.charts import render_charts
 from btc_timesfm.research.edge_attribution_report import build_report as build_edge_report
 from btc_timesfm.research.performance_dashboard import build_report
 
@@ -175,6 +176,26 @@ def build_site_data(
             }
         )
 
+    chart_rows: list[dict[str, Any]] = []
+    for row in rows:
+        if str(row.get("model_name")) not in (ENSEMBLE_MODEL, "persistence"):
+            continue
+        chart_rows.append(
+            {
+                "model_name": row.get("model_name"),
+                "origin_at": row.get("origin_at"),
+                "horizon_hours": row.get("horizon_hours"),
+                "q10_usd": _safe_float(row.get("q10_usd")),
+                "q50_usd": _safe_float(row.get("q50_usd")),
+                "q90_usd": _safe_float(row.get("q90_usd")),
+                "actual_target_price_usd": _safe_float(row.get("actual_target_price_usd")),
+                "absolute_error_pct": _safe_float(row.get("absolute_error_pct")),
+                "direction_correct": row.get("direction_correct"),
+                "within_q10_q90": row.get("within_q10_q90"),
+                "regime": row.get("regime"),
+            }
+        )
+
     latest = _latest_predictions(rows)
     latest_age_hours: float | None = None
     if latest is not None:
@@ -192,6 +213,7 @@ def build_site_data(
             rows, now=current_time, low_sample_threshold=report["low_sample_threshold"]
         ),
         "recent": recent,
+        "chart_rows": chart_rows,
         "matured_rows": report["matured_rows"],
         "horizons": report["horizons"],
         "low_sample_threshold": report["low_sample_threshold"],
@@ -394,12 +416,17 @@ def _render_recent(data: dict[str, Any]) -> str:
 
 
 def render_html(data: dict[str, Any]) -> str:
+    charts, chart_summary = render_charts(
+        list(data.get("chart_rows", [])), list(data["horizons"]), int(data["low_sample_threshold"])
+    )
+    data["chart_summary"] = chart_summary
+    data["chart_rows"] = []
     return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="dark light">
 <title>BTC TimesFM Forecasts</title>
 <style>
 :root {{ color-scheme: dark; --bg:#0a0c10; --panel:#12161d; --line:#242b36; --muted:#8f9aaa; --text:#f3f6fa; --green:#31d17c; --red:#ff646f; --amber:#f4c95d; --blue:#75a7ff; }}
@@ -444,6 +471,9 @@ td {{ font-size:.9rem; }}
 .empty {{ padding:28px; border:1px dashed var(--line); border-radius:14px; color:var(--muted); }}
 .note {{ margin-top:26px; padding:16px 18px; border-left:3px solid var(--blue); background:rgba(117,167,255,.06); color:var(--muted); }}
 footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
+.chart-panel {{ padding:0 0 14px; }} .chart {{ display:block; width:100%; height:auto; background:var(--panel); border-top:1px solid var(--line); }}
+.chart-grid {{ stroke:var(--line); }} .chart-label,.chart-muted {{ fill:var(--muted); font-size:12px; }} .fan-band {{ fill:rgba(117,167,255,.22); }} .fan-median {{ fill:none; stroke:var(--blue); stroke-width:2; }} .fan-actual {{ fill:none; stroke:var(--text); stroke-width:1.5; }} .chart-low-shading {{ fill:rgba(244,201,93,.12); }} .chart-low-sample {{ fill:var(--amber); }}
+@media (prefers-color-scheme: light) {{ :root {{ --bg:#f8fafc; --panel:#fff; --line:#d8dee8; --muted:#52606d; --text:#16202a; }} body {{ background:radial-gradient(circle at top,#e9f0fb 0,#f8fafc 40%); }} }}
 @media (max-width:850px) {{ .prediction-grid {{ grid-template-columns:repeat(2,minmax(0,1fr)); }} header {{ align-items:flex-start; flex-direction:column; }} }}
 @media (max-width:520px) {{ main {{ width:min(100% - 20px,1180px); padding-top:24px; }} .prediction-grid {{ grid-template-columns:1fr; }} .current-strip {{ align-items:flex-start; flex-direction:column; }} }}
 </style>
@@ -465,6 +495,11 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
   <h2>Accuracy</h2>
   <p>MAE is mean absolute percentage error. Direction is the share of forecasts that got the BTC move direction right. 80% coverage shows how often the actual price landed inside the q10–q90 interval.</p>
       {_render_accuracy(data)}
+    </section>
+    <section>
+      <h2>Quantile fans & performance trends</h2>
+      <p>Server-generated charts show matured forecasts only. They include accessible text and a summary table, with no browser-side data processing.</p>
+      {charts}
     </section>
     <section>
       <h2>Ensemble edge vs persistence</h2>
