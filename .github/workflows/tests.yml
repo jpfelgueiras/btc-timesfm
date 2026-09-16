@@ -92,6 +92,7 @@ jobs:
             src/btc_timesfm/forecasting/forecast_confidence.py \
             src/btc_timesfm/history/history_audit.py \
             src/btc_timesfm/history/history_backup.py \
+            src/btc_timesfm/history/disaster_recovery.py \
             src/btc_timesfm/history/history_migrations.py \
             src/btc_timesfm/history/history_store.py \
             src/btc_timesfm/data/market_data_sources.py \

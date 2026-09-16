@@ -340,6 +340,7 @@ def build_report(
     skill_neutral_threshold: float = DEFAULT_SKILL_NEUTRAL_THRESHOLD,
     slo_metrics_log_path: Path | None = None,
     slo_window_days: int = 7,
+    disaster_recovery_report_path: Path | None = None,
 ) -> dict[str, Any]:
     """Build a JSON-serializable dashboard report from exported history rows."""
     if low_sample_threshold < 1:
@@ -402,6 +403,12 @@ def build_report(
             days=slo_window_days,
             now=current_time,
         )
+    if disaster_recovery_report_path is not None:
+        try:
+            drill = json.loads(disaster_recovery_report_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            drill = {"status": "unknown", "error": str(exc)}
+        report["disaster_recovery"] = drill
 
     return report
 
@@ -510,6 +517,20 @@ def render_markdown(report: dict[str, Any]) -> str:
                         + " |"
                     )
             lines.append("")
+
+    drill = report.get("disaster_recovery")
+    if isinstance(drill, dict):
+        lines.extend(
+            [
+                "## Disaster-recovery drill",
+                "",
+                f"Status: **{drill.get('status', 'unknown')}**",
+                f"Checked: `{drill.get('checked_at', '—')}`",
+                f"Restore duration: **{drill.get('restore_duration_ms', '—')} ms**",
+                f"Restored origins/predictions: **{drill.get('row_counts', {}).get('forecast_origins', 0)}/{drill.get('row_counts', {}).get('forecast_predictions', 0)}**",
+                "",
+            ]
+        )
 
     slo = report.get("freshness_slo")
     if isinstance(slo, dict):
@@ -676,6 +697,7 @@ def generate_dashboard(
     skill_neutral_threshold: float = DEFAULT_SKILL_NEUTRAL_THRESHOLD,
     slo_metrics_log_path: Path | None = None,
     slo_window_days: int = 7,
+    disaster_recovery_report_path: Path | None = None,
 ) -> dict[str, Any]:
     store = ForecastHistoryStore(db_path)
     verification = store.verify()
@@ -695,6 +717,7 @@ def generate_dashboard(
         skill_neutral_threshold=skill_neutral_threshold,
         slo_metrics_log_path=slo_metrics_log_path,
         slo_window_days=slo_window_days,
+        disaster_recovery_report_path=disaster_recovery_report_path,
     )
     report["database_verification"] = verification
 
@@ -749,6 +772,12 @@ def main() -> None:
         default=7,
         help="Weekly SLO adherence reporting window in days, default: 7",
     )
+    parser.add_argument(
+        "--disaster-recovery-report",
+        type=Path,
+        default=None,
+        help="Latest disaster-recovery drill JSON report, default: off",
+    )
     args = parser.parse_args()
 
     report = generate_dashboard(
@@ -761,6 +790,7 @@ def main() -> None:
         skill_neutral_threshold=args.skill_neutral_threshold,
         slo_metrics_log_path=args.slo_metrics_log,
         slo_window_days=args.slo_window_days,
+        disaster_recovery_report_path=args.disaster_recovery_report,
     )
     print(
         json.dumps(
