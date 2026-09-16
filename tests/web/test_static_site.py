@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timezone
 
+from btc_timesfm.web.historical_explorer import build_explorer_data, render_explorer
 from btc_timesfm.web.static_site import (
     build_site_data,
     explorer_query,
@@ -226,6 +227,50 @@ class StaticSiteTests(unittest.TestCase):
         self.assertEqual(explorer_url_state("?days=x&horizon=3&origin=bad", [2, 4])["days"], "all")
         self.assertIsNone(explorer_url_state("?days=x&horizon=3&origin=bad", [2, 4])["origin"])
 
+    def test_historical_explorer_preserves_forecasts_and_gates_unmatured_outcomes(self) -> None:
+        rows = [
+            self._row(
+                origin="2026-09-07T10:00:00+00:00",
+                horizon=2,
+                predicted=101.25,
+                change=1.25,
+                actual=100.0,
+                error=1.25,
+                direction=0,
+            ),
+            self._row(
+                origin="2026-09-07T12:00:00+00:00",
+                horizon=4,
+                predicted=103.5,
+                change=3.5,
+                actual=99.0,
+                error=4.5,
+                direction=0,
+            ),
+        ]
+        rows[0]["configuration_id"] = "champion-cfg"
+        rows[1]["experiment_manifest_json"] = "not json"
+        data = build_explorer_data(
+            rows,
+            now=datetime(2026, 9, 7, 13, tzinfo=timezone.utc),
+            configuration_roles={"champion-cfg": "champion"},
+        )
+
+        self.assertEqual(data["dates"], ["2026-09-07"])
+        self.assertEqual(data["horizons"], [2, 4])
+        matured, pending = sorted(data["forecasts"], key=lambda item: item["horizon_hours"])
+        self.assertEqual(matured["predicted_price_usd"], 101.25)
+        self.assertEqual(matured["identity"]["role"], "champion")
+        self.assertEqual(pending["maturity"], "pending")
+        self.assertIsNone(pending["actual_target_price_usd"])
+        self.assertIsNone(pending["absolute_error_pct"])
+        self.assertEqual(pending["identity"]["configuration_id"], "metadata unavailable")
+        page = render_explorer(data)
+        self.assertIn("Historical forecast explorer", page)
+        self.assertIn("Pending maturity", page)
+        self.assertNotIn("$99.00 / 4.50%", page)
+        self.assertIn("champion", page)
+
     def test_render_html_contains_predictions_accuracy_and_ledger(self) -> None:
         rows = [
             self._row(
@@ -257,6 +302,7 @@ class StaticSiteTests(unittest.TestCase):
         self.assertIn('id="explorer-horizon"', page)
         self.assertIn("80% interval", page)
         self.assertIn("forecast-detail", page)
+        self.assertIn("Historical forecast explorer", page)
         self.assertIn("No X/Twitter dependency", page)
         self.assertIn("Pending", page)
 
