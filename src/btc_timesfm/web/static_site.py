@@ -550,6 +550,35 @@ def _render_recent(data: dict[str, Any]) -> str:
     """
 
 
+def _render_accuracy_table(data: dict[str, Any], window: str, label: str) -> str:
+    horizons = data["accuracy"].get(window, {})
+    rows = []
+    for horizon in data["horizons"]:
+        metrics = horizons.get(horizon, {})
+        warning = metrics.get("confidence_warning")
+        rows.append(
+            f"""
+            <tr class="{"low-sample" if warning else ""}">
+              <td><strong>{html.escape(horizon)}</strong></td>
+              <td>{int(metrics.get("samples") or 0)}</td>
+              <td>{_pct(metrics.get("mae_pct"))}</td>
+              <td>{_ratio_pct(metrics.get("direction_accuracy"))}</td>
+              <td>{_ratio_pct(metrics.get("q10_q90_coverage"))}</td>
+            </tr>
+            """
+        )
+    return (
+        f"<details {'open' if window == '30d' else ''}>"
+        f"<summary>{html.escape(label)}</summary>"
+        '<div class="table-wrap">'
+        f"<table><caption>Forecast accuracy for {html.escape(label)}</caption>"
+        '<thead><tr><th scope="col">Horizon</th><th scope="col">Samples</th>'
+        '<th scope="col">MAE</th><th scope="col">Direction</th>'
+        '<th scope="col">80% coverage</th></tr></thead>'
+        f"<tbody>{''.join(rows)}</tbody></table></div></details>"
+    )
+
+
 def _render_explorer(data: dict[str, Any]) -> str:
     explorer = data["explorer"]
     rows = explorer["rows"]
@@ -602,6 +631,15 @@ def render_html(data: dict[str, Any]) -> str:
     )
     data["chart_summary"] = chart_summary
     data["chart_rows"] = []
+    accuracy_tables = "".join(
+        _render_accuracy_table(data, window, label)
+        for window, label in (
+            ("7d", "7 days"),
+            ("30d", "30 days"),
+            ("90d", "90 days"),
+            ("all", "All time"),
+        )
+    )
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -611,8 +649,18 @@ def render_html(data: dict[str, Any]) -> str:
 <title>BTC TimesFM Forecasts</title>
 <style>
 :root {{ color-scheme: dark; --bg:#0a0c10; --panel:#12161d; --line:#242b36; --muted:#8f9aaa; --text:#f3f6fa; --green:#31d17c; --red:#ff646f; --amber:#f4c95d; --blue:#75a7ff; }}
+[data-theme="light"] {{ --bg:#f8f9fb; --panel:#ffffff; --line:#dce1e8; --muted:#5a6577; --text:#1a1f27; --green:#1a9c56; --red:#cc3340; --amber:#b08a1e; --blue:#2563eb; }}
 * {{ box-sizing:border-box; }}
 body {{ margin:0; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:radial-gradient(circle at top,#151b26 0,#0a0c10 40%); color:var(--text); line-height:1.5; }}
+[data-theme="light"] body {{ background:#f8f9fb; }}
+.skip-link {{ position:absolute; top:-40px; left:0; background:var(--blue); color:#fff; padding:8px 16px; z-index:100; font-weight:700; text-decoration:none; border-radius:0 0 6px 0; }}
+.skip-link:focus {{ top:0; }}
+*:focus-visible {{ outline:2px solid var(--blue); outline-offset:2px; }}
+.site-nav {{ display:flex; flex-wrap:wrap; gap:6px 18px; padding:12px 0; margin-bottom:16px; border-bottom:1px solid var(--line); }}
+.site-nav a {{ color:var(--muted); text-decoration:none; font-size:.82rem; font-weight:600; letter-spacing:.03em; padding:4px 0; }}
+.site-nav a:hover, .site-nav a:focus {{ color:var(--text); }}
+.theme-toggle {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:6px 12px; cursor:pointer; color:var(--text); font-size:.8rem; font-weight:600; }}
+.visually-hidden {{ position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }}
 main {{ width:min(1180px,calc(100% - 32px)); margin:0 auto; padding:42px 0 72px; }}
 header {{ display:flex; justify-content:space-between; gap:24px; align-items:flex-end; margin-bottom:34px; }}
 h1 {{ font-size:clamp(2rem,5vw,4rem); line-height:1; margin:.25rem 0 .7rem; letter-spacing:-.045em; }}
@@ -666,45 +714,66 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
 </style>
 </head>
 <body>
-<main>
+<a href="#content" class="skip-link">Skip to content</a>
+<main id="content" role="main">
 <header>
   <div>
     <div class="eyebrow">BTC TimesFM 3 · public forecast ledger</div>
     <h1>Forecasts & accuracy</h1>
     <p>Static, reproducible results generated from the durable production forecast history. No X/Twitter dependency.</p>
   </div>
-  <a href="https://github.com/jpfelgueiras/btc-timesfm">View source on GitHub ↗</a>
+  <div style="display:flex;gap:12px;align-items:center">
+    <button class="theme-toggle" type="button" aria-label="Toggle light/dark theme" onclick="var t=document.documentElement;var c=t.getAttribute('data-theme');t.setAttribute('data-theme',c==='dark'?'light':c==='light'?'dark':(window.matchMedia&&window.matchMedia('(prefers-color-scheme:light)').matches?'dark':'light'))">Toggle theme</button>
+    <a href="https://github.com/jpfelgueiras/btc-timesfm">View source on GitHub ↗</a>
+  </div>
 </header>
-<section>
+<nav class="site-nav" aria-label="Page sections">
+  <a href="#forecasts">Forecasts</a>
+  <a href="#accuracy">Accuracy</a>
+  <a href="#charts">Charts</a>
+  <a href="#edge">Edge</a>
+  <a href="#explorer">Explorer</a>
+  <a href="#recent">Recent</a>
+  <a href="#about">About</a>
+</nav>
+<section id="forecasts" aria-labelledby="forecasts-heading">
+  <h2 id="forecasts-heading" class="visually-hidden">Forecasts</h2>
   {_render_latest(data)}
 </section>
-<section>
-  <h2>Accuracy</h2>
+<section id="accuracy" aria-labelledby="accuracy-heading">
+  <h2 id="accuracy-heading">Accuracy</h2>
   <p>MAE is mean absolute percentage error. Direction is the share of forecasts that got the BTC move direction right. 80% coverage shows how often the actual price landed inside the q10–q90 interval.</p>
-      {_render_accuracy(data)}
-    </section>
-    <section>
-      <h2>Quantile fans & performance trends</h2>
-      <p>Server-generated charts show matured forecasts only. They include accessible text and a summary table, with no browser-side data processing.</p>
-      {charts}
-    </section>
-    <section>
-      <h2>Ensemble edge vs persistence</h2>
-      {_render_persistence_edge(data)}
-    </section>
-    <section>
-      <h2>Forecast explorer</h2>
+  {accuracy_tables}
+</section>
+<section id="charts" aria-labelledby="charts-heading">
+  <h2 id="charts-heading">Quantile fans & performance trends</h2>
+  <p>Server-generated charts show matured forecasts only. They include accessible text and a summary table, with no browser-side data processing.</p>
+  {charts}
+</section>
+<section id="edge" aria-labelledby="edge-heading">
+  <h2 id="edge-heading">Ensemble edge vs persistence</h2>
+  {_render_persistence_edge(data)}
+</section>
+<section id="explorer" aria-labelledby="explorer-heading">
+  <h2 id="explorer-heading">Forecast explorer</h2>
   <p>Browse the durable ledger. Pending rows have not reached their target candle; matured rows are immutable historical predictions compared with actual BTC prices.</p>
   {_render_explorer(data)}
 </section>
-<section>
-  <h2>Recent forecast ledger</h2>
+<section id="recent" aria-labelledby="recent-heading">
+  <h2 id="recent-heading">Recent forecast ledger</h2>
+  <p>Pending rows have not reached their target candle yet. Matured rows are immutable historical predictions compared with the actual BTC price.</p>
   {_render_recent(data)}
 </section>
-<div class="note">Experimental forecasting only — not financial advice. Historical accuracy does not guarantee future performance.</div>
-<footer>Generated {html.escape(str(data["generated_at"]))} from {int(data["matured_rows"])} matured forecast rows.</footer>
+<section id="about" aria-labelledby="about-heading">
+  <h2 id="about-heading" class="visually-hidden">About</h2>
+  <div class="note">Experimental forecasting only — not financial advice. Historical accuracy does not guarantee future performance.</div>
+</section>
+<footer role="contentinfo">Generated {html.escape(str(data["generated_at"]))} from {int(data["matured_rows"])} matured forecast rows.</footer>
 </main>
 {_explorer_script()}
+<script>
+(function(){{{chr(123)}}}var t=document.documentElement;var m=window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)');if(m&&!t.getAttribute('data-theme')){chr(123)}t.setAttribute('data-theme',m.matches?'dark':'light');{chr(125)}{chr(125)})()
+</script>
 </body>
 </html>
 """
