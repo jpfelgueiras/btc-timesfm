@@ -8,6 +8,7 @@ from btc_timesfm.forecasting.retargeting import (
     abstention_aware_retargeting,
 )
 
+
 class RetargetingTests(unittest.TestCase):
     def setUp(self) -> None:
         self.predictions = {"2h": {"price_usd": 100.0, "q10_usd": 90.0, "q90_usd": 110.0}}
@@ -31,6 +32,7 @@ class RetargetingTests(unittest.TestCase):
             self.predictions, self.data, self.data, self.data
         )
         self.assertEqual(metadata["variant"], "abstention_aware_retargeting")
+
 
 if __name__ == "__main__":
     unittest.main()
