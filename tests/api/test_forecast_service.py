@@ -137,7 +137,9 @@ class TestForecastService(unittest.TestCase):
         self.assertNotIn("secret", self.audit.read_text(encoding="utf-8"))
 
     def test_historical_filters_pagination_and_data_consistency(self) -> None:
-        status, _, body = self.request("/v1/forecasts", query="limit=1&horizon_hours=4&model=ensemble")
+        status, _, body = self.request(
+            "/v1/forecasts", query="limit=1&horizon_hours=4&model=ensemble"
+        )
         self.assertEqual(status, 200)
         self.assertEqual(validate_historical_response(body), [])
         self.assertEqual(len(body["data"]), 1)
@@ -225,7 +227,8 @@ class TestForecastService(unittest.TestCase):
         locked_db = Path(self.directory.name) / "locked.sqlite"
         locked_db.write_text("not-a-db", encoding="utf-8")
         service = ForecastService(
-            ServiceConfig(locked_db, frozenset({"secret"}), self.health, self.audit), clock=lambda: NOW
+            ServiceConfig(locked_db, frozenset({"secret"}), self.health, self.audit),
+            clock=lambda: NOW,
         )
         status, _, body = self._request_service(service, "/v1/forecasts/latest")
         self.assertEqual(status, 503)
