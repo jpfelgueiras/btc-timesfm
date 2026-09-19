@@ -661,10 +661,20 @@ body {{ margin:0; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkM
 .skip-link {{ position:absolute; top:-40px; left:0; background:var(--blue); color:#fff; padding:8px 16px; z-index:100; font-weight:700; text-decoration:none; border-radius:0 0 6px 0; }}
 .skip-link:focus {{ top:0; }}
 *:focus-visible {{ outline:2px solid var(--blue); outline-offset:2px; }}
-.site-nav {{ display:flex; flex-wrap:wrap; gap:6px 18px; padding:12px 0; margin-bottom:16px; border-bottom:1px solid var(--line); }}
-.site-nav a {{ color:var(--muted); text-decoration:none; font-size:.82rem; font-weight:600; letter-spacing:.03em; padding:4px 0; }}
-.site-nav a:hover, .site-nav a:focus {{ color:var(--text); }}
+.site-nav {{ display:none; }}
+.tabs {{ display:flex; flex-wrap:wrap; gap:4px; margin:0 0 24px; border-bottom:1px solid var(--line); }}
+.tab-button {{ background:transparent; border:0; border-bottom:2px solid transparent; color:var(--muted); cursor:pointer; font:inherit; font-size:.9rem; font-weight:700; padding:12px 16px; }}
+.tab-button:hover, .tab-button:focus {{ color:var(--text); }}
+.tab-button.active {{ border-color:var(--blue); color:var(--text); }}
+.tab-content {{ display:none; }}
+.tab-content.active {{ display:block; }}
 .theme-toggle {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:6px 12px; cursor:pointer; color:var(--text); font-size:.8rem; font-weight:600; }}
+.tabs {{ display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid var(--line); }}
+.tab-button {{ background: none; border: none; padding: 10px 16px; cursor: pointer; color: var(--muted); font-weight: 600; font-size: 0.9rem; }}
+.tab-button.active {{ color: var(--text); border-bottom: 2px solid var(--blue); }}
+.tab-content {{ display: none; }}
+.tab-content.active {{ display: block; }}
+.site-nav {{ display:none; }}
 .visually-hidden {{ position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }}
 main {{ width:min(1180px,calc(100% - 32px)); margin:0 auto; padding:42px 0 72px; }}
 header {{ display:flex; justify-content:space-between; gap:24px; align-items:flex-end; margin-bottom:34px; }}
@@ -733,52 +743,55 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
     <a href="https://github.com/jpfelgueiras/btc-timesfm">View source on GitHub ↗</a>
   </div>
 </header>
-<nav class="site-nav" aria-label="Page sections">
-  <a href="#forecasts">Forecasts</a>
-  <a href="#accuracy">Accuracy</a>
-  <a href="#charts">Charts</a>
-  <a href="#edge">Edge</a>
-  <a href="#explorer">Explorer</a>
-  <a href="#recent">Recent</a>
-  <a href="#about">About</a>
-</nav>
-<section id="forecasts" aria-labelledby="forecasts-heading">
-  <h2 id="forecasts-heading" class="visually-hidden">Forecasts</h2>
-  {_render_latest(data)}
-</section>
-<section id="accuracy" aria-labelledby="accuracy-heading">
-  <h2 id="accuracy-heading">Accuracy</h2>
-  <p>MAE is mean absolute percentage error. Direction is the share of forecasts that got the BTC move direction right. 80% coverage shows how often the actual price landed inside the q10–q90 interval.</p>
-  {accuracy_tables}
-</section>
-<section id="charts" aria-labelledby="charts-heading">
-  <h2 id="charts-heading">Quantile fans & performance trends</h2>
-  <p>Server-generated charts show matured forecasts only. They include accessible text and a summary table, with no browser-side data processing.</p>
-  {charts}
-</section>
-<section id="edge" aria-labelledby="edge-heading">
-  <h2 id="edge-heading">Ensemble edge vs persistence</h2>
-  {_render_persistence_edge(data)}
-</section>
-<section id="explorer" aria-labelledby="explorer-heading">
-  <h2 id="explorer-heading">Forecast explorer</h2>
-  <p>Browse the durable ledger. Pending rows have not reached their target candle; matured rows are immutable historical predictions compared with actual BTC prices.</p>
-  {_render_explorer(data)}
-</section>
-{render_explorer(data.get("historical_explorer", {}))}
-<section id="recent" aria-labelledby="recent-heading">
-  <h2 id="recent-heading">Recent forecast ledger</h2>
-  <p>Pending rows have not reached their target candle yet. Matured rows are immutable historical predictions compared with the actual BTC price.</p>
-  {_render_recent(data)}
-</section>
-<section id="about" aria-labelledby="about-heading">
-  <h2 id="about-heading" class="visually-hidden">About</h2>
-  <div class="note">Experimental forecasting only — not financial advice. Historical accuracy does not guarantee future performance.</div>
-</section>
+<div class="tabs" role="tablist" aria-label="Dashboard sections">
+  <button class="tab-button active" type="button" role="tab" aria-selected="true" aria-controls="tab-overview" id="tab-overview-button">Overview</button>
+  <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="tab-explorer" id="tab-explorer-button">Forecast Explorer</button>
+  <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="tab-metrics" id="tab-metrics-button">Model Metrics</button>
+</div>
+<div id="tab-overview" class="tab-content active" role="tabpanel" aria-labelledby="tab-overview-button">
+  <section id="forecasts" aria-labelledby="forecasts-heading">
+    <h2 id="forecasts-heading" class="visually-hidden">Forecasts</h2>
+    {_render_latest(data)}
+  </section>
+  <section id="charts" aria-labelledby="charts-heading">
+    <h2 id="charts-heading">Quantile fans & performance trends</h2>
+    <p>Server-generated charts show matured forecasts only. They include accessible text and a summary table, with no browser-side data processing.</p>
+    {charts}
+  </section>
+  <section id="about" aria-labelledby="about-heading">
+    <h2 id="about-heading" class="visually-hidden">About</h2>
+    <div class="note">Experimental forecasting only — not financial advice. Historical accuracy does not guarantee future performance.</div>
+  </section>
+</div>
+<div id="tab-explorer" class="tab-content" role="tabpanel" aria-labelledby="tab-explorer-button">
+  <section id="explorer" aria-labelledby="explorer-heading">
+    <h2 id="explorer-heading">Forecast explorer</h2>
+    <p>Browse the durable ledger. Pending rows have not reached their target candle; matured rows are immutable historical predictions compared with actual BTC prices.</p>
+    {_render_explorer(data)}
+  </section>
+  {render_explorer(data.get("historical_explorer", {}))}
+  <section id="recent" aria-labelledby="recent-heading">
+    <h2 id="recent-heading">Recent forecast ledger</h2>
+    <p>Pending rows have not reached their target candle yet. Matured rows are immutable historical predictions compared with the actual BTC price.</p>
+    {_render_recent(data)}
+  </section>
+</div>
+<div id="tab-metrics" class="tab-content" role="tabpanel" aria-labelledby="tab-metrics-button">
+  <section id="accuracy" aria-labelledby="accuracy-heading">
+    <h2 id="accuracy-heading">Accuracy</h2>
+    <p>MAE is mean absolute percentage error. Direction is the share of forecasts that got the BTC move direction right. 80% coverage shows how often the actual price landed inside the q10–q90 interval.</p>
+    {accuracy_tables}
+  </section>
+  <section id="edge" aria-labelledby="edge-heading">
+    <h2 id="edge-heading">Ensemble edge vs persistence</h2>
+    {_render_persistence_edge(data)}
+  </section>
+</div>
 <footer role="contentinfo">Generated {html.escape(str(data["generated_at"]))} from {int(data["matured_rows"])} matured forecast rows.</footer>
 </main>
 {_explorer_script()}
 <script>
+(function(){{const tabs=[...document.querySelectorAll('.tab-button')],panels=[...document.querySelectorAll('.tab-content')];function activate(id){{tabs.forEach(t=>{{const on=t.getAttribute('aria-controls')===id;t.classList.toggle('active',on);t.setAttribute('aria-selected',String(on));}});panels.forEach(p=>p.classList.toggle('active',p.id===id));}}tabs.forEach(t=>t.addEventListener('click',()=>activate(t.getAttribute('aria-controls'))));activate(location.hash==='#explorer'?'tab-explorer':location.hash==='#accuracy'||location.hash==='#edge'?'tab-metrics':'tab-overview');}})();
 (function(){{{chr(123)}}}var t=document.documentElement;var m=window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)');if(m&&!t.getAttribute('data-theme')){chr(123)}t.setAttribute('data-theme',m.matches?'dark':'light');{chr(125)}{chr(125)})()
 </script>
 </body>
