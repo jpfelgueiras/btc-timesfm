@@ -74,19 +74,32 @@ class TestForecastService(unittest.TestCase):
         query: str = "",
         accept: str | None = None,
     ) -> tuple[int, dict[str, str], dict[str, Any]]:
+        return self._request_service(self.service, path, auth=auth, query=query, accept=accept)
+
+    def _request_service(
+        self,
+        service: ForecastService,
+        path: str,
+        *,
+        auth: str | None = "Bearer secret",
+        query: str = "",
+        accept: str | None = None,
+        method: str = "GET",
+    ) -> tuple[int, dict[str, str], dict[str, Any]]:
         captured: dict[str, Any] = {}
         headers = {
-            "REQUEST_METHOD": "GET",
+            "REQUEST_METHOD": method,
             "PATH_INFO": path,
             "QUERY_STRING": query,
             "REMOTE_ADDR": "test-client",
+            "wsgi.input": io.BytesIO(),
         }
         if auth is not None:
             headers["HTTP_AUTHORIZATION"] = auth
         if accept is not None:
             headers["HTTP_ACCEPT"] = accept
         body = b"".join(
-            self.service(
+            service(
                 headers,
                 lambda status, response_headers: captured.update(
                     status=status, headers=response_headers
@@ -123,12 +136,44 @@ class TestForecastService(unittest.TestCase):
         self.assertEqual(events[-1]["forecast_ids"], [body["data"][0]["forecast_id"]])
         self.assertNotIn("secret", self.audit.read_text(encoding="utf-8"))
 
+    def test_historical_filters_pagination_and_data_consistency(self) -> None:
+        status, _, body = self.request(
+            "/v1/forecasts", query="limit=1&horizon_hours=4&model=ensemble"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(validate_historical_response(body), [])
+        self.assertEqual(len(body["data"]), 1)
+        forecast = body["data"][0]
+        self.assertEqual(forecast["forecast_id"], "2026-09-16T12:00:00+00:00:ensemble:4")
+        self.assertEqual(forecast["horizon_hours"], 4)
+        self.assertEqual(forecast["model"]["name"], "ensemble")
+        self.assertEqual(forecast["estimate"]["price_usd"], 62500.0)
+        self.assertEqual(forecast["lineage"]["source"]["pair"], "BTC/USD")
+        self.assertEqual(forecast["lineage"]["source"]["price_usd"], 61760.0)
+        self.assertIsNone(body["pagination"]["next_cursor"])
+        self.assertEqual(body["pagination"]["limit"], 1)
+
+    def test_endpoint_error_contracts_are_stable(self) -> None:
+        cases = [
+            ("/v1/unknown", "", "GET", 400, "invalid_request"),
+            ("/v1/forecasts/latest", "unexpected=1", "GET", 400, "invalid_request"),
+            ("/v1/forecasts", "limit=101", "GET", 400, "invalid_request"),
+            ("/v1/forecasts", "cursor=invalid", "GET", 400, "invalid_request"),
+            ("/v1/forecasts", "invalid=param", "GET", 400, "invalid_request"),
+            ("/v1/forecasts", "", "POST", 400, "invalid_request"),
+        ]
+        for path, query, method, expected_status, expected_code in cases:
+            with self.subTest(path=path, query=query, method=method):
+                service = ForecastService(
+                    ServiceConfig(self.database, frozenset({"secret"}), self.health, self.audit),
+                    clock=lambda: NOW,
+                )
+                status, _, body = self._request_service(service, path, query=query, method=method)
+                self.assertEqual(status, expected_status)
+                self.assertEqual(body["error"]["code"], expected_code)
+                self.assertEqual(validate_error_response(body), [])
+
     def test_validation_errors_and_empty_history_are_contract_compliant(self) -> None:
-        status, _, body = self.request("/v1/forecasts", query="limit=101")
-        self.assertEqual(status, 400)
-        self.assertEqual(body["error"]["code"], "invalid_request")
-        status, _, body = self.request("/v1/forecasts", query="cursor=invalid")
-        self.assertEqual(status, 400)
         empty = Path(self.directory.name) / "empty.sqlite"
         ForecastHistoryStore(empty)
         service = ForecastService(
@@ -137,6 +182,7 @@ class TestForecastService(unittest.TestCase):
         status, _, body = self._request_service(service, "/v1/forecasts/latest")
         self.assertEqual(status, 404)
         self.assertEqual(body["error"]["code"], "forecast_not_found")
+        self.assertEqual(validate_error_response(body), [])
 
     def test_unavailable_and_stale_health_are_explicit(self) -> None:
         self.health.write_text(
@@ -177,21 +223,19 @@ class TestForecastService(unittest.TestCase):
         self.assertEqual(body["data"]["status"], "degraded")
         self.assertEqual(body["data"]["freshness"]["status"], "stale")
 
-    def _request_service(
-        self, service: ForecastService, path: str
-    ) -> tuple[int, dict[str, str], dict[str, Any]]:
-        captured: dict[str, Any] = {}
-        body = b"".join(
-            service(
-                {
-                    "REQUEST_METHOD": "GET",
-                    "PATH_INFO": path,
-                    "QUERY_STRING": "",
-                    "HTTP_AUTHORIZATION": "Bearer secret",
-                    "REMOTE_ADDR": "test-client",
-                    "wsgi.input": io.BytesIO(),
-                },
-                lambda status, headers: captured.update(status=status, headers=headers),
-            )
+    def test_unavailable_history_and_health_errors_are_contract_compliant(self) -> None:
+        locked_db = Path(self.directory.name) / "locked.sqlite"
+        locked_db.write_text("not-a-db", encoding="utf-8")
+        service = ForecastService(
+            ServiceConfig(locked_db, frozenset({"secret"}), self.health, self.audit),
+            clock=lambda: NOW,
         )
-        return int(captured["status"].split()[0]), dict(captured["headers"]), json.loads(body)
+        status, _, body = self._request_service(service, "/v1/forecasts/latest")
+        self.assertEqual(status, 503)
+        self.assertEqual(body["error"]["code"], "history_unavailable")
+        self.assertEqual(validate_error_response(body), [])
+        self.health.write_text("invalid json", encoding="utf-8")
+        status, _, body = self.request("/v1/health")
+        self.assertEqual(status, 503)
+        self.assertEqual(body["error"]["code"], "history_unavailable")
+        self.assertEqual(validate_error_response(body), [])
