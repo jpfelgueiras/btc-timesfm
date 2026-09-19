@@ -118,11 +118,8 @@ def evaluate_source_health(
     quarantined: list[str] = []
 
     for name, snapshot in snapshots.items():
-        quality_raw = snapshot.get("quality")
-        features_raw = snapshot.get("features")
-        quality: dict[str, Any] = quality_raw if isinstance(quality_raw, dict) else {}
-        features: dict[str, Any] = features_raw if isinstance(features_raw, dict) else {}
-        # At this point, quality and features are guaranteed to be dicts
+        quality = snapshot.get("quality") if isinstance(snapshot.get("quality"), dict) else {}
+        features = snapshot.get("features") if isinstance(snapshot.get("features"), dict) else {}
         missing = quality.get("missing_features", [])
         missing_count = len(missing) if isinstance(missing, list) else 0
         expected_count = len(features) + missing_count

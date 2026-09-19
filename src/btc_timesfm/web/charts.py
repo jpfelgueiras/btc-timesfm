@@ -73,74 +73,42 @@ def _empty(title: str, message: str) -> str:
 
 
 def _fan_chart(horizon: str, rows: list[dict[str, Any]]) -> str:
-    usable_rows = []
-    usable_q10: list[float] = []
-    usable_q50: list[float] = []
-    usable_q90: list[float] = []
-    usable_actual: list[float] = []
+    usable = []
     for row in rows:
-        q10 = _number(row.get("q10_usd"))
-        q50 = _number(row.get("q50_usd"))
-        q90 = _number(row.get("q90_usd"))
-        actual = _number(row.get("actual_target_price_usd"))
-        if q10 is not None and q50 is not None and q90 is not None and actual is not None and q10 <= q50 <= q90:
-            usable_rows.append(row)
-            usable_q10.append(q10)
-            usable_q50.append(q50)
-            usable_q90.append(q90)
-            usable_actual.append(actual)
-     
-    # Sample the data if needed
-    if len(usable_rows) > MAX_POINTS_PER_CHART:
-        stride = (len(usable_rows) - 1) / (MAX_POINTS_PER_CHART - 1)
-        indices = [round(index * stride) for index in range(MAX_POINTS_PER_CHART)]
-        usable_rows = [usable_rows[i] for i in indices]
-        usable_q10 = [usable_q10[i] for i in indices]
-        usable_q50 = [usable_q50[i] for i in indices]
-        usable_q90 = [usable_q90[i] for i in indices]
-        usable_actual = [usable_actual[i] for i in indices]
-     
+        q10, q50, q90, actual = (
+            _number(row.get(key))
+            for key in ("q10_usd", "q50_usd", "q90_usd", "actual_target_price_usd")
+        )
+        if None not in (q10, q50, q90, actual) and q10 <= q50 <= q90:
+            usable.append((row, q10, q50, q90, actual))
+    usable = _sample(usable)
     title = f"{horizon} quantile fan chart"
-    if not usable_rows:
+    if not usable:
         return _empty(
             title, "No matured forecasts with q10, q50, q90, and actual prices are available."
         )
-     
-    # Combine all values for scaling
-    values = usable_q10 + usable_q50 + usable_q90 + usable_actual
+    values = [value for _, q10, q50, q90, actual in usable for value in (q10, q50, q90, actual)]
     ys = _scale(values, 224, 28)
-    # Split the scaled values back into separate lists
-    q10_y = ys[0::4]
-    q50_y = ys[1::4]
-    q90_y = ys[2::4]
-    actual_y = ys[3::4]
-     
-    xs = _scale(list(range(len(usable_rows))), 36, CHART_WIDTH - 20)
+    q10_y, q50_y, q90_y, actual_y = (ys[offset::4] for offset in range(4))
+    xs = _scale(list(range(len(usable))), 36, CHART_WIDTH - 20)
     band = _points(xs + list(reversed(xs)), q10_y + list(reversed(q90_y)))
-     
-    actual_circles_list = []
-    for row, x, y in zip(usable_rows, xs, actual_y):
-        regime = str(row.get("regime", "unknown")).lower()
-        color = REGIME_COLORS.get(regime, REGIME_COLORS["unknown"])
-        actual_circles_list.append(
-            f'<circle cx="{x:.2f}" cy="{y:.2f}" r="3" fill="{color}">'
-            f"<title>Actual; regime {_escape(row.get('regime') or 'unknown')}</title></circle>"
-        )
-    actual_marks = "".join(actual_circles_list)
-     
-    minimum = min(values)
-    maximum = max(values)
+    actual = "".join(
+        f'<circle cx="{x:.2f}" cy="{y:.2f}" r="3" fill="{REGIME_COLORS.get(str(row.get("regime", "unknown")).lower(), REGIME_COLORS["unknown"])}">'
+        f"<title>Actual; regime {_escape(row.get('regime') or 'unknown')}</title></circle>"
+        for (row, *_), x, y in zip(usable, xs, actual_y)
+    )
+    minimum, maximum = min(values), max(values)
     body = (
         f'<line x1="36" y1="224" x2="740" y2="224" class="chart-grid"/>'
         f'<text x="4" y="32" class="chart-label">${maximum:,.0f}</text>'
         f'<text x="4" y="228" class="chart-label">${minimum:,.0f}</text>'
         f'<polygon points="{band}" class="fan-band"/>'
         f'<polyline points="{_points(xs, q50_y)}" class="fan-median"/>'
-        f'<polyline points="{_points(xs, actual_y)}" class="fan-actual"/>{actual_marks}'
+        f'<polyline points="{_points(xs, actual_y)}" class="fan-actual"/>{actual}'
         '<text x="38" y="250" class="chart-label">q10–q90 band · q50 line · actual dots colored by regime</text>'
     )
     return _svg(
-        title, f"{len(usable_rows)} matured {horizon} forecasts. Shaded band is q10 to q90.", body
+        title, f"{len(usable)} matured {horizon} forecasts. Shaded band is q10 to q90.", body
     )
 
 
@@ -185,14 +153,15 @@ def _performance_chart(
         else None
         for row in rows
     ]
-    skill: list[float | None] = []
-    for row, error in zip(rows, mae):
-        p = persistence.get((str(row.get("origin_at")), int(row.get("horizon_hours") or 0)))
-        if error is not None and p is not None:
-            skill.append(p - error)
-        else:
-            skill.append(None)
-    series: list[tuple[str, list[float | None], str]] = [
+    skill = [
+        persistence.get((str(row.get("origin_at")), int(row.get("horizon_hours") or 0))) - error
+        if error is not None
+        and persistence.get((str(row.get("origin_at")), int(row.get("horizon_hours") or 0)))
+        is not None
+        else None
+        for row, error in zip(rows, mae)
+    ]
+    series = [
         ("MAE %", mae, "#75a7ff"),
         ("Direction %", direction, "#31d17c"),
         ("80% coverage", coverage, "#f4c95d"),
