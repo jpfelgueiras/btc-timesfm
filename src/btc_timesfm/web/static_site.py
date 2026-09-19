@@ -627,18 +627,7 @@ def _render_explorer(data: dict[str, Any]) -> str:
 
 
 def _explorer_script() -> str:
-    return """<script>(()=>{const $=id=>document.getElementById(id),table=$("explorer-table"),body=table?.tBodies[0],days=$("explorer-days"),horizon=$("explorer-horizon"),search=$("explorer-search"),sort=$("explorer-sort"),count=$("explorer-count");if(!body)return;const p=new URLSearchParams(location.search),valid=(el,v)=>[...el.options].some(o=>o.value===v);for(const [k,el] of [["days",days],["horizon",horizon],["q",search],["sort",sort]]){const v=p.get(k)||el.value;if(valid(el,v)||el===search)el.value=v}const apply=()=>{const q=search.value.trim().toLowerCase(),d=days.value,h=horizon.value,s=sort.value,cut=d==="all"?0:Date.now()-Number(d)*864e5;let rows=[...body.rows];rows.forEach(r=>{const text=(r.textContent+r.dataset.regime+r.dataset.status).toLowerCase();const ok=(!h||r.dataset.horizon===h)&&(!cut||Date.parse(r.dataset.origin)>=cut)&&(!q||text.includes(q));r.hidden=!ok});rows.sort((a,b)=>s==="horizon"?b.dataset.horizon-a.dataset.horizon:s==="error"?(parseFloat(a.cells[4].textContent)||Infinity)-(parseFloat(b.cells[4].textContent)||Infinity):Date.parse(b.dataset.origin)-Date.parse(a.dataset.origin)).forEach(r=>body.append(r));const state=new URLSearchParams;d!=="all"&&state.set("days",d);h&&state.set("horizon",h);q&&state.set("q",q);s!=="origin"&&state.set("sort",s);history.replaceState(void 0,"",location.pathname+(state.size?"?"+state:"")+location.hash);count.textContent=rows.filter(r=>!r.hidden).length+" forecasts"};[days,horizon,search,sort].forEach(el=>el.addEventListener("input",apply));apply();const origin=p.get("origin");if(origin){const detail=[...document.querySelectorAll(".forecast-detail")].find(d=>d.dataset.origin===origin);if(detail){detail.open=true;detail.scrollIntoView()}}})();</script>"""
-
-
-TABS_DATA = "Overview|Forecasts|Accuracy|Charts|Edge|Explorer|Recent|Historical|About"
-
-
-def _tab_styles() -> str:
-    return """.tab-container { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
-.tab-button { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 0.85rem; font-weight: 600; color: var(--text); }
-.tab-button.active { background: var(--blue); color: #fff; }
-.tab-panel { display: none; padding: 12px 0; }
-.tab-panel.active { display: block; }"""
+    return """<script>(()=>{const $=id=>document.getElementById(id),table=$("explorer-table"),body=table?.tBodies[0],days=$("explorer-days"),horizon=$("explorer-horizon"),search=$("explorer-search"),sort=$("explorer-sort"),count=$("explorer-count");if(!body)return;const p=new URLSearchParams(location.search),valid=(el,v)=>[...el.options].some(o=>o.value===v);for(const [k,el] of [["days",days],["horizon",horizon],["q",search],["sort",sort]]){const v=p.get(k)||el.value;if(valid(el,v)||el===search)el.value=v}const apply=()=>{const q=search.value.trim().toLowerCase(),d=days.value,h=horizon.value,s=sort.value,cut=d==="all"?0:Date.now()-Number(d)*864e5;let rows=[...body.rows];rows.forEach(r=>{const ok=(!h||r.dataset.horizon===h)&&(!cut||Date.parse(r.dataset.origin)>=cut)&&(!q||r.textContent.toLowerCase().includes(q));r.hidden=!ok});rows.sort((a,b)=>s==="horizon"?b.dataset.horizon-a.dataset.horizon:s==="error"?(parseFloat(a.cells[4].textContent)||Infinity)-(parseFloat(b.cells[4].textContent)||Infinity):Date.parse(b.dataset.origin)-Date.parse(a.dataset.origin)).forEach(r=>body.append(r));const state=new URLSearchParams;d!=="all"&&state.set("days",d);h&&state.set("horizon",h);q&&state.set("q",q);s!=="origin"&&state.set("sort",s);history.replaceState(void 0,"",location.pathname+(state.size?"?"+state:"")+location.hash);count.textContent=rows.filter(r=>!r.hidden).length+" forecasts"};[days,horizon,search,sort].forEach(el=>el.addEventListener("input",apply));apply();const origin=p.get("origin");if(origin){const detail=[...document.querySelectorAll(".forecast-detail")].find(d=>d.dataset.origin===origin);if(detail){detail.open=true;detail.scrollIntoView()}}})();</script>"""
 
 
 def render_html(data: dict[str, Any]) -> str:
@@ -656,83 +645,6 @@ def render_html(data: dict[str, Any]) -> str:
             ("all", "All time"),
         )
     )
-    
-    # Build tab panels
-    tab_panels = []
-    
-    # Tab 1: Overview
-    overview_content = f"""
-    <section id="forecasts" aria-labelledby="forecasts-heading">
-      <h2 id="forecasts-heading" class="visually-hidden">Forecasts</h2>
-      {_render_latest(data)}
-    </section>
-    <section id="accuracy" aria-labelledby="accuracy-heading">
-      <h2 id="accuracy-heading">Accuracy</h2>
-      <p>MAE is mean absolute percentage error. Direction is the share of forecasts that got the BTC move direction right. 80% coverage shows how often the actual price landed inside the q10–q90 interval.</p>
-      {accuracy_tables}
-    </section>
-    <section id="charts" aria-labelledby="charts-heading">
-      <h2 id="charts-heading">Quantile fans & performance trends</h2>
-      <p>Server-generated charts show matured forecasts only. They include accessible text and a summary table, with no browser-side data processing.</p>
-      {charts}
-    </section>
-    <section id="edge" aria-labelledby="edge-heading">
-      <h2 id="edge-heading">Ensemble edge vs persistence</h2>
-      {_render_persistence_edge(data)}
-    </section>
-    """
-    
-    # Tab 2: Forecast Explorer
-    explorer_content = f"""
-    <section id="explorer" aria-labelledby="explorer-heading">
-      <h2 id="explorer-heading">Forecast explorer</h2>
-      <p>Browse the durable ledger. Pending rows have not reached their target candle; matured rows are immutable historical predictions compared with actual BTC prices.</p>
-      {_render_explorer(data)}
-    </section>
-    {render_explorer(data.get("historical_explorer", {}))}
-    """
-    
-    # Tab 3: Recent Forecast Ledger
-    recent_content = f"""
-    <section id="recent" aria-labelledby="recent-heading">
-      <h2 id="recent-heading">Recent forecast ledger</h2>
-      <p>Pending rows have not reached their target candle yet. Matured rows are immutable historical predictions compared with the actual BTC price.</p>
-      {_render_recent(data)}
-    </section>
-    """
-    
-    # Tab 4: Model Metrics
-    model_metrics_content = """
-    <section id="metrics">
-      <h2>Model Metrics</h2>
-      <p>Performance metrics for all forecast models including TimesFM, persistence, drift, and AR(1) baselines.</p>
-      <div class="note">Model metrics section coming soon.</div>
-    </section>
-    """
-    
-    # Tab 5: Historical Analysis
-    historical_content = """
-    <section id="historical">
-      <h2>Historical Analysis</h2>
-      <p>Deep dive into historical forecast performance, backtesting results, and trend analysis.</p>
-      <div class="note">Historical analysis section coming soon.</div>
-    </section>
-    """
-    
-    # Add all tab panels
-    tab_panels = ["Overview", "Forecast Explorer", "Recent Forecast Ledger", "Model Metrics", "Historical Analysis"]
-    
-    # Build tabbed interface
-    tabs = ''.join(
-        f'<button class="tab-button {"active" if i == 0 else ""}" onclick="switchTab({i})" data-tab="{i}">{tab}</button>'
-        for i, tab in enumerate(tab_panels)
-    )
-    
-    tab_panels_html = ''.join(
-        f'<div class="tab-panel {"active" if i == 0 else ""}" id="tab-panel-{i}">{content}</div>'
-        for i, content in enumerate([overview_content, explorer_content, recent_content, model_metrics_content, historical_content])
-    )
-    
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -743,7 +655,7 @@ def render_html(data: dict[str, Any]) -> str:
 <style>
 :root {{ color-scheme: dark; --bg:#0a0c10; --panel:#12161d; --line:#242b36; --muted:#8f9aaa; --text:#f3f6fa; --green:#31d17c; --red:#ff646f; --amber:#f4c95d; --blue:#75a7ff; }}
 [data-theme="light"] {{ --bg:#f8f9fb; --panel:#ffffff; --line:#dce1e8; --muted:#5a6577; --text:#1a1f27; --green:#1a9c56; --red:#cc3340; --amber:#b08a1e; --blue:#2563eb; }}
-* {{ box-sizing:border-box;}}
+* {{ box-sizing:border-box; }}
 body {{ margin:0; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:radial-gradient(circle at top,#151b26 0,#0a0c10 40%); color:var(--text); line-height:1.5; }}
 [data-theme="light"] body {{ background:#f8f9fb; }}
 .skip-link {{ position:absolute; top:-40px; left:0; background:var(--blue); color:#fff; padding:8px 16px; z-index:100; font-weight:700; text-decoration:none; border-radius:0 0 6px 0; }}
@@ -802,7 +714,9 @@ dl {{ display:grid; grid-template-columns:max-content 1fr; gap:8px 18px; padding
 footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
 .chart-panel {{ padding:0 0 14px; }} .chart {{ display:block; width:100%; height:auto; background:var(--panel); border-top:1px solid var(--line); }}
 .chart-grid {{ stroke:var(--line); }} .chart-label,.chart-muted {{ fill:var(--muted); font-size:12px; }} .fan-band {{ fill:rgba(117,167,255,.22); }} .fan-median {{ fill:none; stroke:var(--blue); stroke-width:2; }} .fan-actual {{ fill:none; stroke:var(--text); stroke-width:1.5; }} .chart-low-shading {{ fill:rgba(244,201,93,.12); }} .chart-low-sample {{ fill:var(--amber); }}
-{_tab_styles()}
+@media (prefers-color-scheme: light) {{ :root {{ --bg:#f8fafc; --panel:#fff; --line:#d8dee8; --muted:#52606d; --text:#16202a; }} body {{ background:radial-gradient(circle at top,#e9f0fb 0,#f8fafc 40%); }} }}
+@media (max-width:850px) {{ .prediction-grid {{ grid-template-columns:repeat(2,minmax(0,1fr)); }} header {{ align-items:flex-start; flex-direction:column; }} }}
+@media (max-width:520px) {{ main {{ width:min(100% - 20px,1180px); padding-top:24px; }} .prediction-grid {{ grid-template-columns:1fr; }} .current-strip {{ align-items:flex-start; flex-direction:column; }} }}
 </style>
 </head>
 <body>
@@ -828,10 +742,35 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
   <a href="#recent">Recent</a>
   <a href="#about">About</a>
 </nav>
-<div class="tab-container">
-{tabs}
-</div>
-{tab_panels_html}
+<section id="forecasts" aria-labelledby="forecasts-heading">
+  <h2 id="forecasts-heading" class="visually-hidden">Forecasts</h2>
+  {_render_latest(data)}
+</section>
+<section id="accuracy" aria-labelledby="accuracy-heading">
+  <h2 id="accuracy-heading">Accuracy</h2>
+  <p>MAE is mean absolute percentage error. Direction is the share of forecasts that got the BTC move direction right. 80% coverage shows how often the actual price landed inside the q10–q90 interval.</p>
+  {accuracy_tables}
+</section>
+<section id="charts" aria-labelledby="charts-heading">
+  <h2 id="charts-heading">Quantile fans & performance trends</h2>
+  <p>Server-generated charts show matured forecasts only. They include accessible text and a summary table, with no browser-side data processing.</p>
+  {charts}
+</section>
+<section id="edge" aria-labelledby="edge-heading">
+  <h2 id="edge-heading">Ensemble edge vs persistence</h2>
+  {_render_persistence_edge(data)}
+</section>
+<section id="explorer" aria-labelledby="explorer-heading">
+  <h2 id="explorer-heading">Forecast explorer</h2>
+  <p>Browse the durable ledger. Pending rows have not reached their target candle; matured rows are immutable historical predictions compared with actual BTC prices.</p>
+  {_render_explorer(data)}
+</section>
+{render_explorer(data.get("historical_explorer", {}))}
+<section id="recent" aria-labelledby="recent-heading">
+  <h2 id="recent-heading">Recent forecast ledger</h2>
+  <p>Pending rows have not reached their target candle yet. Matured rows are immutable historical predictions compared with the actual BTC price.</p>
+  {_render_recent(data)}
+</section>
 <section id="about" aria-labelledby="about-heading">
   <h2 id="about-heading" class="visually-hidden">About</h2>
   <div class="note">Experimental forecasting only — not financial advice. Historical accuracy does not guarantee future performance.</div>
@@ -839,45 +778,6 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
 <footer role="contentinfo">Generated {html.escape(str(data["generated_at"]))} from {int(data["matured_rows"])} matured forecast rows.</footer>
 </main>
 {_explorer_script()}
-<script>
-// Tab switching functionality
-function switchTab(tabIndex) {{
-    const panels = document.querySelectorAll('.tab-panel');
-    const buttons = document.querySelectorAll('.tab-button');
-    
-    panels.forEach((panel, index) => {{
-        if (index === tabIndex) {{
-            panel.classList.add('active');
-        }} else {{
-            panel.classList.remove('active');
-        }}
-    }});
-    
-    buttons.forEach((button, index) => {{
-        if (index === tabIndex) {{
-            button.classList.add('active');
-        }} else {{
-            button.classList.remove('active');
-        }}
-    }});
-    
-    // Update URL hash
-    const tabId = ['forecasts', 'explorer', 'recent', 'metrics', 'historical'][tabIndex];
-    window.location.hash = "#" + tabId;
-}}
-
-// Initialize tab from URL hash
-function initTabFromHash() {{
-    const hash = window.location.hash.replace('#', '');
-    const tabIndex = ['forecasts', 'explorer', 'recent', 'metrics', 'historical'].indexOf(hash);
-    if (tabIndex >= 0) {{
-        switchTab(tabIndex);
-    }}
-}}
-
-// Run on page load
-initTabFromHash();
-</script>
 <script>
 (function(){{{chr(123)}}}var t=document.documentElement;var m=window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)');if(m&&!t.getAttribute('data-theme')){chr(123)}t.setAttribute('data-theme',m.matches?'dark':'light');{chr(125)}{chr(125)})()
 </script>

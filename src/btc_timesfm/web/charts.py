@@ -59,7 +59,7 @@ def _points(xs: list[float], ys: list[float]) -> str:
 def _svg(title: str, description: str, body: str, *, height: int = CHART_HEIGHT) -> str:
     title_id = "chart-" + "".join(character if character.isalnum() else "-" for character in title)
     return (
-        f'<svg class="chart" viewBox="0 0 {CHART_WIDTH} {height}" width="100%" height="auto" role="img" '
+        f'<svg class="chart" viewBox="0 0 {CHART_WIDTH} {height}" role="img" '
         f'aria-labelledby="{title_id}" xmlns="http://www.w3.org/2000/svg">'
         f'<title id="{title_id}">{_escape(title)}</title>'
         f"<desc>{_escape(description)}</desc>{body}</svg>"
