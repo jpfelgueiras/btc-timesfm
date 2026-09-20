@@ -305,6 +305,8 @@ class StaticSiteTests(unittest.TestCase):
         self.assertIn("Historical forecast explorer", page)
         self.assertIn("No X/Twitter dependency", page)
         self.assertIn("Pending", page)
+        self.assertIn("el instanceof HTMLSelectElement", page)
+        self.assertIn("r.dataset.regime", page)
 
 
 if __name__ == "__main__":
