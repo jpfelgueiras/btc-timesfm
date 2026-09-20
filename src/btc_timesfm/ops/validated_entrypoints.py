@@ -153,7 +153,9 @@ def _instrument_forecast(observer: PipelineObserver, btc_forecast: Any) -> None:
 
     def retention_observed(*args: Any, **kwargs: Any):
         report = original_retention(*args, **kwargs)
-        observer.event("optional_source_inputs_retained", status="success", **report)
+        fields = dict(report)
+        fields.pop("status", None)
+        observer.event("optional_source_inputs_retained", status="success", **fields)
         return report
 
     def manifest_observed(*args: Any, **kwargs: Any):
