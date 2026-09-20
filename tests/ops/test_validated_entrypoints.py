@@ -41,7 +41,9 @@ class ValidatedEntrypointTests(unittest.TestCase):
 
             self.assertEqual(report["status"], "retained")
             events = [json.loads(line) for line in (root / "events.jsonl").read_text().splitlines()]
-            event = next(item for item in events if item["event"] == "optional_source_inputs_retained")
+            event = next(
+                item for item in events if item["event"] == "optional_source_inputs_retained"
+            )
             self.assertEqual(event["status"], "success")
             self.assertEqual(event["retained_record_count"], 1)
 
