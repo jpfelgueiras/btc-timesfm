@@ -23,7 +23,8 @@ class SiteAccessibilityTests(unittest.TestCase):
 
         html_content = render_html(data)
 
-        self.assertIn('<nav class="site-nav" aria-label="Page sections">', html_content)
+        self.assertIn('role="tablist" aria-label="Dashboard sections"', html_content)
+        self.assertIn('role="tabpanel"', html_content)
         self.assertIn('role="main"', html_content)
         self.assertIn('role="contentinfo"', html_content)
         self.assertIn('class="skip-link"', html_content)

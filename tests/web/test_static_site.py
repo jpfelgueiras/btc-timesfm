@@ -290,6 +290,11 @@ class StaticSiteTests(unittest.TestCase):
         page = render_html(data)
 
         self.assertIn("Forecasts & accuracy", page)
+        self.assertIn('role="tablist"', page)
+        self.assertIn("Overview", page)
+        self.assertIn("Model Metrics", page)
+        self.assertIn('role="tabpanel"', page)
+        self.assertIn("ArrowRight", page)
         self.assertIn("$102", page)
         self.assertIn("Ensemble edge vs persistence", page)
         self.assertIn("Paired samples", page)
