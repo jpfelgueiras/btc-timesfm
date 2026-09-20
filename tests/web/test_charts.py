@@ -31,6 +31,7 @@ class ChartTests(unittest.TestCase):
         self.assertIn("#7c9cff", html)
         self.assertIn("Chart data summary", html)
         self.assertIn("chart-low-shading", html)
+        self.assertIn('<svg class="chart" width="100%" height="auto"', html)
         self.assertEqual(summary["2h"]["matured_samples"], 1)
 
     def test_degenerate_and_missing_values_are_bounded_and_have_fallback(self) -> None:
