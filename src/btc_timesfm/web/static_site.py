@@ -661,9 +661,11 @@ body {{ margin:0; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkM
 .skip-link {{ position:absolute; top:-40px; left:0; background:var(--blue); color:#fff; padding:8px 16px; z-index:100; font-weight:700; text-decoration:none; border-radius:0 0 6px 0; }}
 .skip-link:focus {{ top:0; }}
 *:focus-visible {{ outline:2px solid var(--blue); outline-offset:2px; }}
-.site-nav {{ display:flex; flex-wrap:wrap; gap:6px 18px; padding:12px 0; margin-bottom:16px; border-bottom:1px solid var(--line); }}
-.site-nav a {{ color:var(--muted); text-decoration:none; font-size:.82rem; font-weight:600; letter-spacing:.03em; padding:4px 0; }}
-.site-nav a:hover, .site-nav a:focus {{ color:var(--text); }}
+.tabs {{ display:flex; flex-wrap:wrap; gap:4px; margin:0 0 24px; border-bottom:1px solid var(--line); }}
+.tab-button {{ background:transparent; border:0; border-bottom:2px solid transparent; color:var(--muted); cursor:pointer; font:inherit; font-size:.9rem; font-weight:700; padding:12px 16px; }}
+.tab-button:hover, .tab-button:focus {{ color:var(--text); }}
+.tab-button[aria-selected="true"] {{ border-color:var(--blue); color:var(--text); }}
+.tab-content[hidden] {{ display:none; }}
 .theme-toggle {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:6px 12px; cursor:pointer; color:var(--text); font-size:.8rem; font-weight:600; }}
 .visually-hidden {{ position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }}
 main {{ width:min(1180px,calc(100% - 32px)); margin:0 auto; padding:42px 0 72px; }}
@@ -733,19 +735,22 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
     <a href="https://github.com/jpfelgueiras/btc-timesfm">View source on GitHub ↗</a>
   </div>
 </header>
-<nav class="site-nav" aria-label="Page sections">
-  <a href="#forecasts">Forecasts</a>
-  <a href="#accuracy">Accuracy</a>
-  <a href="#charts">Charts</a>
-  <a href="#edge">Edge</a>
-  <a href="#explorer">Explorer</a>
-  <a href="#recent">Recent</a>
-  <a href="#about">About</a>
-</nav>
+<div class="tabs" role="tablist" aria-label="Dashboard sections">
+  <button class="tab-button" type="button" role="tab" aria-selected="true" aria-controls="tab-overview" id="tab-overview-button">Overview</button>
+  <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="tab-explorer" id="tab-explorer-button" tabindex="-1">Forecast Explorer</button>
+  <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="tab-metrics" id="tab-metrics-button" tabindex="-1">Model Metrics</button>
+</div>
+<div id="tab-overview" class="tab-content" role="tabpanel" aria-labelledby="tab-overview-button" tabindex="0">
 <section id="forecasts" aria-labelledby="forecasts-heading">
   <h2 id="forecasts-heading" class="visually-hidden">Forecasts</h2>
   {_render_latest(data)}
 </section>
+<section id="about" aria-labelledby="about-heading">
+  <h2 id="about-heading" class="visually-hidden">About</h2>
+  <div class="note">Experimental forecasting only — not financial advice. Historical accuracy does not guarantee future performance.</div>
+</section>
+</div>
+<div id="tab-metrics" class="tab-content" role="tabpanel" aria-labelledby="tab-metrics-button" tabindex="0" hidden>
 <section id="accuracy" aria-labelledby="accuracy-heading">
   <h2 id="accuracy-heading">Accuracy</h2>
   <p>MAE is mean absolute percentage error. Direction is the share of forecasts that got the BTC move direction right. 80% coverage shows how often the actual price landed inside the q10–q90 interval.</p>
@@ -760,6 +765,8 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
   <h2 id="edge-heading">Ensemble edge vs persistence</h2>
   {_render_persistence_edge(data)}
 </section>
+</div>
+<div id="tab-explorer" class="tab-content" role="tabpanel" aria-labelledby="tab-explorer-button" tabindex="0" hidden>
 <section id="explorer" aria-labelledby="explorer-heading">
   <h2 id="explorer-heading">Forecast explorer</h2>
   <p>Browse the durable ledger. Pending rows have not reached their target candle; matured rows are immutable historical predictions compared with actual BTC prices.</p>
@@ -771,14 +778,12 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
   <p>Pending rows have not reached their target candle yet. Matured rows are immutable historical predictions compared with the actual BTC price.</p>
   {_render_recent(data)}
 </section>
-<section id="about" aria-labelledby="about-heading">
-  <h2 id="about-heading" class="visually-hidden">About</h2>
-  <div class="note">Experimental forecasting only — not financial advice. Historical accuracy does not guarantee future performance.</div>
-</section>
+</div>
 <footer role="contentinfo">Generated {html.escape(str(data["generated_at"]))} from {int(data["matured_rows"])} matured forecast rows.</footer>
 </main>
 {_explorer_script()}
 <script>
+(function(){{const tabs=[...document.querySelectorAll('[role="tab"]')],panels=[...document.querySelectorAll('[role="tabpanel"]')],hashes={{'#explorer':'tab-explorer','#accuracy':'tab-metrics','#edge':'tab-metrics'}};function activate(id,replace){{tabs.forEach(tab=>{{const active=tab.getAttribute('aria-controls')===id;tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;}});panels.forEach(panel=>panel.hidden=panel.id!==id);if(replace)history.replaceState(void 0,'',id==='tab-overview'?location.pathname:'#'+(id==='tab-explorer'?'explorer':'accuracy'));}}tabs.forEach((tab,index)=>{{tab.addEventListener('click',()=>activate(tab.getAttribute('aria-controls'),true));tab.addEventListener('keydown',event=>{{const offsets={{ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1}};const offset=offsets[event.key],next=event.key==='Home'?0:event.key==='End'?tabs.length-1:Number.isInteger(offset)?(index+offset+tabs.length)%tabs.length:void 0;if(next===void 0)return;event.preventDefault();tabs[next].focus();activate(tabs[next].getAttribute('aria-controls'),true);}});}});activate(hashes[location.hash]||'tab-overview',false);}})();
 (function(){{{chr(123)}}}var t=document.documentElement;var m=window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)');if(m&&!t.getAttribute('data-theme')){chr(123)}t.setAttribute('data-theme',m.matches?'dark':'light');{chr(125)}{chr(125)})()
 </script>
 </body>
