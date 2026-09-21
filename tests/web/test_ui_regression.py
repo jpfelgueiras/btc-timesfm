@@ -72,7 +72,9 @@ class UiRegressionTests(unittest.TestCase):
     def test_charts_are_responsive_svg_images(self) -> None:
         charts, _ = render_charts([], ["2h"], 5)
 
-        self.assertIn('<svg class="chart" width="100%" height="auto"', charts)
+        self.assertIn('<svg class="chart" width="760" height="260"', charts)
+        self.assertIn('preserveAspectRatio="xMidYMid meet"', charts)
+        self.assertNotIn('height="auto"', charts)
         self.assertIn('role="img"', charts)
         self.assertIn("No matured forecasts", charts)
 
