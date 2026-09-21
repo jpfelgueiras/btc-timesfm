@@ -46,8 +46,15 @@ def _scale(values: Iterable[float], low: float, high: float) -> list[float]:
     minimum, maximum = min(values), max(values)
     if minimum == maximum:
         return [(low + high) / 2 for _ in values]
+    lower_bound, upper_bound = sorted((low, high))
     return [
-        max(low, min(high, low + (value - minimum) * (high - low) / (maximum - minimum)))
+        max(
+            lower_bound,
+            min(
+                upper_bound,
+                low + (value - minimum) * (high - low) / (maximum - minimum),
+            ),
+        )
         for value in values
     ]
 
@@ -59,7 +66,8 @@ def _points(xs: list[float], ys: list[float]) -> str:
 def _svg(title: str, description: str, body: str, *, height: int = CHART_HEIGHT) -> str:
     title_id = "chart-" + "".join(character if character.isalnum() else "-" for character in title)
     return (
-        f'<svg class="chart" width="100%" height="auto" viewBox="0 0 {CHART_WIDTH} {height}" role="img" '
+        f'<svg class="chart" width="{CHART_WIDTH}" height="{height}" '
+        f'viewBox="0 0 {CHART_WIDTH} {height}" preserveAspectRatio="xMidYMid meet" role="img" '
         f'aria-labelledby="{title_id}" xmlns="http://www.w3.org/2000/svg">'
         f'<title id="{title_id}">{_escape(title)}</title>'
         f"<desc>{_escape(description)}</desc>{body}</svg>"
