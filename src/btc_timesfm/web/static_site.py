@@ -666,6 +666,10 @@ body {{ margin:0; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkM
 .tab-button:hover, .tab-button:focus {{ color:var(--text); }}
 .tab-button[aria-selected="true"] {{ border-color:var(--blue); color:var(--text); }}
 .tab-content[hidden] {{ display:none; }}
+.metric-tabs {{ display:flex; flex-wrap:wrap; gap:8px; margin:28px 0 18px; }}
+.metric-tab-button {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; color:var(--muted); cursor:pointer; font:inherit; font-size:.85rem; font-weight:700; padding:8px 12px; }}
+.metric-tab-button:hover, .metric-tab-button:focus, .metric-tab-button[aria-selected="true"] {{ border-color:var(--blue); color:var(--text); }}
+.metric-content[hidden] {{ display:none; }}
 .theme-toggle {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:6px 12px; cursor:pointer; color:var(--text); font-size:.8rem; font-weight:600; }}
 .visually-hidden {{ position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }}
 main {{ width:min(1180px,calc(100% - 32px)); margin:0 auto; padding:42px 0 72px; }}
@@ -751,20 +755,31 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
 </section>
 </div>
 <div id="tab-metrics" class="tab-content" role="tabpanel" aria-labelledby="tab-metrics-button" tabindex="0" hidden>
-<section id="accuracy" aria-labelledby="accuracy-heading">
-  <h2 id="accuracy-heading">Accuracy</h2>
-  <p>MAE is mean absolute percentage error. Direction is the share of forecasts that got the BTC move direction right. 80% coverage shows how often the actual price landed inside the q10–q90 interval.</p>
-  {accuracy_tables}
-</section>
-<section id="charts" aria-labelledby="charts-heading">
-  <h2 id="charts-heading">Quantile fans & performance trends</h2>
-  <p>Server-generated charts show matured forecasts only. They include accessible text and a summary table, with no browser-side data processing.</p>
-  {charts}
-</section>
-<section id="edge" aria-labelledby="edge-heading">
-  <h2 id="edge-heading">Ensemble edge vs persistence</h2>
-  {_render_persistence_edge(data)}
-</section>
+<div class="metric-tabs" role="tablist" aria-label="Model metric sections">
+  <button class="metric-tab-button" type="button" role="tab" aria-selected="true" aria-controls="metrics-accuracy" id="metrics-accuracy-button">Accuracy</button>
+  <button class="metric-tab-button" type="button" role="tab" aria-selected="false" aria-controls="metrics-charts" id="metrics-charts-button" tabindex="-1">Quantile fans &amp; performance trends</button>
+  <button class="metric-tab-button" type="button" role="tab" aria-selected="false" aria-controls="metrics-edge" id="metrics-edge-button" tabindex="-1">Ensemble edge vs persistence</button>
+</div>
+<div id="metrics-accuracy" class="metric-content" role="tabpanel" aria-labelledby="metrics-accuracy-button" tabindex="0">
+  <section id="accuracy" aria-labelledby="accuracy-heading">
+    <h2 id="accuracy-heading">Accuracy</h2>
+    <p>MAE is mean absolute percentage error. Direction is the share of forecasts that got the BTC move direction right. 80% coverage shows how often the actual price landed inside the q10–q90 interval.</p>
+    {accuracy_tables}
+  </section>
+</div>
+<div id="metrics-charts" class="metric-content" role="tabpanel" aria-labelledby="metrics-charts-button" tabindex="0" hidden>
+  <section id="charts" aria-labelledby="charts-heading">
+    <h2 id="charts-heading">Quantile fans &amp; performance trends</h2>
+    <p>Server-generated charts show matured forecasts only. They include accessible text and a summary table, with no browser-side data processing.</p>
+    {charts}
+  </section>
+</div>
+<div id="metrics-edge" class="metric-content" role="tabpanel" aria-labelledby="metrics-edge-button" tabindex="0" hidden>
+  <section id="edge" aria-labelledby="edge-heading">
+    <h2 id="edge-heading">Ensemble edge vs persistence</h2>
+    {_render_persistence_edge(data)}
+  </section>
+</div>
 </div>
 <div id="tab-explorer" class="tab-content" role="tabpanel" aria-labelledby="tab-explorer-button" tabindex="0" hidden>
 <section id="explorer" aria-labelledby="explorer-heading">
@@ -783,7 +798,8 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
 </main>
 {_explorer_script()}
 <script>
-(function(){{const tabs=[...document.querySelectorAll('[role="tab"]')],panels=[...document.querySelectorAll('[role="tabpanel"]')],hashes={{'#explorer':'tab-explorer','#accuracy':'tab-metrics','#edge':'tab-metrics'}};function activate(id,replace){{tabs.forEach(tab=>{{const active=tab.getAttribute('aria-controls')===id;tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;}});panels.forEach(panel=>panel.hidden=panel.id!==id);if(replace)history.replaceState(void 0,'',id==='tab-overview'?location.pathname:'#'+(id==='tab-explorer'?'explorer':'accuracy'));}}tabs.forEach((tab,index)=>{{tab.addEventListener('click',()=>activate(tab.getAttribute('aria-controls'),true));tab.addEventListener('keydown',event=>{{const offsets={{ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1}};const offset=offsets[event.key],next=event.key==='Home'?0:event.key==='End'?tabs.length-1:Number.isInteger(offset)?(index+offset+tabs.length)%tabs.length:void 0;if(next===void 0)return;event.preventDefault();tabs[next].focus();activate(tabs[next].getAttribute('aria-controls'),true);}});}});activate(hashes[location.hash]||'tab-overview',false);}})();
+(function(){{const tabs=[...document.querySelectorAll('.tabs [role="tab"]')],panels=[...document.querySelectorAll('.tab-content')],hashes={{'#explorer':'tab-explorer','#accuracy':'tab-metrics','#charts':'tab-metrics','#edge':'tab-metrics'}};function activate(id,replace){{tabs.forEach(tab=>{{const active=tab.getAttribute('aria-controls')===id;tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;}});panels.forEach(panel=>panel.hidden=panel.id!==id);if(replace)history.replaceState(void 0,'',id==='tab-overview'?location.pathname:'#'+(id==='tab-explorer'?'explorer':'accuracy'));}}tabs.forEach((tab,index)=>{{tab.addEventListener('click',()=>activate(tab.getAttribute('aria-controls'),true));tab.addEventListener('keydown',event=>{{const offsets={{ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1}};const offset=offsets[event.key],next=event.key==='Home'?0:event.key==='End'?tabs.length-1:Number.isInteger(offset)?(index+offset+tabs.length)%tabs.length:void 0;if(next===void 0)return;event.preventDefault();tabs[next].focus();activate(tabs[next].getAttribute('aria-controls'),true);}});}});activate(hashes[location.hash]||'tab-overview',false);}})();
+(function(){{const tabs=[...document.querySelectorAll('.metric-tabs [role="tab"]')],panels=[...document.querySelectorAll('.metric-content')],hashes={{'#charts':'metrics-charts','#edge':'metrics-edge'}};function activate(id,replace){{tabs.forEach(tab=>{{const active=tab.getAttribute('aria-controls')===id;tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;}});panels.forEach(panel=>panel.hidden=panel.id!==id);if(replace)history.replaceState(void 0,'',id==='metrics-accuracy'?'#accuracy':'#'+id.replace('metrics-',''));}}tabs.forEach((tab,index)=>{{tab.addEventListener('click',()=>activate(tab.getAttribute('aria-controls'),true));tab.addEventListener('keydown',event=>{{const offsets={{ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1}};const offset=offsets[event.key],next=event.key==='Home'?0:event.key==='End'?tabs.length-1:Number.isInteger(offset)?(index+offset+tabs.length)%tabs.length:void 0;if(next===void 0)return;event.preventDefault();tabs[next].focus();activate(tabs[next].getAttribute('aria-controls'),true);}});}});activate(hashes[location.hash]||'metrics-accuracy',false);}})();
 (function(){{{chr(123)}}}var t=document.documentElement;var m=window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)');if(m&&!t.getAttribute('data-theme')){chr(123)}t.setAttribute('data-theme',m.matches?'dark':'light');{chr(125)}{chr(125)})()
 </script>
 </body>
