@@ -41,12 +41,16 @@ class UiRegressionTests(unittest.TestCase):
         controls = {
             attrs["id"]: attrs
             for tag, attrs in parser.elements
-            if tag == "button" and attrs.get("role") == "tab"
+            if tag == "button"
+            and attrs.get("role") == "tab"
+            and attrs.get("id", "").startswith("tab-")
         }
         panels = {
             attrs["id"]: attrs
             for tag, attrs in parser.elements
-            if tag == "div" and attrs.get("role") == "tabpanel"
+            if tag == "div"
+            and attrs.get("role") == "tabpanel"
+            and attrs.get("id", "").startswith("tab-")
         }
 
         self.assertEqual(
@@ -60,6 +64,37 @@ class UiRegressionTests(unittest.TestCase):
         self.assertNotIn("hidden", panels["tab-overview"])
         self.assertIn("hidden", panels["tab-explorer"])
         self.assertIn("hidden", panels["tab-metrics"])
+
+    def test_model_metrics_sections_are_sub_tabs(self) -> None:
+        parser = _DashboardParser()
+        parser.feed(self._page())
+        controls = {
+            attrs["id"]: attrs
+            for tag, attrs in parser.elements
+            if tag == "button"
+            and attrs.get("role") == "tab"
+            and attrs.get("id", "").startswith("metrics-")
+        }
+        panels = {
+            attrs["id"]: attrs
+            for tag, attrs in parser.elements
+            if tag == "div"
+            and attrs.get("role") == "tabpanel"
+            and attrs.get("id", "").startswith("metrics-")
+        }
+
+        self.assertEqual(
+            set(controls),
+            {"metrics-accuracy-button", "metrics-charts-button", "metrics-edge-button"},
+        )
+        self.assertEqual(set(panels), {"metrics-accuracy", "metrics-charts", "metrics-edge"})
+        for control in controls.values():
+            panel_id = control["aria-controls"]
+            self.assertIn(panel_id, panels)
+            self.assertEqual(panels[panel_id]["aria-labelledby"], control["id"])
+        self.assertNotIn("hidden", panels["metrics-accuracy"])
+        self.assertIn("hidden", panels["metrics-charts"])
+        self.assertIn("hidden", panels["metrics-edge"])
 
     def test_explorer_script_handles_search_input_and_metadata(self) -> None:
         script = _explorer_script()
