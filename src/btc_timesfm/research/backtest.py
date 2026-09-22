@@ -435,10 +435,30 @@ def main() -> None:
         type=int,
         default=DEFAULT_ROLLING_TRAIN_SAMPLES,
     )
+    parser.add_argument(
+        "--offline-dataset",
+        type=str,
+        default=None,
+        help="Path to a .npz file containing the historical data (if provided, skips Binance download)",
+    )
     args = parser.parse_args()
 
     seed_everything()
-    data = fetch_binance_history(args.days)
+    if args.offline_dataset:
+        # Load from offline dataset
+        offline_data = np.load(args.offline_dataset)
+        data = MarketData(
+            timestamps=offline_data["timestamps"],
+            opens=offline_data["opens"],
+            highs=offline_data["highs"],
+            lows=offline_data["lows"],
+            closes=offline_data["closes"],
+            volumes=offline_data["volumes"],
+        )
+        data_source = f"Offline dataset: {args.offline_dataset}"
+    else:
+        data = fetch_binance_history(args.days)
+        data_source = "Binance BTCUSDT 1h (historical proxy for BTC/USD)"
     first = 513
     last = len(data.closes) - max(TARGET_HOURS) - 1
     if last <= first:
