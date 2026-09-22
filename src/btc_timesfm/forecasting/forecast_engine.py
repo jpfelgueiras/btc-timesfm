@@ -309,7 +309,7 @@ def static_model_weights(model_names: list[str], regime: str) -> dict[str, float
 model_weights = static_model_weights
 
 
-def _direction(value: float, epsilon: float = 1e-12) -> int:
+def _direction(value: float, epsilon: float = 0.005) -> int:
     return 1 if value > epsilon else -1 if value < -epsilon else 0
 
 
@@ -736,7 +736,7 @@ def build_forecast(
         "model": MODEL_ID,
         "forecast_method": "log-return multi-context adaptive ensemble",
         "latest_close_at": datetime.fromtimestamp(data.timestamps[-1], tz=timezone.utc).isoformat(),
-        "latest_close_usd": round(float(data.closes[-1]), 2),
+        "latest_close_usd": float(data.closes[-1]),
         "market_features": features,
         "regime": regime,
         "adaptive_confidence": round(min(1.0, max(0.0, float(adaptive_confidence))), 4),

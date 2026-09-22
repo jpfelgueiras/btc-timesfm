@@ -48,7 +48,7 @@ def _iso(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat()
 
 
-def _direction(value: float, epsilon: float = 1e-9) -> int:
+def _direction(value: float, epsilon: float = 0.005) -> int:
     return 1 if value > epsilon else -1 if value < -epsilon else 0
 
 
