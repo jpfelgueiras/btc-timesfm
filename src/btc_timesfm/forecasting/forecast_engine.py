@@ -8,9 +8,7 @@ from recent forecast history.
 
 from __future__ import annotations
 
-import hashlib
 import math
-import os
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -124,10 +122,11 @@ def get_timesfm_identity() -> dict[str, Any]:
     """Return immutable identity information for the TimesFM model."""
     try:
         import importlib.metadata
+
         timesfm_version = importlib.metadata.version("timesfm")
     except importlib.metadata.PackageNotFoundError:
         timesfm_version = "not-installed"
-    
+
     return {
         "model_id": MODEL_ID,
         "model_revision": MODEL_REVISION,
@@ -140,7 +139,7 @@ def get_timesfm_identity() -> dict[str, Any]:
 
 def _validate_timesfm_output(outputs: list, horizon: int) -> None:
     """Validate the output contract of TimesFM3Evaluator.predict_batch.
-    
+
     Checks:
       - Outputs are finite
       - Point forecast matches median quantile (index 4)
@@ -149,37 +148,31 @@ def _validate_timesfm_output(outputs: list, horizon: int) -> None:
     """
     if not outputs:
         return
-    
+
     # Check each output in the batch
     for result in outputs:
         point = np.asarray(result.forecast, dtype=np.float64)
         quantiles = np.asarray(result.quantiles, dtype=np.float64)
-        
+
         # Check for non-finite values
         if not np.all(np.isfinite(point)):
             raise ValueError("Non-finite values in point forecast")
         if not np.all(np.isfinite(quantiles)):
             raise ValueError("Non-finite values in quantile forecast")
-        
+
         # Check shapes: point should be (horizon,), quantiles (horizon, 9)
         if point.shape != (horizon,):
-            raise ValueError(f"Unexpected point forecast shape: {point.shape}, expected ({horizon},)")
+            raise ValueError(
+                f"Unexpected point forecast shape: {point.shape}, expected ({horizon},)"
+            )
         if quantiles.shape != (horizon, 9):
-            raise ValueError(f"Unexpected quantiles shape: {quantiles.shape}, expected ({horizon}, 9)")
-        
+            raise ValueError(
+                f"Unexpected quantiles shape: {quantiles.shape}, expected ({horizon}, 9)"
+            )
+
         # Check that point forecast matches the median quantile (index 4)
         if not np.allclose(point, quantiles[:, 4], rtol=1e-5):
             raise ValueError("Point forecast does not match median quantile (index 4)")
-
-
-def get_model_eligibility() -> bool:
-    """Return whether the TimesFM model is eligible for production use.
-    
-    This is determined by the environment variable BTC_TIMESFM_ELIGIBLE.
-    If not set, defaults to False (fail closed).
-    """
-    eligible_str = os.getenv("BTC_TIMESFM_ELIGIBLE", "false").lower()
-    return eligible_str in ("true", "1", "yes")
 
 
 def _safe_std(values: np.ndarray) -> float:

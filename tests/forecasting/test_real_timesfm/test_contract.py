@@ -17,9 +17,7 @@ SKIP_REAL_TIMESFM = os.getenv("BTC_TIMESFM_RUN_REAL_TESTS", "false").lower() not
 
 if not SKIP_REAL_TIMESFM:
     try:
-        from timesfm3 import ModelConfig, TimesFM3Evaluator
-        from tests.support.unit_test_stubs import install_timesfm_stub
-        install_timesfm_stub()
+        __import__("timesfm3")
         HAS_TIMESFM = True
     except Exception:
         HAS_TIMESFM = False
@@ -51,11 +49,7 @@ class RealTimesFMContractTests(unittest.TestCase):
 
     def setUp(self) -> None:
         """Set up real TimesFM model for testing."""
-        from btc_timesfm.forecasting.forecast_engine import (
-            MODEL_ID,
-            MODEL_REVISION,
-            load_timesfm,
-        )
+        from btc_timesfm.forecasting.forecast_engine import MODEL_REVISION, load_timesfm
 
         self.model = load_timesfm()
         # Verify we got the right revision
@@ -104,7 +98,10 @@ class RealTimesFMContractTests(unittest.TestCase):
 
         # Check that median quantile (index 4) matches point forecast
         np.testing.assert_allclose(
-            result.forecast, result.quantiles[:, 4], rtol=1e-5, err_msg="Point forecast != median quantile"
+            result.forecast,
+            result.quantiles[:, 4],
+            rtol=1e-5,
+            err_msg="Point forecast != median quantile",
         )
 
     def test_multi_context_forecast_shapes(self) -> None:
@@ -130,7 +127,9 @@ class RealTimesFMContractTests(unittest.TestCase):
             # Each hour forecast should have the four price points
             for hour_key in forecasts[name]:
                 hour_data = forecasts[name][hour_key]
-                self.assertEqual(set(hour_data.keys()), {"price_usd", "q10_usd", "q50_usd", "q90_usd"})
+                self.assertEqual(
+                    set(hour_data.keys()), {"price_usd", "q10_usd", "q50_usd", "q90_usd"}
+                )
                 # All should be floats (or convertible to float)
                 for key, value in hour_data.items():
                     self.assertIsInstance(value, (float, int, np.floating))
@@ -152,7 +151,9 @@ class RealTimesFMContractTests(unittest.TestCase):
         )
         result = outputs[0]
         # Positive returns should lead to positive forecast (price increase)
-        self.assertTrue(np.all(result.forecast > 0), "Positive returns should yield positive log returns")
+        self.assertTrue(
+            np.all(result.forecast > 0), "Positive returns should yield positive log returns"
+        )
 
         # Test with negative returns (should decrease price)
         negative_returns = np.full_like(returns[-168:], -0.01)  # -1% per hour
@@ -166,7 +167,9 @@ class RealTimesFMContractTests(unittest.TestCase):
         )
         result = outputs[0]
         # Negative returns should lead to negative forecast (price decrease)
-        self.assertTrue(np.all(result.forecast < 0), "Negative returns should yield negative log returns")
+        self.assertTrue(
+            np.all(result.forecast < 0), "Negative returns should yield negative log returns"
+        )
 
     def test_constant_input_produces_flat_forecast(self) -> None:
         """Test that constant input produces approximately flat forecast."""
@@ -185,10 +188,15 @@ class RealTimesFMContractTests(unittest.TestCase):
         )
         result = outputs[0]
         # Forecast should be close to zero (allowing for small numerical errors)
-        self.assertTrue(np.all(np.abs(result.forecast) < 0.01), "Constant input should yield near-zero forecast")
+        self.assertTrue(
+            np.all(np.abs(result.forecast) < 0.01), "Constant input should yield near-zero forecast"
+        )
 
         # Quantiles should also be near zero
-        self.assertTrue(np.all(np.abs(result.quantiles) < 0.01), "Quantiles should be near zero for constant input")
+        self.assertTrue(
+            np.all(np.abs(result.quantiles) < 0.01),
+            "Quantiles should be near zero for constant input",
+        )
 
     def test_quantile_range_ordering(self) -> None:
         """Test that quantiles follow the expected range: 0.1 < 0.5 < 0.9."""
