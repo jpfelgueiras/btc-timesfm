@@ -150,6 +150,7 @@ def build_experiment_manifest(
     data_source: str,
     data_pair: str,
     run_parameters: dict[str, Any] | None = None,
+    policy: dict[str, Any] | None = None,
     model_names: list[str] | None = None,
     feature_set_version: str | None = None,
     enabled_features: list[str] | None = None,
@@ -183,7 +184,7 @@ def build_experiment_manifest(
     }
     configuration: dict[str, Any] = {
         "forecast": forecast_configuration(model_names),
-        "run_parameters": run_parameters or {},
+        "policy": policy or {},
         "dependencies": dependencies,
         "feature_set_version": feature_set["version"],
         "feature_set": feature_set,
@@ -210,6 +211,7 @@ def build_experiment_manifest(
             "package_version": dependencies["timesfm"],
         },
         "configuration": configuration,
+        "run_parameters": run_parameters or {},
         "data": data_identity,
         "seeds": {"python": seed, "numpy": seed, "torch": seed},
         "runtime": {

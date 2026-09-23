@@ -39,6 +39,7 @@ from btc_timesfm.forecasting.cross_validation import (
     fold_definition,
 )
 from btc_timesfm.forecasting.experiment_manifest import build_experiment_manifest, seed_everything
+from btc_timesfm.forecasting.forecast_policy import policy_for
 from btc_timesfm.forecasting.feature_registry import MARKET_FEATURE_NAMES
 from btc_timesfm.forecasting.forecast_engine import (
     MarketData,
@@ -526,6 +527,7 @@ def main() -> None:
         data=data,
         data_source=data_source,
         data_pair="BTC/USDT",
+        policy=policy_for("backtest").configuration(),
         run_parameters={
             "days_requested": args.days,
             "samples_requested": args.samples,

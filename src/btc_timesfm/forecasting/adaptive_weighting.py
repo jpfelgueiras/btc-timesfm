@@ -87,11 +87,30 @@ def attach_persisted_outcomes(
     return snapshots
 
 
-def _persisted_actual(snapshot: dict[str, Any], horizon: str, model_name: str) -> float | None:
+def _persisted_actual(
+    snapshot: dict[str, Any],
+    horizon: str,
+    model_name: str,
+    *,
+    available_at: datetime | None,
+) -> float | None:
     try:
-        value = snapshot["_outcomes"][horizon][model_name]["actual_target_price_usd"]
+        outcome = snapshot["_outcomes"][horizon][model_name]
+        value = outcome["actual_target_price_usd"]
     except (KeyError, TypeError):
         return None
+    if available_at is not None:
+        matured_at_value = outcome.get("matured_at")
+        if matured_at_value is None:
+            return None
+        try:
+            matured_at = datetime.fromisoformat(str(matured_at_value).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+        if matured_at.tzinfo is None:
+            matured_at = matured_at.replace(tzinfo=timezone.utc)
+        if matured_at.astimezone(timezone.utc) > available_at:
+            return None
     try:
         actual = float(value)
     except (TypeError, ValueError):
@@ -106,6 +125,7 @@ def _score_history_for_model(
     hour: int,
     regime: str | None,
     history_limit: int,
+    available_at: datetime | None,
 ) -> list[dict[str, float | bool | None | str]]:
     horizon = f"{hour}h"
     scores: list[dict[str, float | bool | None | str]] = []
@@ -128,7 +148,7 @@ def _score_history_for_model(
         except (KeyError, TypeError, ValueError):
             continue
 
-        actual = _persisted_actual(snapshot, horizon, model_name)
+        actual = _persisted_actual(snapshot, horizon, model_name, available_at=available_at)
         outcome_source = "durable"
         if actual is None:
             target = int(origin.timestamp()) + hour * 3600
@@ -191,6 +211,7 @@ def adaptive_model_weights(
     enabled: bool = True,
     history_limit: int | None = None,
     confidence: float = 1.0,
+    available_at: datetime | None = None,
 ) -> tuple[dict[str, float], dict[str, Any]]:
     """Blend static priors with recent out-of-sample performance.
 
@@ -204,11 +225,15 @@ def adaptive_model_weights(
     prior = static_model_weights(model_names, regime)
 
     regime_scores = {
-        name: _score_history_for_model(history, actual_by_timestamp, name, hour, regime, limit)
+        name: _score_history_for_model(
+            history, actual_by_timestamp, name, hour, regime, limit, available_at
+        )
         for name in model_names
     }
     all_scores = {
-        name: _score_history_for_model(history, actual_by_timestamp, name, hour, None, limit)
+        name: _score_history_for_model(
+            history, actual_by_timestamp, name, hour, None, limit, available_at
+        )
         for name in model_names
     }
 

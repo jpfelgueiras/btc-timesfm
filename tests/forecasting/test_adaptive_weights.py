@@ -165,6 +165,27 @@ class AdaptiveWeightTests(unittest.TestCase):
             self.assertEqual(diagnostics["models"][model]["durable_outcome_samples"], 8)
             self.assertEqual(diagnostics["models"][model]["candle_outcome_samples"], 0)
 
+    def test_future_durable_outcomes_are_ignored_at_cutoff(self) -> None:
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        history = []
+        for i in range(8):
+            current = 100.0 + i
+            actual = current + 1.0
+            item, _, _ = snapshot(start + timedelta(hours=2 * i), current, actual)
+            add_durable_outcome(item, actual)
+            history.append(item)
+
+        _, diagnostics = adaptive_model_weights(
+            MODELS,
+            "range",
+            2,
+            history,
+            {},
+            available_at=datetime(2026, 1, 1, 23, tzinfo=timezone.utc),
+        )
+        self.assertEqual(diagnostics["mode"], "static_prior")
+        self.assertEqual(diagnostics["sample_count"], 0)
+
     def test_history_limit_applies_after_regime_filtering(self) -> None:
         start = datetime(2026, 1, 1, tzinfo=timezone.utc)
         history = []

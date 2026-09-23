@@ -44,9 +44,20 @@ def _actual(
     model_name: str,
     hour: int,
     actual_by_timestamp: dict[int, float],
+    available_at: datetime | None,
 ) -> float | None:
     try:
-        value = float(snapshot["_outcomes"][horizon][model_name]["actual_target_price_usd"])
+        outcome = snapshot["_outcomes"][horizon][model_name]
+        matured_at_value = outcome.get("matured_at")
+        if available_at is not None:
+            if matured_at_value is None:
+                raise ValueError("persisted outcome has no availability timestamp")
+            matured_at = datetime.fromisoformat(str(matured_at_value).replace("Z", "+00:00"))
+            if matured_at.tzinfo is None:
+                matured_at = matured_at.replace(tzinfo=timezone.utc)
+            if matured_at.astimezone(timezone.utc) > available_at:
+                raise ValueError("persisted outcome was not available at cutoff")
+        value = float(outcome["actual_target_price_usd"])
         if value > 0:
             return value
     except (KeyError, TypeError, ValueError):
@@ -68,6 +79,7 @@ def residual_history(
     hour: int,
     *,
     history_limit: int = DEFAULT_CORRELATION_HISTORY_LIMIT,
+    available_at: datetime | None = None,
 ) -> dict[str, dict[str, float]]:
     """Map model -> origin -> signed percentage residual for matured rows."""
     horizon = f"{hour}h"
@@ -84,7 +96,7 @@ def residual_history(
                 predicted = float(snapshot["model_predictions"][name][horizon]["price_usd"])
             except (KeyError, TypeError, ValueError):
                 continue
-            actual = _actual(snapshot, horizon, name, hour, actual_by_timestamp)
+            actual = _actual(snapshot, horizon, name, hour, actual_by_timestamp, available_at)
             if actual is None:
                 continue
             result[name][origin_key] = (predicted - actual) / actual
@@ -184,6 +196,7 @@ def correlation_aware_model_weights(
     enabled: bool = True,
     history_limit: int | None = None,
     confidence: float = 1.0,
+    available_at: datetime | None = None,
 ) -> tuple[dict[str, float], dict[str, Any]]:
     """Apply a conservative residual-correlation overlay to adaptive weights."""
     base_weights, base_diagnostics = base_adaptive_model_weights(
@@ -195,6 +208,7 @@ def correlation_aware_model_weights(
         enabled=enabled,
         history_limit=history_limit,
         confidence=confidence,
+        available_at=available_at,
     )
     residuals = residual_history(
         history,
@@ -205,6 +219,7 @@ def correlation_aware_model_weights(
             CORRELATION_MIN_SAMPLES,
             int(history_limit or DEFAULT_CORRELATION_HISTORY_LIMIT),
         ),
+        available_at=available_at,
     )
     correlations, pair_samples = residual_correlation_matrix(residuals)
     penalties, model_diagnostics = correlation_penalties(base_weights, correlations, pair_samples)

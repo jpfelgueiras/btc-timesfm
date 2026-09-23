@@ -624,6 +624,7 @@ def ensemble_forecast(
     actual_by_timestamp: dict[int, float],
     adaptive_weights_enabled: bool = True,
     adaptive_confidence: float = 1.0,
+    available_at: datetime | None = None,
 ) -> tuple[
     dict[str, dict[str, float | str]],
     dict[str, dict[str, float]],
@@ -645,6 +646,7 @@ def ensemble_forecast(
             actual_by_timestamp,
             enabled=adaptive_weights_enabled,
             confidence=adaptive_confidence,
+            available_at=available_at,
         )
         weights_by_horizon[key] = weights
         weighting_diagnostics[key] = diagnostics
@@ -730,6 +732,7 @@ def build_forecast(
         actuals,
         adaptive_weights_enabled=adaptive_weights_enabled,
         adaptive_confidence=adaptive_confidence,
+        available_at=datetime.fromtimestamp(data.timestamps[-1], tz=timezone.utc),
     )
 
     return {
