@@ -35,6 +35,14 @@ class WalkForwardFold:
     embargo_hours: int
 
 
+@dataclass(frozen=True)
+class NestedWalkForwardFold:
+    """An untouched outer test block and selection-only inner folds."""
+
+    outer: WalkForwardFold
+    inner: tuple[WalkForwardFold, ...]
+
+
 def _iso(timestamp: int) -> str:
     return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
 
@@ -113,6 +121,55 @@ def build_purged_walk_forward_folds(
             )
         )
 
+    return result
+
+
+def build_nested_walk_forward_folds(
+    origin_timestamps: Sequence[int],
+    *,
+    outer_folds: int = DEFAULT_CV_FOLDS,
+    inner_folds: int = DEFAULT_CV_FOLDS,
+    outer_min_train_samples: int = DEFAULT_MIN_TRAIN_SAMPLES,
+    inner_min_train_samples: int = DEFAULT_MIN_TRAIN_SAMPLES,
+    purge_hours: int = DEFAULT_PURGE_HOURS,
+    embargo_hours: int = DEFAULT_EMBARGO_HOURS,
+    max_target_hours: int = DEFAULT_PURGE_HOURS,
+) -> list[NestedWalkForwardFold]:
+    """Build inner selection folds using only each outer fold's eligible history."""
+    timestamps = _validate_timestamps(origin_timestamps)
+    outer = build_purged_walk_forward_folds(
+        timestamps,
+        folds=outer_folds,
+        min_train_samples=outer_min_train_samples,
+        purge_hours=purge_hours,
+        embargo_hours=embargo_hours,
+        max_target_hours=max_target_hours,
+    )
+    result: list[NestedWalkForwardFold] = []
+    for outer_fold in outer:
+        outer_train = list(outer_fold.train_indices)
+        if len(outer_train) <= inner_min_train_samples:
+            raise ValueError("outer training history is too short for inner selection")
+        local = build_purged_walk_forward_folds(
+            [timestamps[index] for index in outer_train],
+            folds=inner_folds,
+            min_train_samples=inner_min_train_samples,
+            purge_hours=purge_hours,
+            embargo_hours=embargo_hours,
+            max_target_hours=max_target_hours,
+        )
+        mapped = tuple(
+            WalkForwardFold(
+                fold=fold.fold,
+                mode=fold.mode,
+                train_indices=tuple(outer_train[index] for index in fold.train_indices),
+                validation_indices=tuple(outer_train[index] for index in fold.validation_indices),
+                purge_hours=fold.purge_hours,
+                embargo_hours=fold.embargo_hours,
+            )
+            for fold in local
+        )
+        result.append(NestedWalkForwardFold(outer=outer_fold, inner=mapped))
     return result
 
 
