@@ -8,10 +8,11 @@ conditioned on the cohort of past forecasts whose predicted direction equals the
 current forecast's predicted direction. Sparse cohorts shrink toward the
 neutral 0.5 prior instead of emitting an overconfident probability.
 
-The Brier score and the reliability table are computed on those same matured
-rows using leave-one-out calibrated probabilities. This keeps the diagnostics
-honest (a sample does not vote on its own calibration) while still using only
-outcomes that were already realized when the forecast was made.
+The Brier score and reliability table computed from a supplied history are
+retrospective leave-one-out diagnostics, not scores of probabilities actually
+issued at each historical origin. They must not be interpreted as prequential
+OOS calibration evidence. Issued probabilities need to be persisted with their
+forecast/policy identity and scored unchanged only after maturity.
 """
 
 from __future__ import annotations
