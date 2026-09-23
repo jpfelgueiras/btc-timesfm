@@ -34,6 +34,7 @@ from btc_timesfm.forecasting.statistical_significance import (
 )
 from btc_timesfm.forecasting.forecast_engine import (
     TARGET_HOURS,
+    MarketData,
     baseline_forecasts,
     detect_regime,
     load_timesfm,
