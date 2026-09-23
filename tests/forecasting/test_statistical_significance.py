@@ -63,6 +63,29 @@ class StatisticalSignificanceTests(unittest.TestCase):
         self.assertEqual(result["conclusion"], "candidate_better")
         self.assertGreater(result["mean_improvement"], 0.0)
 
+    def test_block_bootstrap_is_deterministic_and_reports_effective_samples(self) -> None:
+        baseline = [1.0 + (index % 8) * 0.02 for index in range(64)]
+        candidate = [value - 0.04 for value in baseline]
+        first = paired_bootstrap_comparison(
+            candidate,
+            baseline,
+            metric="mae_pct",
+            lower_is_better=True,
+            method="moving_block",
+            block_length=16,
+        )
+        second = paired_bootstrap_comparison(
+            candidate,
+            baseline,
+            metric="mae_pct",
+            lower_is_better=True,
+            method="moving_block",
+            block_length=16,
+        )
+        self.assertEqual(first, second)
+        self.assertEqual(first["block_length"], 16)
+        self.assertEqual(first["effective_samples"], 4.0)
+
     def test_unpaired_sample_counts_are_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "identical sample counts"):
             paired_bootstrap_comparison(

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+import math
+from typing import Any, Literal, Sequence
 
 import numpy as np
 
@@ -32,6 +33,8 @@ def paired_bootstrap_comparison(
     iterations: int = DEFAULT_BOOTSTRAP_ITERATIONS,
     min_samples: int = DEFAULT_MIN_PAIRED_SAMPLES,
     seed: int = DEFAULT_SEED,
+    method: Literal["iid", "moving_block", "stationary"] = "iid",
+    block_length: int | None = None,
 ) -> dict[str, Any]:
     """Compare paired measurements with a deterministic bootstrap confidence interval.
 
@@ -49,6 +52,10 @@ def paired_bootstrap_comparison(
         raise ValueError("iterations must be at least 100")
     if min_samples < 1:
         raise ValueError("min_samples must be positive")
+    if method not in ("iid", "moving_block", "stationary"):
+        raise ValueError("unsupported bootstrap method")
+    if block_length is not None and block_length < 1:
+        raise ValueError("block_length must be positive")
 
     samples = len(candidate_array)
     if samples == 0:
@@ -62,6 +69,9 @@ def paired_bootstrap_comparison(
             "relative_effect_size": None,
             "paired_standardized_effect": None,
             "confidence": confidence,
+            "bootstrap_method": method,
+            "block_length": block_length,
+            "effective_samples": 0.0,
             "improvement_ci": {"lower": None, "upper": None},
             "probability_candidate_better": None,
             "conclusion": "inconclusive",
@@ -76,11 +86,26 @@ def paired_bootstrap_comparison(
 
     rng = np.random.default_rng(seed)
     bootstrap_means: np.ndarray = np.empty(iterations, dtype=np.float64)
-    batch_size = 1000
-    for start in range(0, iterations, batch_size):
-        end = min(start + batch_size, iterations)
-        indices = rng.integers(0, samples, size=(end - start, samples))
-        bootstrap_means[start:end] = np.mean(improvement[indices], axis=1)
+    selected_block_length = min(samples, block_length or max(1, round(samples ** (1 / 3))))
+    for iteration in range(iterations):
+        if method == "iid":
+            indices = rng.integers(0, samples, size=samples)
+        elif method == "moving_block":
+            starts = rng.integers(0, samples, size=math.ceil(samples / selected_block_length))
+            indices = np.concatenate(
+                [(start + np.arange(selected_block_length)) % samples for start in starts]
+            )[:samples]
+        else:
+            indices = np.empty(samples, dtype=int)
+            indices[0] = rng.integers(0, samples)
+            restart_probability = 1.0 / selected_block_length
+            for position in range(1, samples):
+                indices[position] = (
+                    rng.integers(0, samples)
+                    if rng.random() < restart_probability
+                    else (indices[position - 1] + 1) % samples
+                )
+        bootstrap_means[iteration] = np.mean(improvement[indices])
 
     alpha = (1.0 - confidence) / 2.0
     lower, upper = np.quantile(bootstrap_means, [alpha, 1.0 - alpha])
@@ -118,6 +143,9 @@ def paired_bootstrap_comparison(
             round(standardized_effect, 8) if standardized_effect is not None else None
         ),
         "confidence": confidence,
+        "bootstrap_method": method,
+        "block_length": selected_block_length,
+        "effective_samples": round(samples / selected_block_length, 6),
         "improvement_ci": {
             "lower": round(float(lower), 8),
             "upper": round(float(upper), 8),
