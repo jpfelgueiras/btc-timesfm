@@ -503,7 +503,17 @@ def main() -> None:
         "microstructure": microstructure_snapshot,
         "cross_asset": cross_asset_snapshot,
     }
-    retention = retain_optional_sources(optional_snapshots, origin_at=forecast_origin)
+    metadata_per_source = {}
+    for source_name, snapshot in optional_snapshots.items():
+        meta = {
+            "event_time": snapshot.get("origin_at"),
+            "captured_time": snapshot.get("captured_at", None),
+            "status": snapshot.get("status"),
+            "available": snapshot.get("available"),
+            "quality": snapshot.get("quality"),
+        }
+        metadata_per_source[source_name] = meta
+    retention = retain_optional_sources(optional_snapshots, origin_at=forecast_origin, metadata_per_source=metadata_per_source)
     quarantined_sources = set(source_health["quarantined_sources"])
     if quarantined_sources:
         print(f"Quarantined optional sources: {', '.join(sorted(quarantined_sources))}")
