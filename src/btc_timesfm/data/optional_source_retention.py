@@ -57,7 +57,48 @@ def _load(path: Path) -> list[dict[str, Any]]:
     records = payload.get("records") if isinstance(payload, dict) else None
     if not isinstance(records, list):
         return []
-    return [record for record in records if isinstance(record, dict)]
+    schema_version = payload.get("schema_version", 1)
+    loaded = [record for record in records if isinstance(record, dict)]
+    if schema_version != 1:
+        return loaded
+    migrated: list[dict[str, Any]] = []
+    for record in loaded:
+        origin = record.get("origin_at")
+        snapshots = record.get("snapshots")
+        if not isinstance(origin, str) or not isinstance(snapshots, dict):
+            continue
+        migrated_snapshots = {
+            source: {
+                "data": copy.deepcopy(snapshot),
+                "metadata": {
+                    "event_time": origin,
+                    "published_time": None,
+                    "observed_time": origin,
+                    "captured_time": snapshot.get("captured_at") or origin,
+                    "vintage": None,
+                    "model_use_cutoff": origin,
+                    "status": snapshot.get("status"),
+                    "available": snapshot.get("available", bool(snapshot.get("features"))),
+                    "quality": copy.deepcopy(snapshot.get("quality", {})),
+                    "first_seen_id": _identifier({"source": source, "snapshot": snapshot}),
+                    "availability_metadata_complete": False,
+                    "migration_reason": "legacy_schema_v1_event_time_only",
+                },
+            }
+            for source, snapshot in snapshots.items()
+            if isinstance(source, str) and isinstance(snapshot, dict)
+        }
+        migrated.append(
+            {
+                "origin_at": origin,
+                "observed_at": origin,
+                "revision": 1,
+                "revision_id": _identifier({"origin_at": origin, "snapshots": migrated_snapshots}),
+                "snapshots": migrated_snapshots,
+                "migrated_from_schema_version": 1,
+            }
+        )
+    return migrated
 
 
 def _identifier(value: object) -> str:
@@ -170,7 +211,9 @@ def replay_optional_sources(
     matches = [record for record in _load(path) if record.get("origin_at") == origin]
     if not matches:
         raise KeyError(f"No retained optional-source inputs for {origin}")
-    record = min(matches, key=lambda item: (str(item.get("observed_at", "")), int(item.get("revision", 1))))
+    record = min(
+        matches, key=lambda item: (str(item.get("observed_at", "")), int(item.get("revision", 1)))
+    )
     snapshots_value = record.get("snapshots")
     if not isinstance(snapshots_value, dict):
         raise KeyError(f"No retained optional-source inputs for {origin}")

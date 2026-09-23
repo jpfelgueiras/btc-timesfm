@@ -16,7 +16,6 @@ import numpy as np
 from btc_timesfm.data.microstructure_signals import MICROSTRUCTURE_FEATURE_NAMES
 from btc_timesfm.data.optional_source_retention import (
     DEFAULT_RETENTION_PATH,
-    OptionalSourceRetentionConfig,
     replay_optional_sources,
 )
 from btc_timesfm.research.ablation_evidence import ablation_manifest, evaluate_horizon_evidence
@@ -56,8 +55,11 @@ def _vector(features: dict[str, Any], names: tuple[str, ...]) -> list[float] | N
     return values
 
 
-def load_rows(path: Path, retention_path: Path = DEFAULT_RETENTION_PATH, config: OptionalSourceRetentionConfig | None = None) -> list[dict[str, Any]]:
-    """Load only matured ensemble outcomes and immutable origin-time features."""
+def load_rows(
+    path: Path,
+    retention_path: Path = DEFAULT_RETENTION_PATH,
+) -> list[dict[str, Any]]:
+    """Load matured outcomes with complete, cutoff-safe availability metadata."""
     connection = sqlite3.connect(path)
     connection.row_factory = sqlite3.Row
     try:
@@ -87,19 +89,29 @@ def load_rows(path: Path, retention_path: Path = DEFAULT_RETENTION_PATH, config:
         base = _vector(features, BASE_FEATURE_NAMES)
         if base is None:
             continue
-        # Replay optional sources for this origin to check availability
         origin_at = datetime.fromisoformat(row["origin_at"].replace("Z", "+00:00"))
         if origin_at.tzinfo is None:
             origin_at = origin_at.replace(tzinfo=timezone.utc)
         try:
-            replay = replay_optional_sources(origin_at, path=retention_path, config=config)
+            replay = replay_optional_sources(origin_at, path=retention_path)
         except KeyError:
-            # No retained data for this origin, skip
             continue
-        # Check microstructure source availability
         meta = replay.get("metadata", {}).get("microstructure", {})
-        if not meta.get("available", False) or meta.get("status") != "ok":
-            # Skip if microstructure data not available or not ok
+        try:
+            captured_at = datetime.fromisoformat(
+                str(meta.get("captured_time", "")).replace("Z", "+00:00")
+            )
+            cutoff_at = datetime.fromisoformat(
+                str(meta.get("model_use_cutoff", "")).replace("Z", "+00:00")
+            )
+        except ValueError:
+            continue
+        if (
+            not meta.get("availability_metadata_complete", True)
+            or not meta.get("available", False)
+            or meta.get("status") != "ok"
+            or captured_at > cutoff_at
+        ):
             continue
         micro_features = replay.get("features", {}).get("microstructure", {})
         micro = _vector(micro_features, MICROSTRUCTURE_FEATURE_NAMES)
