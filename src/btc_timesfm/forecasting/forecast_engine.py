@@ -303,6 +303,107 @@ def timesfm_multi_context(
     return forecasts
 
 
+def _z_normalize(context: np.ndarray) -> tuple[np.ndarray, float, float]:
+    """Z-normalize a numpy array (subtract mean, divide by std).
+    Returns (normalized_array, mean, std). If std is zero, returns (zeros, mean, 0.0).
+    """
+    if len(context) == 0:
+        return context, 0.0, 0.0
+    mean = float(np.mean(context))
+    std = float(np.std(context, ddof=1))
+    if std < 1e-12:
+        return np.zeros_like(context, dtype=np.float32), mean, 0.0
+    return ((context - mean) / std).astype(np.float32), mean, std
+
+
+def timesfm_multi_context_inventory(
+    model: TimesFM3Evaluator,
+    data: MarketData,
+    context_lengths: tuple[int, ...] = (64, 168, 336, 512, 1024),
+    normalize: bool = False,
+    symmetric_averaging: bool = False,
+    inner_context_count: int = 2,
+) -> tuple[dict[str, dict[str, dict[str, float]]], dict[str, dict]]:
+    """Forecast log returns using several context windows, with optional
+    z-normalization and symmetric averaging on inner-selected contexts.
+    Returns a tuple of (forecasts, metadata) where metadata contains
+    details about each context window used.
+    """
+    returns = data.returns
+    # Determine available context lengths from the given list that we have enough data for
+    available = [window for window in context_lengths if len(returns) >= window]
+    if not available:
+        # Fallback to using all available returns
+        available = [len(returns)]
+    # Sort available contexts to pick inner ones
+    available_sorted = sorted(available)
+    n = len(available_sorted)
+    # Select inner contexts: if we have more than inner_context_count, take the middle ones
+    if n > inner_context_count:
+        start = (n - inner_context_count) // 2
+        inner_set = set(available_sorted[start : start + inner_context_count])
+    else:
+        inner_set = set(available_sorted)
+
+    outputs = list(
+        model.predict_batch(
+            contexts=[
+                (
+                    _z_normalize(returns[-window:])[0]
+                    if normalize and window in inner_set
+                    else returns[-window:]
+                )
+                for window in available
+            ],
+            horizon=FORECAST_HOURS,
+            return_quantiles=True,
+            use_symmetric_averaging=symmetric_averaging,
+        )
+    )
+    # Validate the model outputs contract
+    _validate_timesfm_output(outputs, FORECAST_HOURS)
+    current_price = float(data.closes[-1])
+    forecasts: dict[str, dict[str, dict[str, float]]] = {}
+    metadata: dict[str, dict] = {}
+
+    for window, result in zip(available, outputs, strict=True):
+        # Determine if normalization and symmetric averaging were applied for this window
+        applied_norm = normalize and window in inner_set
+        applied_sym = symmetric_averaging and window in inner_set
+        # If normalization was applied, we need to compute the mean and std of the original context
+        if applied_norm:
+            _, mean, std = _z_normalize(returns[-window:])
+        else:
+            mean, std = 0.0, 0.0
+        point = np.asarray(result.forecast, dtype=np.float64)
+        quantiles = np.asarray(result.quantiles, dtype=np.float64)
+        point_prices = _forecast_prices_from_return_path(current_price, point)
+        q10_prices = _forecast_prices_from_return_path(current_price, quantiles[:, 0])
+        q50_prices = _forecast_prices_from_return_path(current_price, quantiles[:, 4])
+        q90_prices = _forecast_prices_from_return_path(current_price, quantiles[:, 8])
+
+        name = f"timesfm_{window}h"
+        forecasts[name] = {}
+        metadata[name] = {
+            "context_length_returns": window,
+            "context_length_hours": window + 1,  # because returns are diff of logs
+            "normalization_applied": applied_norm,
+            "symmetric_averaging_applied": applied_sym,
+            "context_mean": mean if applied_norm else None,
+            "context_std": std if applied_norm else None,
+            "actual_returns_available": len(returns[-window:]),
+        }
+        for hour in TARGET_HOURS:
+            key = f"{hour}h"
+            forecasts[name][key] = {
+                "price_usd": point_prices[key],
+                "q10_usd": q10_prices[key],
+                "q50_usd": q50_prices[key],
+                "q90_usd": q90_prices[key],
+            }
+    return forecasts, metadata
+
+
 def baseline_forecasts(data: MarketData) -> dict[str, dict[str, dict[str, float]]]:
     returns: np.ndarray = data.returns.astype(np.float64)
     current_price = float(data.closes[-1])
