@@ -230,7 +230,9 @@ def _history_snapshot(sample: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def generate_base_samples(days: int, samples: int, offline_dataset: str | None = None) -> tuple[list[dict[str, Any]], dict[int, float]]:
+def generate_base_samples(
+    days: int, samples: int, offline_dataset: str | None = None
+) -> tuple[list[dict[str, Any]], dict[int, float]]:
     """Run TimesFM once per origin and retain frozen per-model predictions."""
     if offline_dataset:
         # Load from offline dataset
