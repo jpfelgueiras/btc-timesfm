@@ -10,6 +10,12 @@ from btc_timesfm.forecasting.conformal_calibration import (
     calibration_details,
     collect_scores,
     evaluation_report,
+    conformal_calibration_multiplier,
+    gate_conformal_calibration_multiplier,
+    _wis,
+    _average_wis,
+    MIN_MULTIPLIER,
+    MAX_MULTIPLIER,
 )
 
 
@@ -113,6 +119,61 @@ class ConformalCalibrationTests(unittest.TestCase):
             self.assertIn("legacy_multiplier", value)
             self.assertIn("average_interval_width_pct_after", value)
 
+
+    def test_wis_functions(self):
+        """Test WIS calculation functions."""
+        sample = {"actual": 100.0, "point": 100.0, "half_width": 10.0}
+        wis = _wis(sample, 1.0)
+        # Actual equals point, so interval is [90, 110], width = 20
+        self.assertEqual(wis, 20.0)
+        
+        # Test when actual is below lower bound
+        sample_below = {"actual": 80.0, "point": 100.0, "half_width": 10.0}
+        wis_below = _wis(sample_below, 1.0)
+        # Below: width + (2/0.2)*(lower - actual) = 20 + 10*(90-80) = 20 + 100 = 120
+        self.assertEqual(wis_below, 120.0)
+        
+        # Test when actual is above upper bound
+        sample_above = {"actual": 120.0, "point": 100.0, "half_width": 10.0}
+        wis_above = _wis(sample_above, 1.0)
+        # Above: width + (2/0.2)*(actual - upper) = 20 + 10*(120-110) = 20 + 100 = 120
+        self.assertEqual(wis_above, 120.0)
+        
+        # Test average WIS
+        samples = [sample, sample_below, sample_above]
+        avg_wis = _average_wis(samples, 1.0)
+        self.assertEqual(avg_wis, (20.0 + 120.0 + 120.0) / 3.0)
+
+    def test_gate_conformal_calibration_multiplier_legacy_fallback(self):
+        """Test gate function falls back to legacy when insufficient samples."""
+        history = [snapshot(self.start + timedelta(hours=i), actual=100.0 + i) for i in range(5)]
+        multiplier, samples, coverage = gate_conformal_calibration_multiplier(
+            history, {}, 2, min_samples=20
+        )
+        self.assertEqual(samples, 5)
+        self.assertEqual(multiplier, 1.0)  # legacy fallback value
+        self.assertIsNone(coverage)
+
+    def test_gate_conformal_calibration_multiplier_gate_logic(self):
+        """Test gate function logic with samples that should pass/fail gate."""
+        # Create samples where conformal gives better WIS and coverage in range
+        history = []
+        for i in range(30):
+            # Make actual values such that conformal calibration improves things
+            actual_val = 100.0 + (1.0 if i < 15 else 3.0)  # Different behavior in halves
+            history.append(snapshot(self.start + timedelta(hours=i), actual=actual_val))
+        
+        multiplier, samples, coverage = gate_conformal_calibration_multiplier(
+            history, {}, 2, min_samples=20
+        )
+        self.assertEqual(samples, 30)
+        # Should return either conformal or legacy multiplier based on gate
+        self.assertIsInstance(multiplier, float)
+        self.assertGreaterEqual(multiplier, MIN_MULTIPLIER)
+        self.assertLessEqual(multiplier, MAX_MULTIPLIER)
+        if coverage is not None:
+            self.assertGreaterEqual(coverage, 0.0)
+            self.assertLessEqual(coverage, 1.0)
 
 if __name__ == "__main__":
     unittest.main()

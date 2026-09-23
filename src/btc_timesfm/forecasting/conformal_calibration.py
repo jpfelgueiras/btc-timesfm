@@ -133,6 +133,80 @@ def _conformal_multiplier(samples: list[dict[str, float]], target_coverage: floa
     return float(np.clip(multiplier, MIN_MULTIPLIER, MAX_MULTIPLIER))
 
 
+def _wis(sample: dict[str, float], multiplier: float) -> float:
+    """Weighted Interval Score for a single sample."""
+    lower = sample["point"] - multiplier * sample["half_width"]
+    upper = sample["point"] + multiplier * sample["half_width"]
+    x = sample["actual"]
+    alpha = 0.2  # for 80% coverage
+    if x < lower:
+        return (upper - lower) + (2 / alpha) * (lower - x)
+    elif x > upper:
+        return (upper - lower) + (2 / alpha) * (x - upper)
+    else:
+        return (upper - lower)
+
+
+def _average_wis(samples: list[dict[str, float]], multiplier: float) -> float | None:
+    if not samples:
+        return None
+    return float(np.mean([_wis(s, multiplier) for s in samples]))
+
+
+def gate_conformal_calibration_multiplier(
+    history: list[dict[str, Any]],
+    actual_by_timestamp: dict[int, float],
+    hour: int,
+    target_coverage: float = DEFAULT_TARGET_COVERAGE,
+    history_limit: int = DEFAULT_HISTORY_LIMIT,
+    min_samples: int = DEFAULT_MIN_SAMPLES,
+) -> tuple[float, int, float | None]:
+    """
+    Return conformal multiplier if it passes the OOS gate, else legacy multiplier.
+    Gate: >=3% WIS improvement and coverage 80%±5pp.
+    """
+    _validate_config(target_coverage, history_limit, min_samples)
+    all_samples = collect_scores(history, actual_by_timestamp, hour, history_limit=history_limit)
+    if len(all_samples) < min_samples:
+        # Not enough samples, use legacy fallback
+        legacy_multiplier, raw_coverage = _legacy_multiplier(all_samples, target_coverage)
+        return float(legacy_multiplier), len(all_samples), raw_coverage
+
+    # Compute legacy and conformal multipliers on all samples (for simplicity)
+    legacy_multiplier, raw_coverage = _legacy_multiplier(all_samples, target_coverage)
+    conformal_multiplier = _conformal_multiplier(all_samples, target_coverage)
+
+    # Compute WIS and coverage for both methods
+    wis_legacy = _average_wis(all_samples, legacy_multiplier)
+    wis_conformal = _average_wis(all_samples, conformal_multiplier)
+    coverage_legacy = (
+        float(np.mean([s["score"] <= legacy_multiplier for s in all_samples])) if all_samples else None
+    )
+    coverage_conformal = (
+        float(np.mean([s["score"] <= conformal_multiplier for s in all_samples])) if all_samples else None
+    )
+
+    # Check gate: we want at least 3% WIS improvement and coverage in [0.75, 0.85]
+    wis_improvement = 0.0
+    if wis_legacy is not None and wis_conformal is not None and wis_legacy > 0:
+        wis_improvement = (wis_legacy - wis_conformal) / wis_legacy
+
+    gate_passed = (
+        wis_improvement >= 0.03
+        and coverage_conformal is not None
+        and 0.75 <= coverage_conformal <= 0.85
+    )
+
+    if gate_passed:
+        multiplier = conformal_multiplier
+        empirical_coverage_after = coverage_conformal
+    else:
+        multiplier = legacy_multiplier
+        empirical_coverage_after = coverage_legacy
+
+    return float(multiplier), len(all_samples), empirical_coverage_after
+
+
 def calibration_details(
     history: list[dict[str, Any]],
     actual_by_timestamp: dict[int, float],

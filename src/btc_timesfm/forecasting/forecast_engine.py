@@ -782,7 +782,7 @@ def build_forecast(
 
     actuals = dict(zip(data.timestamps, map(float, data.closes), strict=True))
     calibration = {
-        f"{hour}h": empirical_calibration_multiplier(history, actuals, hour)
+        f"{hour}h": gate_conformal_calibration_multiplier(history, actuals, hour)
         for hour in TARGET_HOURS
     }
     predictions, weights, weighting_diagnostics = ensemble_forecast(
