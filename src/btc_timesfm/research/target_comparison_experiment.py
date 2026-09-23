@@ -63,22 +63,25 @@ def round_trip(price: float, origin_price: float, target: str) -> float:
     return invert_target(target_value(price, origin_price, target), origin_price, target)
 
 
-def _prediction_for_target(
-    predicted_price: float, origin_price: float, target: str
-) -> float:
+def _prediction_for_target(predicted_price: float, origin_price: float, target: str) -> float:
     return target_value(predicted_price, origin_price, target)
 
 
-def _loss(predicted_price: float, actual_price: float, origin_price: float, target: str) -> dict[str, float]:
+def _loss(
+    predicted_price: float, actual_price: float, origin_price: float, target: str
+) -> dict[str, float]:
     predicted = _prediction_for_target(predicted_price, origin_price, target)
     actual = target_value(actual_price, origin_price, target)
     inverted = invert_target(predicted, origin_price, target)
     return {
         "target_prediction": predicted,
         "target_actual": actual,
-        "return_abs_error": abs(math.log(predicted_price / origin_price) - math.log(actual_price / origin_price)),
+        "return_abs_error": abs(
+            math.log(predicted_price / origin_price) - math.log(actual_price / origin_price)
+        ),
         "price_ape_pct": abs(inverted - actual_price) / actual_price * 100.0,
-        "signed_return_error": math.log(predicted_price / origin_price) - math.log(actual_price / origin_price),
+        "signed_return_error": math.log(predicted_price / origin_price)
+        - math.log(actual_price / origin_price),
     }
 
 
@@ -111,8 +114,7 @@ def evaluate_origins(origins: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
                 if not (math.isfinite(actual) and math.isfinite(predicted)):
                     raise ValueError("non-finite forecast or label")
                 row["horizons"][horizon] = {
-                    target: _loss(predicted, actual, origin_price, target)
-                    for target in TARGETS
+                    target: _loss(predicted, actual, origin_price, target) for target in TARGETS
                 }
                 for target in TARGETS:
                     scored = row["horizons"][horizon][target]
@@ -130,8 +132,12 @@ def evaluate_origins(origins: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
             values = totals[horizon][target]
             summary[horizon][target] = {
                 "samples": len(values["return_abs_error"]),
-                "return_mae": float(np.mean(values["return_abs_error"])) if values["return_abs_error"] else None,
-                "price_mape_pct": float(np.mean(values["price_ape_pct"])) if values["price_ape_pct"] else None,
+                "return_mae": float(np.mean(values["return_abs_error"]))
+                if values["return_abs_error"]
+                else None,
+                "price_mape_pct": float(np.mean(values["price_ape_pct"]))
+                if values["price_ape_pct"]
+                else None,
             }
     return {"per_origin": ledger, "summary": summary, "failures": failures}
 
@@ -152,7 +158,9 @@ def decide(report: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_report(origins: Iterable[Mapping[str, Any]], manifest: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def build_report(
+    origins: Iterable[Mapping[str, Any]], manifest: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
     evidence = evaluate_origins(origins)
     report: dict[str, Any] = {
         "schema_version": 1,
