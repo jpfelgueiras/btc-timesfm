@@ -1,9 +1,8 @@
-"""Decision-aware forecast retargeting for the BTC ensemble.
+"""Research-only retargeting API placeholders.
 
-This module provides retargeting variants to skew point forecasts or interval
-boundaries to align with economic objectives, while maintaining calibration.
-
-All retargeting is strictly out-of-sample (no look-ahead).
+The functions below currently return their input unchanged (``effect=noop``).
+They are not evaluated, do not claim economic utility or calibrated retargeting,
+and must not be enabled in production absent a separate preregistered study.
 """
 
 from __future__ import annotations
