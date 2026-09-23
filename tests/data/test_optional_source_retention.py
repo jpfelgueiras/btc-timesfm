@@ -23,10 +23,13 @@ class OptionalSourceRetentionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "retention.json"
             config = OptionalSourceRetentionConfig(retention_hours=2, max_records=2)
+            observed = NOW + timedelta(hours=3)
             for offset in range(3):
                 retain_optional_sources(
                     {"derivatives": {"features": {"signal": offset}}},
                     origin_at=NOW + timedelta(hours=offset),
+                    observed_at=observed,
+                    metadata_per_source={"derivatives": {"status": "ok", "available": True}},
                     path=path,
                     config=config,
                 )
@@ -35,7 +38,7 @@ class OptionalSourceRetentionTests(unittest.TestCase):
             self.assertEqual(len(payload["records"]), 2)
 
             replay = replay_optional_sources(NOW + timedelta(hours=2), path=path)
-            replay["snapshots"]["derivatives"]["features"]["signal"] = 99
+            replay["snapshots"]["derivatives"]["data"]["features"]["signal"] = 99
             self.assertEqual(path.read_text(encoding="utf-8"), persisted)
             self.assertEqual(replay["features"]["derivatives"], {"signal": 2})
 
@@ -45,6 +48,7 @@ class OptionalSourceRetentionTests(unittest.TestCase):
             retain_optional_sources(
                 {"microstructure": {"raw": {"bid": 100, "ask": 102}, "features": {}}},
                 origin_at=NOW,
+                metadata_per_source={"microstructure": {"status": "ok", "available": True}},
                 path=path,
             )
             replay = replay_optional_sources(
@@ -56,6 +60,65 @@ class OptionalSourceRetentionTests(unittest.TestCase):
             )
             self.assertTrue(replay["replayed"])
             self.assertEqual(replay["features"]["microstructure"], {"spread": 2})
+            # Check that metadata is returned in replay
+            self.assertIn("metadata", replay)
+            self.assertIn("microstructure", replay["metadata"])
+            self.assertEqual(replay["metadata"]["microstructure"]["status"], "ok")
+            self.assertEqual(replay["metadata"]["microstructure"]["available"], True)
+
+    def test_same_origin_revision_preserves_and_replays_first_observation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "retention.json"
+            first_seen = NOW + timedelta(minutes=5)
+            retain_optional_sources(
+                {"microstructure": {"features": {"signal": 1.0}}},
+                origin_at=NOW,
+                observed_at=first_seen,
+                path=path,
+            )
+            retain_optional_sources(
+                {"microstructure": {"features": {"signal": 2.0}}},
+                origin_at=NOW,
+                observed_at=NOW + timedelta(minutes=10),
+                path=path,
+            )
+
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual([record["revision"] for record in payload["records"]], [1, 2])
+            replay = replay_optional_sources(NOW, path=path)
+            self.assertEqual(replay["features"]["microstructure"], {"signal": 1.0})
+            self.assertEqual(replay["observed_at"], first_seen.isoformat())
+
+    def test_schema_v1_replays_but_marks_availability_metadata_incomplete(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "retention.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "records": [
+                            {
+                                "origin_at": NOW.isoformat(),
+                                "snapshots": {
+                                    "microstructure": {
+                                        "captured_at": NOW.isoformat(),
+                                        "status": "ok",
+                                        "available": True,
+                                        "features": {"signal": 1.0},
+                                    }
+                                },
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            replay = replay_optional_sources(NOW, path=path)
+            self.assertEqual(replay["features"]["microstructure"], {"signal": 1.0})
+            metadata = replay["metadata"]["microstructure"]
+            self.assertFalse(metadata["availability_metadata_complete"])
+            self.assertEqual(metadata["migration_reason"], "legacy_schema_v1_event_time_only")
 
 
 if __name__ == "__main__":
