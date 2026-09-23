@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from btc_timesfm.forecasting.cross_validation import (
     assert_no_fold_leakage,
+    build_nested_walk_forward_folds,
     build_purged_walk_forward_folds,
     fold_definition,
 )
@@ -94,6 +95,22 @@ class CrossValidationTests(unittest.TestCase):
                 purge_hours=8,
                 max_target_hours=16,
             )
+
+    def test_nested_selection_never_sees_outer_test(self) -> None:
+        timestamps = hourly_timestamps(160)
+        nested = build_nested_walk_forward_folds(
+            timestamps,
+            outer_folds=2,
+            inner_folds=2,
+            outer_min_train_samples=80,
+            inner_min_train_samples=32,
+        )
+        for fold in nested:
+            outer_test = set(fold.outer.validation_indices)
+            for inner in fold.inner:
+                self.assertFalse(outer_test.intersection(inner.train_indices))
+                self.assertFalse(outer_test.intersection(inner.validation_indices))
+                assert_no_fold_leakage(inner, timestamps)
 
     def test_manifest_definition_preserves_exact_indices_and_boundaries(self) -> None:
         timestamps = hourly_timestamps(60)
