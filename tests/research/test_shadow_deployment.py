@@ -13,6 +13,7 @@ from typing import Any
 from btc_timesfm.research.shadow_deployment import (
     ShadowPolicy,
     ShadowStore,
+    _evaluate_series,
     build_shadow_status,
     render_summary,
     run_shadow,
@@ -292,11 +293,34 @@ class ShadowDeploymentTests(unittest.TestCase):
 
         lenient = self.store.evaluate(
             challenger["configuration_id"],
-            policy=ShadowPolicy(minimum_live_samples=32, observation_window_days=30),
+            policy=ShadowPolicy(
+                minimum_live_samples=32,
+                minimum_paired_samples_per_horizon=32,
+                observation_window_days=30,
+            ),
         )
         self.assertTrue(lenient["maturity"]["checks"]["enough_live_samples"])
+        self.assertTrue(lenient["maturity"]["checks"]["enough_paired_samples_per_horizon"])
         self.assertTrue(lenient["maturity"]["checks"]["observation_window_met"])
         self.assertEqual(lenient["promotion"]["decision"], "eligible")
+
+    def test_promotion_requires_minimum_pairs_at_each_horizon(self) -> None:
+        challenger = self._register_challenger()
+        self._seed_evaluation_origins(35)
+        evaluation = self.store.evaluate(
+            challenger["configuration_id"],
+            policy=ShadowPolicy(
+                minimum_live_samples=1,
+                minimum_paired_samples_per_horizon=200,
+                observation_window_days=1,
+            ),
+        )
+        self.assertEqual(
+            evaluation["maturity"]["paired_samples_by_horizon"],
+            {horizon: 35 for horizon in HORIZONS},
+        )
+        self.assertFalse(evaluation["maturity"]["checks"]["enough_paired_samples_per_horizon"])
+        self.assertEqual(evaluation["promotion"]["decision"], "blocked")
 
     def test_promotion_blocked_until_requirements_met(self) -> None:
         challenger = self._register_challenger()
@@ -315,9 +339,55 @@ class ShadowDeploymentTests(unittest.TestCase):
 
         weaker = self.store.evaluate(
             challenger["configuration_id"],
-            policy=ShadowPolicy(minimum_live_samples=25, observation_window_days=20),
+            policy=ShadowPolicy(
+                minimum_live_samples=25,
+                minimum_paired_samples_per_horizon=25,
+                observation_window_days=20,
+            ),
         )
         self.assertEqual(weaker["promotion"]["decision"], "eligible")
+
+    def test_evaluation_pairs_maturity_separately_per_horizon(self) -> None:
+        origin = _iso(_origin_timestamp(0))
+        forecasts = {
+            origin: {
+                "latest_close_usd": 100.0,
+                "predictions": {horizon: {"price_usd": 100.0} for horizon in HORIZONS},
+            }
+        }
+        outcomes = {
+            origin: {
+                "2h": {
+                    "actual_at": _iso(_origin_timestamp(0) + 2 * 3600),
+                    "actual_price_usd": 101.0,
+                },
+                "4h": {
+                    "actual_at": _iso(_origin_timestamp(0) + 4 * 3600),
+                    "actual_price_usd": 102.0,
+                },
+            }
+        }
+        candidate_outcomes = {
+            origin: {
+                **outcomes[origin],
+                # A mismatched target is not a paired 2h maturity.
+                "2h": {
+                    "actual_at": _iso(_origin_timestamp(0) + 3 * 3600),
+                    "actual_price_usd": 101.0,
+                },
+            }
+        }
+        _, significance, _, _, paired = _evaluate_series(
+            common_origins=[origin],
+            challenger_forecasts=forecasts,
+            champion_forecasts=forecasts,
+            challenger_outcomes=candidate_outcomes,
+            champion_outcomes=outcomes,
+            policy=ShadowPolicy(minimum_live_samples=1, minimum_paired_samples_per_horizon=1),
+        )
+        self.assertEqual(paired["2h"], 0)
+        self.assertEqual(paired["4h"], 1)
+        self.assertEqual(significance["paired_samples_by_horizon"], paired)
 
     def test_requirements_are_reported_in_summary(self) -> None:
         self._register_challenger(name="report_runner")

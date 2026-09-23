@@ -81,8 +81,10 @@ class ShadowPolicy:
     """Configurable requirements before a shadow challenger may be promoted."""
 
     minimum_live_samples: int = 32
+    minimum_paired_samples_per_horizon: int = 200
     observation_window_days: int = 30
     require_edge_vs_champion: bool = True
+    require_edge_vs_persistence: bool = True
     reject_significantly_worse_than_champion: bool = True
     reject_significantly_worse_than_persistence: bool = True
 
@@ -93,6 +95,12 @@ class ShadowPolicy:
             raise ValueError("minimum_live_samples must be a positive integer")
         if self.minimum_live_samples < 1:
             raise ValueError("minimum_live_samples must be a positive integer")
+        if isinstance(self.minimum_paired_samples_per_horizon, bool) or not isinstance(
+            self.minimum_paired_samples_per_horizon, int
+        ):
+            raise ValueError("minimum_paired_samples_per_horizon must be a positive integer")
+        if self.minimum_paired_samples_per_horizon < 1:
+            raise ValueError("minimum_paired_samples_per_horizon must be a positive integer")
         if isinstance(self.observation_window_days, bool) or not isinstance(
             self.observation_window_days, int
         ):
@@ -912,7 +920,7 @@ class ShadowStore:
         challenger_outcomes = outcomes.get(configuration_id, {})
         champion_outcomes = outcomes.get(champion["configuration_id"], {})
 
-        metrics, significance, live_samples, fully_matured = _evaluate_series(
+        metrics, significance, live_samples, fully_matured, paired_by_horizon = _evaluate_series(
             common_origins=common_origins,
             challenger_forecasts=challenger_forecasts,
             champion_forecasts=champion_forecasts,
@@ -937,6 +945,7 @@ class ShadowStore:
         maturity = {
             "live_samples": live_samples,
             "fully_matured_samples": fully_matured,
+            "paired_samples_by_horizon": paired_by_horizon,
             "matured_horizons": matured_by_horizon,
             "common_origin_count": len(common_origins),
             "identical_data_lineage": len(common_origins) == len(shared_origins),
@@ -946,6 +955,10 @@ class ShadowStore:
             "observation_window_days": observation_window_days,
             "checks": {
                 "enough_live_samples": live_samples >= active.minimum_live_samples,
+                "enough_paired_samples_per_horizon": all(
+                    paired_by_horizon.get(horizon, 0) >= active.minimum_paired_samples_per_horizon
+                    for horizon in HORIZONS
+                ),
                 "observation_window_met": (
                     observation_window_days is not None
                     and observation_window_days >= active.observation_window_days
@@ -1033,44 +1046,7 @@ def _evaluate_series(
     challenger_outcomes: Mapping[str, Mapping[str, Any]],
     champion_outcomes: Mapping[str, Mapping[str, Any]],
     policy: ShadowPolicy,
-) -> tuple[dict[str, Any], dict[str, Any], int, int]:
-    def mae_series(
-        outcomes: Mapping[str, Mapping[str, Any]],
-        predicted_at: Callable[[str], dict[str, float]],
-    ) -> dict[str, list[float]]:
-        per_horizon: dict[str, list[float]] = {horizon: [] for horizon in HORIZONS}
-        for origin_at in common_origins:
-            by_horizon = outcomes.get(origin_at, {})
-            predicted = predicted_at(origin_at)
-            for horizon in HORIZONS:
-                outcome = by_horizon.get(horizon)
-                price = predicted.get(horizon)
-                actual = outcome.get("actual_price_usd") if outcome is not None else None
-                if price is None or actual is None:
-                    continue
-                per_horizon[horizon].append(abs(price - float(actual)) / float(actual) * 100.0)
-        return per_horizon
-
-    def mae_objective(
-        outcomes: Mapping[str, Mapping[str, Any]],
-        predicted_at: Callable[[str], dict[str, float]],
-    ) -> list[float]:
-        series: list[float] = []
-        for origin_at in common_origins:
-            by_horizon = outcomes.get(origin_at, {})
-            if not all(horizon in by_horizon for horizon in HORIZONS):
-                continue
-            predicted = predicted_at(origin_at)
-            values: list[float] = []
-            for horizon in HORIZONS:
-                price = predicted.get(horizon)
-                actual = by_horizon[horizon].get("actual_price_usd")
-                if price is None or actual is None:
-                    break
-                values.append(abs(price - float(actual)) / float(actual) * 100.0)
-            if len(values) == len(HORIZONS):
-                series.append(float(np.mean(values)))
-        return series
+) -> tuple[dict[str, Any], dict[str, Any], int, int, dict[str, int]]:
 
     def champions_predicted_at(origin_at: str) -> dict[str, float]:
         return _predicted_prices(champion_forecasts[origin_at])
@@ -1082,12 +1058,72 @@ def _evaluate_series(
         close = float(champion_forecasts[origin_at]["latest_close_usd"])
         return {horizon: close for horizon in HORIZONS}
 
-    champion_horizon = mae_series(champion_outcomes, champions_predicted_at)
-    challenger_horizon = mae_series(challenger_outcomes, challengers_predicted_at)
-    persistence_horizon = mae_series(champion_outcomes, persistence_predicted_at)
-    champion_objective = mae_objective(champion_outcomes, champions_predicted_at)
-    challenger_objective = mae_objective(challenger_outcomes, challengers_predicted_at)
-    persistence_objective = mae_objective(champion_outcomes, persistence_predicted_at)
+    champion_horizon: dict[str, list[float]] = {horizon: [] for horizon in HORIZONS}
+    challenger_horizon: dict[str, list[float]] = {horizon: [] for horizon in HORIZONS}
+    persistence_horizon: dict[str, list[float]] = {horizon: [] for horizon in HORIZONS}
+    champion_objective: list[float] = []
+    challenger_objective: list[float] = []
+    persistence_objective: list[float] = []
+    paired_by_horizon = {horizon: 0 for horizon in HORIZONS}
+
+    for origin_at in common_origins:
+        challenger_by_horizon = challenger_outcomes.get(origin_at, {})
+        champion_by_horizon = champion_outcomes.get(origin_at, {})
+        challenger_prices = challengers_predicted_at(origin_at)
+        champion_prices = champions_predicted_at(origin_at)
+        persistence_prices = persistence_predicted_at(origin_at)
+        origin_errors: dict[str, list[float]] = {
+            "champion": [],
+            "challenger": [],
+            "persistence": [],
+        }
+        for horizon in HORIZONS:
+            challenger_outcome = challenger_by_horizon.get(horizon)
+            champion_outcome = champion_by_horizon.get(horizon)
+            if challenger_outcome is None or champion_outcome is None:
+                continue
+            # ``actual_at`` is the exact target-candle timestamp persisted by
+            # shadow_outcomes; never pair merely by origin when maturity differs.
+            challenger_target = challenger_outcome.get("actual_at")
+            champion_target = champion_outcome.get("actual_at")
+            if (
+                not challenger_target
+                or not champion_target
+                or _parse_utc(str(challenger_target)) != _parse_utc(str(champion_target))
+            ):
+                continue
+            try:
+                challenger_actual = float(challenger_outcome["actual_price_usd"])
+                champion_actual = float(champion_outcome["actual_price_usd"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if (
+                not math.isfinite(challenger_actual)
+                or challenger_actual <= 0.0
+                or not math.isclose(challenger_actual, champion_actual, rel_tol=0.0, abs_tol=1e-9)
+            ):
+                continue
+            prices = {
+                "champion": champion_prices.get(horizon),
+                "challenger": challenger_prices.get(horizon),
+                "persistence": persistence_prices.get(horizon),
+            }
+            if any(price is None or not math.isfinite(price) for price in prices.values()):
+                continue
+            paired_by_horizon[horizon] += 1
+            errors = {
+                name: abs(float(price) - champion_actual) / champion_actual * 100.0
+                for name, price in prices.items()
+            }
+            champion_horizon[horizon].append(errors["champion"])
+            challenger_horizon[horizon].append(errors["challenger"])
+            persistence_horizon[horizon].append(errors["persistence"])
+            for name, error in errors.items():
+                origin_errors[name].append(error)
+        if all(len(origin_errors[name]) == len(HORIZONS) for name in origin_errors):
+            champion_objective.append(float(np.mean(origin_errors["champion"])))
+            challenger_objective.append(float(np.mean(origin_errors["challenger"])))
+            persistence_objective.append(float(np.mean(origin_errors["persistence"])))
 
     def summarize(per_horizon: dict[str, list[float]], objective: list[float]) -> dict[str, Any]:
         by_horizon: dict[str, Any] = {}
@@ -1146,17 +1182,24 @@ def _evaluate_series(
     significance = {
         "method": "paired_bootstrap",
         "confidence": DEFAULT_CONFIDENCE,
-        "pairing_key": "forecast_origin",
+        "pairing_key": "(origin_at, target_at, horizon) with identical actual close",
         "identical_origins": len(common_origins),
+        "paired_samples_by_horizon": paired_by_horizon,
         "vs_champion": vs_champion,
         "vs_persistence": vs_persistence,
     }
 
-    live_samples = sum(1 for by_horizon in challenger_outcomes.values() if by_horizon)
-    fully_matured = sum(
-        1 for by_horizon in challenger_outcomes.values() if len(by_horizon) == len(HORIZONS)
+    live_samples = sum(
+        1
+        for origin in common_origins
+        if any(
+            challenger_outcomes.get(origin, {}).get(horizon) is not None
+            and champion_outcomes.get(origin, {}).get(horizon) is not None
+            for horizon in HORIZONS
+        )
     )
-    return metrics, significance, live_samples, fully_matured
+    fully_matured = len(challenger_objective)
+    return metrics, significance, live_samples, fully_matured, paired_by_horizon
 
 
 def _promotion_gate(
@@ -1179,6 +1222,9 @@ def _promotion_gate(
 
     checks = {
         "enough_live_samples": bool(maturity.get("checks", {}).get("enough_live_samples", False)),
+        "enough_paired_samples_per_horizon": bool(
+            maturity.get("checks", {}).get("enough_paired_samples_per_horizon", False)
+        ),
         "observation_window_met": bool(
             maturity.get("checks", {}).get("observation_window_met", False)
         ),
@@ -1187,6 +1233,9 @@ def _promotion_gate(
         ),
         "statistical_edge_vs_champion": (
             not policy.require_edge_vs_champion or vs_champion == "candidate_better"
+        ),
+        "statistical_edge_vs_persistence": (
+            not policy.require_edge_vs_persistence or vs_persistence == "candidate_better"
         ),
         "not_significantly_worse_than_persistence": (
             not policy.reject_significantly_worse_than_persistence
