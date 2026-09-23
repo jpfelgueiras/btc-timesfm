@@ -14,6 +14,10 @@ from typing import Any
 import numpy as np
 
 from btc_timesfm.data.microstructure_signals import MICROSTRUCTURE_FEATURE_NAMES
+from btc_timesfm.data.optional_source_retention import (
+    DEFAULT_RETENTION_PATH,
+    replay_optional_sources,
+)
 from btc_timesfm.research.ablation_evidence import ablation_manifest, evaluate_horizon_evidence
 
 REPORT_PATH = Path("microstructure_ablation_report.json")
@@ -51,15 +55,18 @@ def _vector(features: dict[str, Any], names: tuple[str, ...]) -> list[float] | N
     return values
 
 
-def load_rows(path: Path) -> list[dict[str, Any]]:
-    """Load only matured ensemble outcomes and immutable origin-time features."""
+def load_rows(
+    path: Path,
+    retention_path: Path = DEFAULT_RETENTION_PATH,
+) -> list[dict[str, Any]]:
+    """Load matured outcomes with complete, cutoff-safe availability metadata."""
     connection = sqlite3.connect(path)
     connection.row_factory = sqlite3.Row
     try:
         rows = connection.execute(
             """
             SELECT o.origin_at, o.regime, o.market_features_json,
-                   p.horizon_hours, p.target_at, p.actual_change_pct
+                    p.horizon_hours, p.target_at, p.actual_change_pct
             FROM forecast_origins AS o
             JOIN forecast_predictions AS p USING(origin_at)
             WHERE p.model_name = 'ensemble'
@@ -80,8 +87,37 @@ def load_rows(path: Path) -> list[dict[str, Any]]:
         if not isinstance(features, dict):
             continue
         base = _vector(features, BASE_FEATURE_NAMES)
-        micro = _vector(features, MICROSTRUCTURE_FEATURE_NAMES)
-        if base is None or micro is None or row["actual_change_pct"] is None:
+        if base is None:
+            continue
+        origin_at = datetime.fromisoformat(row["origin_at"].replace("Z", "+00:00"))
+        if origin_at.tzinfo is None:
+            origin_at = origin_at.replace(tzinfo=timezone.utc)
+        try:
+            replay = replay_optional_sources(origin_at, path=retention_path)
+        except KeyError:
+            continue
+        meta = replay.get("metadata", {}).get("microstructure", {})
+        try:
+            captured_at = datetime.fromisoformat(
+                str(meta.get("captured_time", "")).replace("Z", "+00:00")
+            )
+            cutoff_at = datetime.fromisoformat(
+                str(meta.get("model_use_cutoff", "")).replace("Z", "+00:00")
+            )
+        except ValueError:
+            continue
+        if (
+            not meta.get("availability_metadata_complete", True)
+            or not meta.get("available", False)
+            or meta.get("status") != "ok"
+            or captured_at > cutoff_at
+        ):
+            continue
+        micro_features = replay.get("features", {}).get("microstructure", {})
+        micro = _vector(micro_features, MICROSTRUCTURE_FEATURE_NAMES)
+        if micro is None:
+            continue
+        if row["actual_change_pct"] is None:
             continue
         result.append(
             {

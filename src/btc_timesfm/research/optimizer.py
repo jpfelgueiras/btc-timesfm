@@ -465,12 +465,16 @@ def _significance_comparison(candidate: dict[str, Any], current: dict[str, Any])
             current_metrics["mae_pct"],
             metric="mae_pct",
             lower_is_better=True,
+            method="moving_block",
+            block_length=16,
         ),
         "direction_accuracy": paired_bootstrap_comparison(
             candidate_metrics["direction_accuracy"],
             current_metrics["direction_accuracy"],
             metric="direction_accuracy",
             lower_is_better=False,
+            method="moving_block",
+            block_length=16,
         ),
         "by_horizon_mae_pct": {
             horizon: paired_bootstrap_comparison(
@@ -478,6 +482,8 @@ def _significance_comparison(candidate: dict[str, Any], current: dict[str, Any])
                 current_metrics["by_horizon"][horizon],
                 metric=f"{horizon}_mae_pct",
                 lower_is_better=True,
+                method="moving_block",
+                block_length=16,
             )
             for horizon in HORIZONS
         },
@@ -488,6 +494,8 @@ def _significance_comparison(candidate: dict[str, Any], current: dict[str, Any])
             candidate_metrics["persistence_mae_pct"],
             metric="mae_pct",
             lower_is_better=True,
+            method="moving_block",
+            block_length=16,
         )
     }
     return {
@@ -667,7 +675,9 @@ def main() -> None:
             "minimum_improved_folds": MIN_IMPROVED_FOLDS,
             "maximum_worst_fold_relative_degradation": MAX_WORST_FOLD_RELATIVE_DEGRADATION,
             "statistical_evidence": {
-                "method": "paired_bootstrap",
+                "method": "paired_moving_block_bootstrap",
+                "block_length_origins": 16,
+                "horizon_clustering": "mean_within_origin",
                 "confidence": DEFAULT_CONFIDENCE,
                 "iterations": DEFAULT_BOOTSTRAP_ITERATIONS,
                 "minimum_paired_samples": DEFAULT_MIN_PAIRED_SAMPLES,
