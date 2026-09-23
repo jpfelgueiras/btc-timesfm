@@ -45,9 +45,11 @@ def make_market(count: int = 513, *, start_price: float = 100.0) -> MarketData:
 class FakeTimesFM:
     def __init__(self) -> None:
         self.context_lengths: list[int] = []
+        self.symmetric_flags: list[bool] = []
 
     def predict_batch(self, *, contexts, horizon, return_quantiles, use_symmetric_averaging):
         self.context_lengths = [len(context) for context in contexts]
+        self.symmetric_flags.extend([use_symmetric_averaging] * len(contexts))
         self.asserted_horizon = horizon
         self.asserted_quantiles = return_quantiles
         self.asserted_symmetric = use_symmetric_averaging
@@ -143,7 +145,9 @@ class ForecastEngineTests(unittest.TestCase):
         normalized, mean, std = _z_normalize(arr)
         self.assertAlmostEqual(mean, 3.0, places=6)
         self.assertAlmostEqual(std, 1.5811388300841898, places=6)  # std with ddof=1
-        expected = np.array([-1.26491106, -0.63245553, 0.0, 0.63245553, 1.26491106], dtype=np.float32)
+        expected = np.array(
+            [-1.26491106, -0.63245553, 0.0, 0.63245553, 1.26491106], dtype=np.float32
+        )
         np.testing.assert_allclose(normalized, expected, rtol=1e-6)
 
         # Test with constant data (std should be 0)
@@ -151,7 +155,9 @@ class ForecastEngineTests(unittest.TestCase):
         normalized_const, mean_const, std_const = _z_normalize(const_arr)
         self.assertAlmostEqual(mean_const, 5.0, places=6)
         self.assertAlmostEqual(std_const, 0.0, places=6)
-        np.testing.assert_array_equal(normalized_const, np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32))
+        np.testing.assert_array_equal(
+            normalized_const, np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+        )
 
         # Test with empty array
         empty_arr = np.array([], dtype=np.float32)
@@ -164,12 +170,20 @@ class ForecastEngineTests(unittest.TestCase):
         data = make_market(513)
         model = FakeTimesFM()
         forecasts, metadata = timesfm_multi_context_inventory(
-            model, data, context_lengths=(64, 168, 336, 512, 1024), normalize=False, symmetric_averaging=False
+            model,
+            data,
+            context_lengths=(64, 168, 336, 512, 1024),
+            normalize=False,
+            symmetric_averaging=False,
         )
         # Should have forecasts for available contexts
-        self.assertEqual(set(forecasts.keys()), {"timesfm_64h", "timesfm_168h", "timesfm_336h", "timesfm_512h"})
+        self.assertEqual(
+            set(forecasts.keys()), {"timesfm_64h", "timesfm_168h", "timesfm_336h", "timesfm_512h"}
+        )
         # Should have metadata for each forecast
-        self.assertEqual(set(metadata.keys()), {"timesfm_64h", "timesfm_168h", "timesfm_336h", "timesfm_512h"})
+        self.assertEqual(
+            set(metadata.keys()), {"timesfm_64h", "timesfm_168h", "timesfm_336h", "timesfm_512h"}
+        )
         current = float(data.closes[-1])
         for model_output in forecasts.values():
             self.assertAlmostEqual(model_output["2h"]["price_usd"], current, places=6)
@@ -190,13 +204,27 @@ class ForecastEngineTests(unittest.TestCase):
         data = make_market(513)
         model = FakeTimesFM()
         forecasts, metadata = timesfm_multi_context_inventory(
-            model, data, context_lengths=(64, 168, 336, 512, 1024), normalize=True, symmetric_averaging=False, inner_context_count=2
+            model,
+            data,
+            context_lengths=(64, 168, 336, 512, 1024),
+            normalize=True,
+            symmetric_averaging=False,
+            inner_selected_contexts=(168, 336),
         )
         # Should have forecasts for available contexts
-        self.assertEqual(set(forecasts.keys()), {"timesfm_64h", "timesfm_168h", "timesfm_336h", "timesfm_512h"})
-        # With inner_context_count=2 and sorted [64,168,336,512], inner should be [168,336]
+        self.assertEqual(
+            set(forecasts.keys()), {"timesfm_64h", "timesfm_168h", "timesfm_336h", "timesfm_512h"}
+        )
+        # The inner-fold selection is explicit and limited to two contexts.
         current = float(data.closes[-1])
-        for model_output in forecasts.values():
+        for model_name, model_output in forecasts.items():
+            if model_name in {"timesfm_168h", "timesfm_336h"}:
+                # The stub returns zero in model space; inverse normalization
+                # must restore the context's mean hourly log return.
+                window = int(model_name.removeprefix("timesfm_").removesuffix("h"))
+                expected = current * math.exp(float(np.mean(data.returns[-window:])) * 2)
+                self.assertAlmostEqual(model_output["2h"]["price_usd"], expected, places=5)
+                continue
             self.assertAlmostEqual(model_output["2h"]["price_usd"], current, places=6)
         # Check that normalization was applied to inner contexts (168, 336) but not outer (64, 512)
         self.assertFalse(metadata["timesfm_64h"]["normalization_applied"])
@@ -218,7 +246,12 @@ class ForecastEngineTests(unittest.TestCase):
         data = make_market(513)
         model = FakeTimesFM()
         forecasts, metadata = timesfm_multi_context_inventory(
-            model, data, context_lengths=(64, 168, 336, 512, 1024), normalize=False, symmetric_averaging=True, inner_context_count=2
+            model,
+            data,
+            context_lengths=(64, 168, 336, 512, 1024),
+            normalize=False,
+            symmetric_averaging=True,
+            inner_selected_contexts=(168, 336),
         )
         # With inner_context_count=2 and sorted [64,168,336,512], inner should be [168,336]
         # Check that symmetric averaging was applied to inner contexts (168, 336) but not outer (64, 512)
@@ -226,13 +259,18 @@ class ForecastEngineTests(unittest.TestCase):
         self.assertTrue(metadata["timesfm_168h"]["symmetric_averaging_applied"])
         self.assertTrue(metadata["timesfm_336h"]["symmetric_averaging_applied"])
         self.assertFalse(metadata["timesfm_512h"]["symmetric_averaging_applied"])
+        self.assertEqual(model.symmetric_flags, [False, True, True, False])
 
     def test_timesfm_multi_context_inventory_fallback_to_all_returns(self) -> None:
         # Test when we don't have enough data for any of the requested context lengths
         data = make_market(50)  # 50 closes = 49 returns
         model = FakeTimesFM()
         forecasts, metadata = timesfm_multi_context_inventory(
-            model, data, context_lengths=(64, 168, 336, 512, 1024), normalize=False, symmetric_averaging=False
+            model,
+            data,
+            context_lengths=(64, 168, 336, 512, 1024),
+            normalize=False,
+            symmetric_averaging=False,
         )
         # Should fall back to using all available returns (49)
         self.assertEqual(set(forecasts.keys()), {"timesfm_49h"})

@@ -322,7 +322,7 @@ def timesfm_multi_context_inventory(
     context_lengths: tuple[int, ...] = (64, 168, 336, 512, 1024),
     normalize: bool = False,
     symmetric_averaging: bool = False,
-    inner_context_count: int = 2,
+    inner_selected_contexts: tuple[int, ...] = (),
 ) -> tuple[dict[str, dict[str, dict[str, float]]], dict[str, dict]]:
     """Forecast log returns using several context windows, with optional
     z-normalization and symmetric averaging on inner-selected contexts.
@@ -335,38 +335,19 @@ def timesfm_multi_context_inventory(
     if not available:
         # Fallback to using all available returns
         available = [len(returns)]
-    # Sort available contexts to pick inner ones
-    available_sorted = sorted(available)
-    n = len(available_sorted)
-    # Select inner contexts: if we have more than inner_context_count, take the middle ones
-    if n > inner_context_count:
-        start = (n - inner_context_count) // 2
-        inner_set = set(available_sorted[start : start + inner_context_count])
-    else:
-        inner_set = set(available_sorted)
+    if len(inner_selected_contexts) > 2:
+        raise ValueError("at most two inner-selected contexts may be configured")
+    if len(set(inner_selected_contexts)) != len(inner_selected_contexts):
+        raise ValueError("inner-selected contexts must be unique")
+    if any(window not in context_lengths for window in inner_selected_contexts):
+        raise ValueError("inner-selected contexts must be in context_lengths")
+    inner_set = set(inner_selected_contexts)
 
-    outputs = list(
-        model.predict_batch(
-            contexts=[
-                (
-                    _z_normalize(returns[-window:])[0]
-                    if normalize and window in inner_set
-                    else returns[-window:]
-                )
-                for window in available
-            ],
-            horizon=FORECAST_HOURS,
-            return_quantiles=True,
-            use_symmetric_averaging=symmetric_averaging,
-        )
-    )
-    # Validate the model outputs contract
-    _validate_timesfm_output(outputs, FORECAST_HOURS)
     current_price = float(data.closes[-1])
     forecasts: dict[str, dict[str, dict[str, float]]] = {}
     metadata: dict[str, dict] = {}
 
-    for window, result in zip(available, outputs, strict=True):
+    for window in available:
         # Determine if normalization and symmetric averaging were applied for this window
         applied_norm = normalize and window in inner_set
         applied_sym = symmetric_averaging and window in inner_set
@@ -375,8 +356,26 @@ def timesfm_multi_context_inventory(
             _, mean, std = _z_normalize(returns[-window:])
         else:
             mean, std = 0.0, 0.0
+        context = returns[-window:]
+        if applied_norm:
+            context, _, _ = _z_normalize(context)
+        outputs = list(
+            model.predict_batch(
+                contexts=[context],
+                horizon=FORECAST_HOURS,
+                return_quantiles=True,
+                use_symmetric_averaging=applied_sym,
+            )
+        )
+        _validate_timesfm_output(outputs, FORECAST_HOURS)
+        result = outputs[0]
         point = np.asarray(result.forecast, dtype=np.float64)
         quantiles = np.asarray(result.quantiles, dtype=np.float64)
+        if applied_norm:
+            # TimesFM forecasts are in the normalized input scale. Restore the
+            # log-return scale before accumulating returns into BTC prices.
+            point = point * std + mean
+            quantiles = quantiles * std + mean
         point_prices = _forecast_prices_from_return_path(current_price, point)
         q10_prices = _forecast_prices_from_return_path(current_price, quantiles[:, 0])
         q50_prices = _forecast_prices_from_return_path(current_price, quantiles[:, 4])
