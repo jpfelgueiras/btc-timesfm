@@ -32,6 +32,7 @@ from btc_timesfm.forecasting.forecast_engine import (
     CONTEXT_WINDOWS,
     INTERVAL_MINUTES,
     MODEL_ID,
+    MODEL_REVISION,
     PAIR,
     PERSISTENCE_FALLBACK_BOOST,
     TARGET_HOURS,
@@ -207,6 +208,7 @@ def build_experiment_manifest(
         "code": git,
         "model": {
             "id": MODEL_ID,
+            "revision": MODEL_REVISION,
             "package": "timesfm",
             "package_version": dependencies["timesfm"],
         },
