@@ -11,16 +11,10 @@ from typing import Any
 import numpy as np
 
 from btc_timesfm.forecasting import forecast_engine
-from btc_timesfm.forecasting.adaptive_weighting import (
-    adaptive_model_weights,
-    attach_persisted_outcomes,
-)
+from btc_timesfm.forecasting.adaptive_weighting import attach_persisted_outcomes
 from btc_timesfm.forecasting.direction_probability import build_forecast_probabilities
 from btc_timesfm.forecasting.forecast_confidence import build_forecast_confidence
-from btc_timesfm.forecasting.conformal_calibration import (
-    conformal_calibration_multiplier,
-    evaluation_report,
-)
+from btc_timesfm.forecasting.conformal_calibration import evaluation_report
 from btc_timesfm.forecasting.conditional_calibration import (
     build_conditional_calibration_section,
 )

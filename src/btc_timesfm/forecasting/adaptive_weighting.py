@@ -148,9 +148,7 @@ def _score_history_for_model(
         except (KeyError, TypeError, ValueError):
             continue
 
-        actual = _persisted_actual(
-            snapshot, horizon, model_name, available_at=available_at
-        )
+        actual = _persisted_actual(snapshot, horizon, model_name, available_at=available_at)
         outcome_source = "durable"
         if actual is None:
             target = int(origin.timestamp()) + hour * 3600

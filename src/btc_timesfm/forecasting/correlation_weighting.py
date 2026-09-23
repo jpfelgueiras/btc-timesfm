@@ -96,9 +96,7 @@ def residual_history(
                 predicted = float(snapshot["model_predictions"][name][horizon]["price_usd"])
             except (KeyError, TypeError, ValueError):
                 continue
-            actual = _actual(
-                snapshot, horizon, name, hour, actual_by_timestamp, available_at
-            )
+            actual = _actual(snapshot, horizon, name, hour, actual_by_timestamp, available_at)
             if actual is None:
                 continue
             result[name][origin_key] = (predicted - actual) / actual
