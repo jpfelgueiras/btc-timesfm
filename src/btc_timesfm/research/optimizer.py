@@ -34,6 +34,7 @@ from btc_timesfm.forecasting.statistical_significance import (
 )
 from btc_timesfm.forecasting.forecast_engine import (
     TARGET_HOURS,
+    MarketData,
     baseline_forecasts,
     detect_regime,
     load_timesfm,
@@ -229,9 +230,23 @@ def _history_snapshot(sample: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def generate_base_samples(days: int, samples: int) -> tuple[list[dict[str, Any]], dict[int, float]]:
+def generate_base_samples(
+    days: int, samples: int, offline_dataset: str | None = None
+) -> tuple[list[dict[str, Any]], dict[int, float]]:
     """Run TimesFM once per origin and retain frozen per-model predictions."""
-    data = fetch_binance_history(days)
+    if offline_dataset:
+        # Load from offline dataset
+        offline_data = np.load(offline_dataset)
+        data = MarketData(
+            timestamps=offline_data["timestamps"],
+            opens=offline_data["opens"],
+            highs=offline_data["highs"],
+            lows=offline_data["lows"],
+            closes=offline_data["closes"],
+            volumes=offline_data["volumes"],
+        )
+    else:
+        data = fetch_binance_history(days)
     first = 513
     last = len(data.closes) - max(TARGET_HOURS) - 1
     if last <= first:
@@ -614,20 +629,30 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run bounded weekly walk-forward optimization")
     parser.add_argument("--days", type=int, default=DEFAULT_DAYS)
     parser.add_argument("--samples", type=int, default=DEFAULT_SAMPLES)
+    parser.add_argument(
+        "--offline-dataset",
+        type=str,
+        default=None,
+        help="Path to a .npz file containing the historical data (if provided, skips Binance download)",
+    )
     args = parser.parse_args()
 
     catalog = candidate_catalog()
-    base_samples, actuals = generate_base_samples(args.days, args.samples)
+    base_samples, actuals = generate_base_samples(args.days, args.samples, args.offline_dataset)
     results: list[dict[str, Any]] = []
     for number, config in enumerate(catalog, start=1):
         print(f"Evaluating candidate {number}/{len(catalog)}: {config.name}")
         results.append(replay_candidate(config, base_samples, actuals))
 
     selected, decision, comparison = choose_candidate(results)
+    if args.offline_dataset:
+        data_source_str = f"Offline dataset: {args.offline_dataset}; production uses Kraken BTC/USD"
+    else:
+        data_source_str = "Binance BTCUSDT 1h historical proxy; production uses Kraken BTC/USD"
     report = {
         "schema_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "data_source": "Binance BTCUSDT 1h historical proxy; production uses Kraken BTC/USD",
+        "data_source": data_source_str,
         "tested_period": {"days": args.days, "samples": len(base_samples)},
         "search_space": {
             "candidate_count": len(catalog),
