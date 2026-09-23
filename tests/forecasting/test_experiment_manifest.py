@@ -68,7 +68,7 @@ class ExperimentManifestTests(unittest.TestCase):
         self.assertNotEqual(first["run_id"], second["run_id"])
         self.assertEqual(first["code"]["git_sha"], "abc123")
 
-    def test_configuration_change_changes_fingerprint(self) -> None:
+    def test_dynamic_run_parameters_do_not_change_configuration_fingerprint(self) -> None:
         base = build_experiment_manifest(
             run_type="backtest",
             data=make_data(),
@@ -87,6 +87,20 @@ class ExperimentManifestTests(unittest.TestCase):
             git_sha="abc123",
             created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         )
+        self.assertEqual(base["configuration_id"], changed["configuration_id"])
+        self.assertNotEqual(base["run_parameters"], changed["run_parameters"])
+
+    def test_policy_change_changes_configuration_fingerprint(self) -> None:
+        common = {
+            "run_type": "backtest",
+            "data": make_data(),
+            "data_source": "Binance BTCUSDT 1h",
+            "data_pair": "BTC/USDT",
+            "git_sha": "abc123",
+            "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+        }
+        base = build_experiment_manifest(**common, policy={"version": 1, "coherence": True})
+        changed = build_experiment_manifest(**common, policy={"version": 1, "coherence": False})
         self.assertNotEqual(base["configuration_id"], changed["configuration_id"])
 
     def test_feature_set_version_and_lineage_are_resolved_from_registry(self) -> None:

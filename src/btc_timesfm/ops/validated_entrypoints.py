@@ -21,6 +21,7 @@ from btc_timesfm.data.market_data_validation import (
     trim_incomplete_trailing_candles,
     validate_market_data,
 )
+from btc_timesfm.forecasting.forecast_policy import policy_for
 from btc_timesfm.ops.observability import PipelineObserver
 
 
@@ -206,48 +207,12 @@ def _instrument_forecast(observer: PipelineObserver, btc_forecast: Any) -> None:
     btc_forecast.ForecastHistoryStore = ObservedForecastHistoryStore
 
 
-def _activate_correlation_policy(target: Any) -> None:
-    """Install the correlation-aware wrapper without coupling core modules to it."""
-    from btc_timesfm.forecasting.correlation_weighting import correlation_aware_model_weights
-
-    target.forecast_engine.adaptive_model_weights = correlation_aware_model_weights
-    if hasattr(target, "adaptive_model_weights"):
-        target.adaptive_model_weights = correlation_aware_model_weights
-
-
-def _activate_diversified_model(target: Any, *, research: bool) -> None:
-    """Add the ridge member in research, or in production only after explicit approval."""
-    from btc_timesfm.forecasting.diversified_model import augment_baselines, production_enabled
-
-    engine = target.forecast_engine
-    if getattr(engine, "_ridge_baselines_wrapped", False):
-        return
-    enabled = research or production_enabled()
-    original_baselines = engine.baseline_forecasts
-
-    def baselines_with_optional_ridge(data: Any):
-        return augment_baselines(original_baselines, data, enabled=enabled)
-
-    engine.baseline_forecasts = baselines_with_optional_ridge
-    engine._ridge_baselines_wrapped = True
-    engine._ridge_model_enabled = enabled
-
-
-def _activate_validated_regime_detector(target: Any) -> None:
-    """Replace the legacy heuristic with the reproducible validated state detector."""
-    from btc_timesfm.data.regime_detection import validated_regime
-
-    target.forecast_engine.detect_regime = validated_regime
-
-
 def run_forecast(argv: list[str]) -> None:
     if argv:
         raise SystemExit("forecast does not accept positional arguments")
     from btc_timesfm.cli import btc_forecast
 
-    _activate_correlation_policy(btc_forecast)
-    _activate_diversified_model(btc_forecast, research=False)
-    _activate_validated_regime_detector(btc_forecast)
+    policy_for("production_forecast").install(btc_forecast)
     observer = PipelineObserver(run_type="production_forecast")
     _instrument_forecast(observer, btc_forecast)
     try:
@@ -263,9 +228,7 @@ def run_forecast(argv: list[str]) -> None:
 def _patch_backtest_fetch() -> Any:
     from btc_timesfm.research import backtest
 
-    _activate_correlation_policy(backtest)
-    _activate_diversified_model(backtest, research=True)
-    _activate_validated_regime_detector(backtest)
+    policy_for("backtest").install(backtest)
     original_fetch = backtest.fetch_binance_history
 
     def fetch_validated(days: int):

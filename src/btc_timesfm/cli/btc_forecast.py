@@ -42,6 +42,7 @@ from btc_timesfm.data.microstructure_signals import (
     signal_manifest as microstructure_manifest,
 )
 from btc_timesfm.forecasting.experiment_manifest import build_experiment_manifest, seed_everything
+from btc_timesfm.forecasting.forecast_policy import PRODUCTION_POLICY
 from btc_timesfm.forecasting.forecast_engine import TARGET_HOURS, build_forecast, load_timesfm
 from btc_timesfm.data.market_data_sources import fetch_redundant_hourly
 from btc_timesfm.data.source_health import evaluate_source_health, persist_source_health
@@ -69,10 +70,9 @@ SHADOW_REPORT_PATH = Path("shadow_deployment_report.json")
 SHADOW_SUMMARY_PATH = Path("shadow_deployment_summary.md")
 
 # build_forecast resolves this function from forecast_engine's module globals.
-# Install the issue #6 policy once so production uses the durable-history-aware
-# weighting implementation while keeping the engine API stable.
-forecast_engine.adaptive_model_weights = adaptive_model_weights  # type: ignore[assignment]
-forecast_engine.empirical_calibration_multiplier = conformal_calibration_multiplier  # type: ignore[assignment]
+# The policy installation in validated_entrypoints.py handles setting the
+# adaptive_model_weights and empirical_calibration_multiplier.
+pass
 
 
 def load_forecast_history() -> list[dict[str, Any]]:
@@ -602,6 +602,7 @@ def main() -> None:
         data=data,
         data_source=selection.source,
         data_pair=selection.source_pair,
+        policy=PRODUCTION_POLICY.configuration(),
         run_parameters={
             "rolling_history_limit": HISTORY_LIMIT,
             "adaptive_confidence": adaptive_confidence,
