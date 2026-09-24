@@ -468,7 +468,9 @@ class ForecastService:
         return value or None
 
     def _key_fingerprint(self, key: str) -> str:
-        return hashlib.sha256(key.encode()).hexdigest()[:16]
+        secret = os.getenv("BTC_FORECAST_FINGERPRINT_SECRET", "btc-forecast-fingerprint-secret")
+        digest = hmac.new(secret.encode("utf-8"), key.encode("utf-8"), hashlib.sha256).hexdigest()
+        return digest[:16]
 
     def _error(
         self,
