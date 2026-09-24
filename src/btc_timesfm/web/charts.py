@@ -120,7 +120,7 @@ def _fan_chart(horizon: str, rows: list[dict[str, Any]]) -> str:
         )
     point_details = "".join(
         f'<tr><th scope="row">{_escape(row.get("origin_at") or "Date unknown")} · {horizon}</th>'
-        f'<td>${q50:,.2f}</td><td>${q10:,.2f}–${q90:,.2f}</td><td>${actual:,.2f}</td></tr>'
+        f"<td>${q50:,.2f}</td><td>${q10:,.2f}–${q90:,.2f}</td><td>${actual:,.2f}</td></tr>"
         for row, q10, q50, q90, actual in usable
     )
     body = (
@@ -140,12 +140,15 @@ def _fan_chart(horizon: str, rows: list[dict[str, Any]]) -> str:
         '<thead><tr><th scope="col">Origin · horizon</th><th scope="col">Median forecast</th><th scope="col">q10–q90 interval</th><th scope="col">Matured actual</th></tr></thead>'
         f"<tbody>{point_details}</tbody></table></div>"
     )
-    return _svg(
-        title,
-        f"Each point is a matured forecast issued at the labeled origin date for the {horizon} horizon, not a continuous price path. The band is the q10 to q90 prediction interval, the line is q50 median, and actuals are realized target prices in USD. The interval is not a guaranteed range.",
-        body,
-        height=270,
-    ) + accessible_points
+    return (
+        _svg(
+            title,
+            f"Each point is a matured forecast issued at the labeled origin date for the {horizon} horizon, not a continuous price path. The band is the q10 to q90 prediction interval, the line is q50 median, and actuals are realized target prices in USD. The interval is not a guaranteed range.",
+            body,
+            height=270,
+        )
+        + accessible_points
+    )
 
 
 def _rolling(
@@ -216,11 +219,13 @@ def _performance_chart(
             body.append(
                 f'<polyline points="{_points([x for x, _ in points], [y for _, y in points])}" fill="none" stroke="{color}" stroke-width="2"/>'
             )
-        finite_text = (
-            f"{min(finite):.2f}–{max(finite):.2f}" if finite else "no values"
+        finite_text = f"{min(finite):.2f}–{max(finite):.2f}" if finite else "no values"
+        units = (
+            "%" if label in ("MAE %", "Direction %") else "pp" if "pp" in label else "% coverage"
         )
-        units = "%" if label in ("MAE %", "Direction %") else "pp" if "pp" in label else "% coverage"
-        body.append(f'<text x="4" y="{top + 12}" class="chart-label">{label} ({units}) · {finite_text}</text>')
+        body.append(
+            f'<text x="4" y="{top + 12}" class="chart-label">{label} ({units}) · {finite_text}</text>'
+        )
         current_n = counts[-1] if counts else 0
         body.append(
             f'<text x="4" y="{bottom + 10}" class="chart-muted">12-origin rolling window · current n={current_n} · low sample &lt;{threshold}</text>'
