@@ -867,7 +867,9 @@ def generate_site(
     )
     data["database_verification"] = verification
     page = render_html(data)
-    json_data = json.dumps(data, indent=2, sort_keys=True) + "\n"
+    # Keep the duplicate machine-readable export compact so the HTML ledger and
+    # its downloadable JSON together stay inside the GitHub Pages payload cap.
+    json_data = json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n"
     if len(page.encode("utf-8")) + len(json_data.encode("utf-8")) > MAX_SITE_BYTES:
         raise RuntimeError(f"site exceeds {MAX_SITE_BYTES} byte budget")
     output_dir.mkdir(parents=True, exist_ok=True)
