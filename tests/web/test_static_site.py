@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 
 from btc_timesfm.web.historical_explorer import build_explorer_data, render_explorer
 from btc_timesfm.web.static_site import (
+    _render_latest,
+    _utc_label,
     build_site_data,
     explorer_query,
     explorer_url_state,
@@ -14,6 +16,52 @@ from btc_timesfm.web.static_site import (
 
 
 class StaticSiteTests(unittest.TestCase):
+    def test_latest_summary_names_values_and_distinguishes_unknown_age(self) -> None:
+        latest = {
+            "source_price_usd": 64000,
+            "origin_at": "2026-09-07T12:00:00+00:00",
+            "regime": "range",
+            "predictions": [
+                {
+                    "horizon_hours": 4,
+                    "target_at": "2026-09-07T16:00:00+00:00",
+                    "predicted_price_usd": 64640,
+                    "predicted_change_pct": 1.0,
+                    "q10_usd": 63000,
+                    "q90_usd": 66000,
+                }
+            ],
+        }
+        rendered = _render_latest(
+            {"latest": latest, "latest_age_hours": None, "generated_at": "2026-09-07T13:00:00Z"}
+        )
+
+        self.assertIn("Observed BTC source price", rendered)
+        self.assertIn("$64,000", rendered)
+        self.assertIn("Predicted BTC price", rendered)
+        self.assertIn("$64,640", rendered)
+        self.assertIn("Up · +1.00%", rendered)
+        self.assertIn("+4h horizon", rendered)
+        self.assertIn("2026-09-07 16:00 UTC", rendered)
+        self.assertIn("Forecast age unknown", rendered)
+        self.assertNotIn("LIVE", rendered)
+
+    def test_latest_summary_fresh_stale_and_missing_states(self) -> None:
+        base = {
+            "latest": {
+                "source_price_usd": 64000,
+                "origin_at": "2026-09-07T12:00:00Z",
+                "predictions": [],
+            },
+            "generated_at": "2026-09-07T12:00:00Z",
+        }
+        self.assertIn("Forecast recent", _render_latest({**base, "latest_age_hours": 4.0}))
+        self.assertIn("Forecast stale", _render_latest({**base, "latest_age_hours": 4.01}))
+        missing = _render_latest({"latest": None})
+        self.assertIn("No latest forecast is available", missing)
+        self.assertEqual(_utc_label(None), "Unknown (UTC)")
+        self.assertEqual(_utc_label("2026-09-07T12:00:00Z"), "2026-09-07 12:00 UTC")
+
     def _row(
         self,
         *,
