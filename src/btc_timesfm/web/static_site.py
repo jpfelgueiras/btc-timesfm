@@ -452,6 +452,12 @@ def _render_accuracy(data: dict[str, Any]) -> str:
             metrics = horizons.get(horizon, {})
             warning = metrics.get("confidence_warning")
             samples = int(metrics.get("samples") or 0)
+            horizon_hours = horizon.removesuffix("h")
+            window_query = "" if window == "all" else f"days={window.removesuffix('d')}&amp;"
+            drilldown = (
+                f'<a href="?{window_query}horizon={horizon_hours}#explorer" '
+                f'aria-label="Inspect {html.escape(labels[window])} {html.escape(horizon)} forecast records">View records</a>'
+            )
             sample_note = (
                 '<span class="sub">Insufficient history</span>'
                 if samples == 0
@@ -467,6 +473,7 @@ def _render_accuracy(data: dict[str, Any]) -> str:
                   <td>{_pct(metrics.get("mae_pct"))}</td>
                   <td>{_ratio_pct(metrics.get("direction_accuracy"))}</td>
                   <td>{_ratio_pct(metrics.get("q10_q90_coverage"))}</td>
+                  <td>{drilldown}</td>
                 </tr>
                 """
             )
@@ -476,7 +483,7 @@ def _render_accuracy(data: dict[str, Any]) -> str:
               <summary>{labels[window]}</summary>
               <div class="table-wrap">
                 <table>
-                  <thead><tr><th>Horizon</th><th>Sample count (n)</th><th>MAE %</th><th>Direction accuracy</th><th>q10–q90 coverage</th></tr></thead>
+                  <thead><tr><th>Horizon</th><th>Sample count (n)</th><th>MAE %</th><th>Direction accuracy</th><th>q10–q90 coverage</th><th>Forecast records</th></tr></thead>
                   <tbody>{"".join(rows)}</tbody>
                 </table>
               </div>
