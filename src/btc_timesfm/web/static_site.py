@@ -50,6 +50,15 @@ def _pct(value: Any, digits: int = 2) -> str:
     return "—" if number is None else f"{number:.{digits}f}%"
 
 
+def _utc_label(value: Any) -> str:
+    """Format an available timestamp as an explicit UTC time, or report unknown."""
+    try:
+        parsed = _parse_timestamp(value)
+    except (TypeError, ValueError):
+        return "Unknown (UTC)"
+    return parsed.strftime("%Y-%m-%d %H:%M UTC")
+
+
 def _ratio_pct(value: Any, digits: int = 1) -> str:
     number = _safe_float(value)
     return "—" if number is None else f"{number * 100:.{digits}f}%"
@@ -347,12 +356,18 @@ def _status_label(row: dict[str, Any]) -> tuple[str, str]:
 def _render_latest(data: dict[str, Any]) -> str:
     latest = data.get("latest")
     if not isinstance(latest, dict):
-        return '<div class="empty">No forecast history is available yet.</div>'
+        return '<div class="empty"><strong>No latest forecast is available.</strong><div>There is no forecast history to summarize yet. Check back after a forecast has been published.</div></div>'
 
     cards: list[str] = []
-    for item in latest["predictions"]:
-        change = float(item["predicted_change_pct"])
-        direction_class = "up" if change >= 0 else "down"
+    for item in latest.get("predictions", []):
+        change = _safe_float(item.get("predicted_change_pct"))
+        predicted = _safe_float(item.get("predicted_price_usd"))
+        direction_class = "up" if change is not None and change >= 0 else "down"
+        movement = (
+            f'<div class="change">{"Up" if change >= 0 else "Down"} · {change:+.2f}%</div>'
+            if change is not None
+            else '<div class="change">Direction unavailable</div>'
+        )
         interval = ""
         if item.get("q10_usd") is not None and item.get("q90_usd") is not None:
             interval = (
@@ -377,10 +392,12 @@ def _render_latest(data: dict[str, Any]) -> str:
         cards.append(
             f"""
             <article class="prediction-card {direction_class}">
-              <div class="eyebrow">+{int(item["horizon_hours"])}h</div>
-              <div class="prediction-price">{_money(item["predicted_price_usd"])}</div>
-              <div class="change">{change:+.2f}%</div>
-              <div class="sub">Target {html.escape(str(item["target_at"]))}</div>
+              <div class="eyebrow">Forecast · +{int(item["horizon_hours"])}h horizon</div>
+              <div class="prediction-label">Predicted BTC price</div>
+              <div class="prediction-price">{_money(predicted)}</div>
+              {movement}
+              <div class="sub">Based on source price {_money(latest.get("source_price_usd"))}</div>
+              <div class="sub">Target time: {html.escape(_utc_label(item.get("target_at")))}</div>
               {interval}
               {"".join(extras)}
             </article>
@@ -391,9 +408,9 @@ def _render_latest(data: dict[str, Any]) -> str:
     stale = isinstance(age, (int, float)) and float(age) > 4.0
     freshness = (
         f'<span class="badge {"warn" if stale else "ok"}">'
-        f"{'STALE' if stale else 'LIVE'} · {float(age):.1f}h old</span>"
+        f"{'Forecast stale' if stale else 'Forecast recent'} · {float(age):.1f}h since origin</span>"
         if isinstance(age, (int, float))
-        else ""
+        else '<span class="badge warn">Forecast age unknown</span>'
     )
     abstention = latest.get("abstention")
     state = abstention.get("state") if isinstance(abstention, dict) else "healthy"
@@ -409,9 +426,10 @@ def _render_latest(data: dict[str, Any]) -> str:
     return f"""
     <div class="current-strip">
       <div>
-        <div class="eyebrow">Latest completed BTC candle</div>
+        <div class="eyebrow">Observed BTC source price · at forecast origin</div>
         <div class="spot-price">{_money(latest["source_price_usd"])}</div>
-        <div class="sub">{html.escape(str(latest["origin_at"]))} · {html.escape(str(latest.get("regime") or "unknown"))}</div>
+        <div class="sub">Forecast issued: {html.escape(_utc_label(latest.get("origin_at")))} · Regime: {html.escape(str(latest.get("regime") or "unknown"))}</div>
+        <div class="sub">Page generated: {html.escape(_utc_label(data.get("generated_at")))}</div>
         {state_display}
       </div>
       {freshness}
@@ -691,6 +709,7 @@ a {{ color:var(--blue); }}
 .prediction-card::before {{ content:""; position:absolute; inset:0 auto 0 0; width:3px; background:var(--green); }}
 .prediction-card.down::before {{ background:var(--red); }}
 .prediction-price {{ font-size:1.55rem; font-weight:740; letter-spacing:-.03em; margin:.45rem 0 .05rem; }}
+.prediction-label {{ color:var(--muted); font-size:.82rem; margin-top:8px; }}
 .change {{ font-size:1rem; font-weight:750; color:var(--green); margin-bottom:.6rem; }}
 .down .change {{ color:var(--red); }}
 details {{ background:var(--panel); border:1px solid var(--line); border-radius:14px; margin:10px 0; overflow:hidden; }}
@@ -751,7 +770,7 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
 </section>
 <section id="about" aria-labelledby="about-heading">
   <h2 id="about-heading" class="visually-hidden">About</h2>
-  <div class="note">Experimental forecasting only — not financial advice. Historical accuracy does not guarantee future performance.</div>
+      <div class="note">Experimental forecasting only — not financial advice. Historical accuracy does not guarantee future performance. Forecast age describes time since issuance, not a live quote or guaranteed market-data freshness.</div>
 </section>
 </div>
 <div id="tab-metrics" class="tab-content" role="tabpanel" aria-labelledby="tab-metrics-button" tabindex="0" hidden>
