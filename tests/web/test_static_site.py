@@ -426,10 +426,41 @@ class StaticSiteTests(unittest.TestCase):
         self.assertIsNone(pending["absolute_error_pct"])
         self.assertEqual(pending["identity"]["configuration_id"], "metadata unavailable")
         page = render_explorer(data)
-        self.assertIn("Historical forecast explorer", page)
+        self.assertIn("Forecast History Explorer", page)
+        self.assertIn('id="history-days"', page)
+        self.assertIn('id="history-horizon"', page)
+        self.assertIn('id="history-status"', page)
+        self.assertIn('id="history-model"', page)
+        self.assertIn("history.pushState", page)
+        self.assertIn("history-no-matches", page)
         self.assertIn("Pending maturity", page)
         self.assertNotIn("$99.00 / 4.50%", page)
         self.assertIn("champion", page)
+
+    def test_large_history_remains_bounded_and_filterable(self) -> None:
+        rows = [
+            self._row(
+                origin=f"2026-09-{(index % 28) + 1:02d}T{index % 24:02d}:00:00+00:00",
+                horizon=(2, 4, 8, 16)[index % 4],
+                predicted=101.0 + index,
+                change=1.0,
+                actual=101.5 if index % 2 else None,
+                error=0.49 if index % 2 else None,
+                direction=1 if index % 2 else None,
+                model="ensemble" if index % 3 else "persistence",
+            )
+            for index in range(600)
+        ]
+        history = build_explorer_data(rows, now=datetime(2026, 9, 29, tzinfo=timezone.utc))
+        page = render_explorer(history)
+
+        self.assertEqual(len(history["forecasts"]), 600)
+        self.assertEqual(page.count('data-origin="'), 600)
+        self.assertLess(len(page.encode("utf-8")), 5 * 1024 * 1024)
+        self.assertIn("All available history", page)
+        self.assertIn("Matured", page)
+        self.assertIn("Pending", page)
+        self.assertIn("All models", page)
 
     def test_render_html_contains_predictions_accuracy_and_ledger(self) -> None:
         rows = [
@@ -462,16 +493,19 @@ class StaticSiteTests(unittest.TestCase):
         self.assertIn("30 days", page)
         self.assertIn("90 days", page)
         self.assertIn("All time", page)
-        self.assertIn("Recent forecast ledger", page)
-        self.assertIn("Forecast explorer", page)
-        self.assertIn('id="explorer-horizon"', page)
-        self.assertIn("80% interval", page)
-        self.assertIn("forecast-detail", page)
-        self.assertIn("Historical forecast explorer", page)
+        self.assertNotIn("Recent forecast ledger", page)
+        self.assertNotIn('class="table-wrap recent-table"', page)
+        self.assertNotIn('id="explorer-table"', page)
+        self.assertIn("Forecast History Explorer", page)
+        self.assertIn('id="history-horizon"', page)
+        self.assertIn("Uncertainty interval", page)
+        self.assertIn("history-detail", page)
+        self.assertEqual(page.count('id="explorer"'), 1)
+        self.assertIn("history.replaceState", page)
+        self.assertIn("location.search", page)
         self.assertIn("No X/Twitter dependency", page)
         self.assertIn("Pending", page)
-        self.assertIn("el instanceof HTMLSelectElement", page)
-        self.assertIn("r.dataset.regime", page)
+        self.assertIn("row.dataset.model", page)
 
 
 if __name__ == "__main__":

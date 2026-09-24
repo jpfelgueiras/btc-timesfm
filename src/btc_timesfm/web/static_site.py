@@ -786,7 +786,7 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
 </header>
 <div class="tabs" role="tablist" aria-label="Dashboard sections">
   <button class="tab-button" type="button" role="tab" aria-selected="true" aria-controls="tab-overview" id="tab-overview-button">Overview</button>
-  <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="tab-explorer" id="tab-explorer-button" tabindex="-1">Forecast Explorer</button>
+  <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="tab-explorer" id="tab-explorer-button" tabindex="-1">Forecast History</button>
   <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="tab-metrics" id="tab-metrics-button" tabindex="-1">Model Metrics</button>
 </div>
 <div id="tab-overview" class="tab-content" role="tabpanel" aria-labelledby="tab-overview-button" tabindex="0">
@@ -827,23 +827,12 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
 </div>
 </div>
 <div id="tab-explorer" class="tab-content" role="tabpanel" aria-labelledby="tab-explorer-button" tabindex="0" hidden>
-<section id="explorer" aria-labelledby="explorer-heading">
-  <h2 id="explorer-heading">Forecast explorer</h2>
-  <p>Browse the durable ledger. Pending rows have not reached their target candle; matured rows are immutable historical predictions compared with actual BTC prices.</p>
-  {_render_explorer(data)}
-</section>
 {render_explorer(data.get("historical_explorer", {}))}
-<section id="recent" aria-labelledby="recent-heading">
-  <h2 id="recent-heading">Recent forecast ledger</h2>
-  <p>Pending rows have not reached their target candle yet. Matured rows are immutable historical predictions compared with the actual BTC price.</p>
-  {_render_recent(data)}
-</section>
 </div>
 <footer role="contentinfo">Generated {html.escape(str(data["generated_at"]))} from {int(data["matured_rows"])} matured forecast rows.</footer>
 </main>
-{_explorer_script()}
 <script>
-(function(){{const tabs=[...document.querySelectorAll('.tabs [role="tab"]')],panels=[...document.querySelectorAll('.tab-content')],hashes={{'#explorer':'tab-explorer','#accuracy':'tab-metrics','#charts':'tab-metrics','#edge':'tab-metrics'}};function activate(id,replace){{tabs.forEach(tab=>{{const active=tab.getAttribute('aria-controls')===id;tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;}});panels.forEach(panel=>panel.hidden=panel.id!==id);if(replace)history.replaceState(void 0,'',id==='tab-overview'?location.pathname:'#'+(id==='tab-explorer'?'explorer':'accuracy'));}}tabs.forEach((tab,index)=>{{tab.addEventListener('click',()=>activate(tab.getAttribute('aria-controls'),true));tab.addEventListener('keydown',event=>{{const offsets={{ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1}};const offset=offsets[event.key],next=event.key==='Home'?0:event.key==='End'?tabs.length-1:Number.isInteger(offset)?(index+offset+tabs.length)%tabs.length:void 0;if(next===void 0)return;event.preventDefault();tabs[next].focus();activate(tabs[next].getAttribute('aria-controls'),true);}});}});activate(hashes[location.hash]||'tab-overview',false);}})();
+(function(){{const tabs=[...document.querySelectorAll('.tabs [role="tab"]')],panels=[...document.querySelectorAll('.tab-content')],hashes={{'#explorer':'tab-explorer','#accuracy':'tab-metrics','#charts':'tab-metrics','#edge':'tab-metrics'}};function activate(id,replace){{tabs.forEach(tab=>{{const active=tab.getAttribute('aria-controls')===id;tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;}});panels.forEach(panel=>panel.hidden=panel.id!==id);if(replace)history.replaceState(void 0,'',location.pathname+location.search+(id==='tab-overview'?'':'#'+(id==='tab-explorer'?'explorer':'accuracy')));}}tabs.forEach((tab,index)=>{{tab.addEventListener('click',()=>activate(tab.getAttribute('aria-controls'),true));tab.addEventListener('keydown',event=>{{const offsets={{ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1}};const offset=offsets[event.key],next=event.key==='Home'?0:event.key==='End'?tabs.length-1:Number.isInteger(offset)?(index+offset+tabs.length)%tabs.length:void 0;if(next===void 0)return;event.preventDefault();tabs[next].focus();activate(tabs[next].getAttribute('aria-controls'),true);}});}});activate(hashes[location.hash]||'tab-overview',false);}})();
 (function(){{const tabs=[...document.querySelectorAll('.metric-tabs [role="tab"]')],panels=[...document.querySelectorAll('.metric-content')],hashes={{'#charts':'metrics-charts','#edge':'metrics-edge'}};function activate(id,replace){{tabs.forEach(tab=>{{const active=tab.getAttribute('aria-controls')===id;tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;}});panels.forEach(panel=>panel.hidden=panel.id!==id);if(replace)history.replaceState(void 0,'',id==='metrics-accuracy'?'#accuracy':'#'+id.replace('metrics-',''));}}tabs.forEach((tab,index)=>{{tab.addEventListener('click',()=>activate(tab.getAttribute('aria-controls'),true));tab.addEventListener('keydown',event=>{{const offsets={{ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1}};const offset=offsets[event.key],next=event.key==='Home'?0:event.key==='End'?tabs.length-1:Number.isInteger(offset)?(index+offset+tabs.length)%tabs.length:void 0;if(next===void 0)return;event.preventDefault();tabs[next].focus();activate(tabs[next].getAttribute('aria-controls'),true);}});}});activate(hashes[location.hash]||'metrics-accuracy',false);}})();
 (function(){{{chr(123)}}}var t=document.documentElement;var m=window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)');if(m&&!t.getAttribute('data-theme')){chr(123)}t.setAttribute('data-theme',m.matches?'dark':'light');{chr(125)}{chr(125)})()
 </script>

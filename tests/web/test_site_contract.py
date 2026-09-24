@@ -88,7 +88,7 @@ def _make_valid_html() -> str:
         "<section><h1>Forecasts & accuracy</h1></section>\n"
         "<section><h2>Accuracy</h2></section>\n"
         "<section><h2>Ensemble edge vs persistence</h2></section>\n"
-        "<section><h2>Recent forecast ledger</h2></section>\n"
+        "<section><h2>Forecast History Explorer</h2></section>\n"
         "</main>\n"
         "</body>\n"
         "</html>\n"
