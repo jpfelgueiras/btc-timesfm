@@ -33,7 +33,7 @@ REQUIRED_HTML_SECTIONS = [
     "Forecasts & accuracy",
     "Accuracy",
     "Ensemble edge vs persistence",
-    "Recent forecast ledger",
+    "Forecast History Explorer",
 ]
 
 PLACEHOLDER_MARKERS = re.compile(r"\b(TODO|FIXME|PLACEHOLDER|LOREM IPSUM)\b|\b(undefined|null)\b")
