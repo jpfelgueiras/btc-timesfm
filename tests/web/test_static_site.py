@@ -87,6 +87,8 @@ class StaticSiteTests(unittest.TestCase):
         self.assertIn("Sample count (n)", rendered)
         self.assertIn('2 <span class="sub">Low sample</span>', rendered)
         self.assertIn("q10–q90 coverage", rendered)
+        self.assertIn('href="?days=7&amp;horizon=4#explorer"', rendered)
+        self.assertIn("Inspect 7 days 4h forecast records", rendered)
 
     def test_latest_summary_names_values_and_distinguishes_unknown_age(self) -> None:
         latest = {
