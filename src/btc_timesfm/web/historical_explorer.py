@@ -137,35 +137,34 @@ def render_explorer(data: Mapping[str, Any]) -> str:
         identity = identity if isinstance(identity, Mapping) else {}
         matured = item.get("maturity") == "matured"
         outcome = (
-            f"{_money(item.get('actual_target_price_usd'))} / {_pct(item.get('absolute_error_pct'))}"
+            f"Matured: {_money(item.get('actual_target_price_usd'))} / "
+            f"{_pct(item.get('absolute_error_pct'))}"
             if matured
             else "Pending maturity"
         )
-        role = html.escape(str(identity.get("role") or "unclassified"))
-        configuration = html.escape(str(identity.get("configuration_id") or "metadata unavailable"))
-        run_id = html.escape(str(identity.get("run_id") or "metadata unavailable"))
+        configuration = str(identity.get("configuration_id") or "metadata unavailable")
+        run_id = str(identity.get("run_id") or "metadata unavailable")
+        experiment_ids = (
+            "configuration/run identifiers unavailable"
+            if configuration == run_id == "metadata unavailable"
+            else f"configuration {configuration}; run {run_id}"
+        )
+        experiment = html.escape(experiment_ids)
         model = str(item.get("model_name") or "unknown")
         models.add(model)
-        model_attr = html.escape(model, quote=True)
-        origin = html.escape(str(item.get("origin_at") or ""), quote=True)
+        display_role = html.escape(str(identity.get("role") or "unclassified"))
+        origin = html.escape(str(item.get("origin_at") or "unknown"))
         target = html.escape(str(item.get("target_at") or "unknown"))
-        maturity = "matured" if matured else "pending"
         rows.append(
-            f'<tr data-origin="{origin}" data-date="{html.escape(str(item.get("date") or "unknown"), quote=True)}" '
-            f'data-horizon="{int(item.get("horizon_hours") or 0)}" data-model="{model_attr}" '
-            f'data-status="{maturity}"><td><details class="history-detail">'
-            f"<summary>{html.escape(str(item.get('origin_at') or 'unknown'))} · +{int(item.get('horizon_hours') or 0)}h</summary>"
-            f"<dl><dt>Issued forecast</dt><dd>{_money(item.get('predicted_price_usd'))} ({_pct(item.get('predicted_change_pct'))})</dd>"
-            f"<dt>Uncertainty interval</dt><dd>{_money(item.get('q10_usd'))} – {_money(item.get('q90_usd'))}</dd>"
-            f"<dt>Target time</dt><dd>{target}</dd><dt>Maturity</dt><dd>{maturity.title()}</dd>"
-            f"<dt>Actual / error</dt><dd>{outcome}</dd><dt>Configuration</dt><dd>{role} · {configuration} · {run_id}</dd></dl></details></td>"
-            f"<td>+{int(item.get('horizon_hours') or 0)}h</td><td>{html.escape(model)}</td>"
-            f'<td><span class="status {"good" if matured else "pending"}">{maturity.title()}</span></td>'
-            f"<td>{_money(item.get('source_price_usd'))}</td>"
-            f"<td>{_money(item.get('predicted_price_usd'))}<br><small>{_pct(item.get('predicted_change_pct'))}</small></td>"
+            '<tr><td><details class="history-detail">'
+            f"<summary>{origin}</summary>"
+            f"<p>Target: {target} · q10–q90: {_money(item.get('q10_usd'))}–{_money(item.get('q90_usd'))} · Experiment: {experiment}</p></details></td>"
+            f"<td>+{int(item.get('horizon_hours') or 0)}h · {html.escape(model)} · {display_role}</td>"
+            f"<td>{_money(item.get('source_price_usd'))} → {_money(item.get('predicted_price_usd'))} "
+            f"({_pct(item.get('predicted_change_pct'))})</td>"
             f"<td>{outcome}</td></tr>"
         )
-    body = "".join(rows) or '<tr><td colspan="7">No historical forecasts are available.</td></tr>'
+    body = "".join(rows) or '<tr><td colspan="4">No historical forecasts are available.</td></tr>'
     horizon_options = "".join(
         f'<option value="{horizon}">+{horizon}h</option>' for horizon in horizons
     )
@@ -185,14 +184,14 @@ def render_explorer(data: Mapping[str, Any]) -> str:
         f'<p id="history-count" aria-live="polite">{len(forecasts)} of {len(forecasts)} forecasts</p>'
         '<div id="history-no-matches" class="empty" hidden>No forecasts match these filters. Expand the date range or reset the horizon, maturity, and model filters.</div>'
         '<div class="table-wrap explorer-table" role="region" aria-label="Scrollable forecast history table" tabindex="0"><table id="history-table"><thead><tr>'
-        '<th scope="col">Forecast origin (UTC; expand details)</th><th scope="col">Horizon</th><th scope="col">Model</th><th scope="col">Maturity</th>'
-        '<th scope="col">Source BTC</th><th scope="col">Original forecast</th><th scope="col">Actual / error</th>'
+        '<th scope="col">Forecast origin (UTC; expand details)</th><th scope="col">Horizon / model / role</th>'
+        '<th scope="col">Source BTC / forecast</th><th scope="col">Maturity / actual / error</th>'
         f"</tr></thead><tbody>{body}</tbody></table></div>"
         "<noscript><p>Filters require JavaScript; the complete generated forecast table above remains available.</p></noscript>"
         "</section>"
         '<script>(()=>{const $=id=>document.getElementById(id),table=$("history-table"),rows=[...table.tBodies[0].rows],days=$("history-days"),horizon=$("history-horizon"),status=$("history-status"),model=$("history-model"),count=$("history-count"),empty=$("history-no-matches"),params=new URLSearchParams(location.search);'
         'const filters=[["days",days,"all"],["horizon",horizon,""],["status",status,""],["model",model,""]];'
         "for(const [key,el] of filters){const value=params.get(key);if(value&&[...el.options].some(option=>option.value===value))el.value=value;}"
-        'const apply=(write=true)=>{const now=Date.now(),cutoff=days.value==="all"?0:now-Number(days.value)*864e5;let visible=0;for(const row of rows){const date=Date.parse(row.dataset.origin),ok=(!cutoff||date>=cutoff)&&(!horizon.value||row.dataset.horizon===horizon.value)&&(!status.value||row.dataset.status===status.value)&&(!model.value||row.dataset.model===model.value);row.hidden=!ok;if(ok)visible++;}count.textContent=visible+" of "+rows.length+" forecasts";empty.hidden=visible>0;if(write){const next=new URLSearchParams;for(const [key,el,defaultValue] of filters)if(el.value!==defaultValue)next.set(key,el.value);history.pushState(void 0,"",location.pathname+(next.size?"?"+next:"" )+location.hash);}};'
+        'const apply=(write=true)=>{const now=Date.now(),cutoff=days.value==="all"?0:now-Number(days.value)*864e5;let visible=0;for(const row of rows){const date=Date.parse(row.cells[0].querySelector("summary").textContent),fields=row.cells[1].textContent.split(" · "),ok=(!cutoff||date>=cutoff)&&(!horizon.value||fields[0].trim()==="+"+horizon.value+"h")&&(!status.value||row.cells[3].textContent.trim().toLowerCase().startsWith(status.value))&&(!model.value||fields[1].trim()===model.value);row.hidden=!ok;if(ok)visible++;}count.textContent=visible+" of "+rows.length+" forecasts";empty.hidden=visible>0;if(write){const next=new URLSearchParams;for(const [key,el,defaultValue] of filters)if(el.value!==defaultValue)next.set(key,el.value);history.pushState(void 0,"",location.pathname+(next.size?"?"+next:"" )+location.hash);}};'
         'for(const [,el] of filters)el.addEventListener("change",()=>apply());window.addEventListener("popstate",()=>{const current=new URLSearchParams(location.search);for(const [key,el,defaultValue] of filters)el.value=current.get(key)||defaultValue;apply(false);});apply(false);})();</script>'
     )

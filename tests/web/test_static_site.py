@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import unittest
+import json
 from datetime import datetime, timezone
 
 from btc_timesfm.web.historical_explorer import build_explorer_data, render_explorer
 from btc_timesfm.web.static_site import (
+    MAX_SITE_BYTES,
     _render_latest,
     _render_accuracy,
     _render_explorer,
@@ -455,12 +457,59 @@ class StaticSiteTests(unittest.TestCase):
         page = render_explorer(history)
 
         self.assertEqual(len(history["forecasts"]), 600)
-        self.assertEqual(page.count('data-origin="'), 600)
+        self.assertEqual(page.count('class="history-detail"'), 600)
         self.assertLess(len(page.encode("utf-8")), 5 * 1024 * 1024)
         self.assertIn("All available history", page)
         self.assertIn("Matured", page)
         self.assertIn("Pending", page)
         self.assertIn("All models", page)
+
+    def test_production_sized_history_and_json_stay_under_site_budget(self) -> None:
+        rows = [
+            self._row(
+                origin=f"2026-09-{(index % 28) + 1:02d}T{index % 24:02d}:00:00+00:00",
+                horizon=(2, 4, 8, 16)[index % 4],
+                predicted=101.0 + index,
+                change=1.0,
+                actual=101.5 if index % 2 else None,
+                error=0.49 if index % 2 else None,
+                direction=1 if index % 2 else None,
+                model=("ensemble", "persistence", "timesfm_168h", "ar1")[index % 4],
+            )
+            for index in range(3500)
+        ]
+        now = datetime(2026, 9, 29, tzinfo=timezone.utc)
+        history = build_explorer_data(rows, now=now)
+        empty_window = {"by_horizon": {}, "by_regime": {}, "by_volatility_bucket": {}}
+        data: dict[str, object] = {
+            "generated_at": now.isoformat(),
+            "latest": None,
+            "latest_age_hours": None,
+            "accuracy": {window: {} for window in ("7d", "30d", "90d", "all")},
+            "horizons": [],
+            "low_sample_threshold": 5,
+            "chart_rows": [],
+            "persistence_edge": {
+                "low_sample_threshold": 5,
+                "windows": {window: empty_window for window in ("7d", "30d", "90d", "all")},
+            },
+            "explorer": {"horizons": [], "rows": []},
+            "historical_explorer": history,
+            "recent": [],
+            "matured_rows": 0,
+            "database_verification": {
+                "integrity": "ok",
+                "schema_version": 1,
+                "foreign_key_violations": 0,
+            },
+        }
+        page = render_html(data)
+        json_payload = json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n"
+
+        self.assertEqual(len(history["forecasts"]), 3500)
+        self.assertLess(
+            len(page.encode("utf-8")) + len(json_payload.encode("utf-8")), MAX_SITE_BYTES
+        )
 
     def test_render_html_contains_predictions_accuracy_and_ledger(self) -> None:
         rows = [
@@ -498,14 +547,14 @@ class StaticSiteTests(unittest.TestCase):
         self.assertNotIn('id="explorer-table"', page)
         self.assertIn("Forecast History Explorer", page)
         self.assertIn('id="history-horizon"', page)
-        self.assertIn("Uncertainty interval", page)
+        self.assertIn("q10–q90", page)
         self.assertIn("history-detail", page)
         self.assertEqual(page.count('id="explorer"'), 1)
         self.assertIn("history.replaceState", page)
         self.assertIn("location.search", page)
         self.assertIn("No X/Twitter dependency", page)
         self.assertIn("Pending", page)
-        self.assertIn("row.dataset.model", page)
+        self.assertIn('fields=row.cells[1].textContent.split(" · ")', page)
 
 
 if __name__ == "__main__":
