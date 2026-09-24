@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import math
 from collections import defaultdict
+from datetime import datetime
 from typing import Any, Iterable
 
 CHART_WIDTH = 760
@@ -106,18 +107,45 @@ def _fan_chart(horizon: str, rows: list[dict[str, Any]]) -> str:
         for (row, *_), x, y in zip(usable, xs, actual_y)
     )
     minimum, maximum = min(values), max(values)
+    date_indexes = sorted({0, len(usable) // 2, len(usable) - 1})
+    date_labels = []
+    for index in date_indexes:
+        raw = usable[index][0].get("origin_at")
+        try:
+            label = datetime.fromisoformat(str(raw).replace("Z", "+00:00")).strftime("%b %d")
+        except ValueError:
+            label = "Date unknown"
+        date_labels.append(
+            f'<text x="{xs[index]:.2f}" y="244" text-anchor="middle" class="chart-label">{_escape(label)}</text>'
+        )
+    point_details = "".join(
+        f'<tr><th scope="row">{_escape(row.get("origin_at") or "Date unknown")} · {horizon}</th>'
+        f'<td>${q50:,.2f}</td><td>${q10:,.2f}–${q90:,.2f}</td><td>${actual:,.2f}</td></tr>'
+        for row, q10, q50, q90, actual in usable
+    )
     body = (
         f'<line x1="36" y1="224" x2="740" y2="224" class="chart-grid"/>'
+        f'<line x1="36" y1="28" x2="36" y2="224" class="chart-grid"/>'
+        f'<text x="40" y="18" class="chart-label">USD price</text>'
         f'<text x="4" y="32" class="chart-label">${maximum:,.0f}</text>'
         f'<text x="4" y="228" class="chart-label">${minimum:,.0f}</text>'
         f'<polygon points="{band}" class="fan-band"/>'
         f'<polyline points="{_points(xs, q50_y)}" class="fan-median"/>'
         f'<polyline points="{_points(xs, actual_y)}" class="fan-actual"/>{actual}'
-        '<text x="38" y="250" class="chart-label">q10–q90 band · q50 line · actual dots colored by regime</text>'
+        + "".join(date_labels)
+        + '<text x="38" y="258" class="chart-label">q10–q90 interval · q50 median · actual outcomes</text>'
+    )
+    accessible_points = (
+        '<div class="table-wrap"><table><caption>Exact sampled forecast points: origin date, horizon, median, q10–q90 interval, and matured actual USD</caption>'
+        '<thead><tr><th scope="col">Origin · horizon</th><th scope="col">Median forecast</th><th scope="col">q10–q90 interval</th><th scope="col">Matured actual</th></tr></thead>'
+        f"<tbody>{point_details}</tbody></table></div>"
     )
     return _svg(
-        title, f"{len(usable)} matured {horizon} forecasts. Shaded band is q10 to q90.", body
-    )
+        title,
+        f"Each point is a matured forecast issued at the labeled origin date for the {horizon} horizon, not a continuous price path. The band is the q10 to q90 prediction interval, the line is q50 median, and actuals are realized target prices in USD. The interval is not a guaranteed range.",
+        body,
+        height=270,
+    ) + accessible_points
 
 
 def _rolling(
@@ -188,7 +216,15 @@ def _performance_chart(
             body.append(
                 f'<polyline points="{_points([x for x, _ in points], [y for _, y in points])}" fill="none" stroke="{color}" stroke-width="2"/>'
             )
-        body.append(f'<text x="4" y="{top + 16}" class="chart-label">{label}</text>')
+        finite_text = (
+            f"{min(finite):.2f}–{max(finite):.2f}" if finite else "no values"
+        )
+        units = "%" if label in ("MAE %", "Direction %") else "pp" if "pp" in label else "% coverage"
+        body.append(f'<text x="4" y="{top + 12}" class="chart-label">{label} ({units}) · {finite_text}</text>')
+        current_n = counts[-1] if counts else 0
+        body.append(
+            f'<text x="4" y="{bottom + 10}" class="chart-muted">12-origin rolling window · current n={current_n} · low sample &lt;{threshold}</text>'
+        )
         low_x = [x for x, count in zip(xs, counts) if count < threshold]
         if low_x:
             width = max(4.0, low_x[-1] - low_x[0] + 4.0)
@@ -204,7 +240,7 @@ def _performance_chart(
     )
     return _svg(
         title,
-        f"Rolling MAE, direction accuracy, 80% coverage, and skill versus persistence for {horizon}.",
+        f"Four independent panels for rolling MAE percent, direction accuracy percent, 80% interval coverage percent, and skill versus persistence in percentage points for {horizon}. Each uses its own vertical scale, a 12-origin rolling window, and current sample count; low sample is fewer than {threshold}.",
         "".join(body),
     )
 
