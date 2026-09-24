@@ -62,8 +62,8 @@ class UiRegressionTests(unittest.TestCase):
             self.assertIn(panel_id, panels)
             self.assertEqual(panels[panel_id]["aria-labelledby"], control["id"])
         self.assertNotIn("hidden", panels["tab-overview"])
-        self.assertIn("hidden", panels["tab-explorer"])
-        self.assertIn("hidden", panels["tab-metrics"])
+        self.assertNotIn("hidden", panels["tab-explorer"])
+        self.assertNotIn("hidden", panels["tab-metrics"])
 
     def test_model_metrics_sections_are_sub_tabs(self) -> None:
         parser = _DashboardParser()
@@ -93,8 +93,10 @@ class UiRegressionTests(unittest.TestCase):
             self.assertIn(panel_id, panels)
             self.assertEqual(panels[panel_id]["aria-labelledby"], control["id"])
         self.assertNotIn("hidden", panels["metrics-accuracy"])
-        self.assertIn("hidden", panels["metrics-charts"])
-        self.assertIn("hidden", panels["metrics-edge"])
+        self.assertNotIn("hidden", panels["metrics-charts"])
+        self.assertNotIn("hidden", panels["metrics-edge"])
+        self.assertIn("panel.hidden=panel.id!==id", self._page())
+        self.assertIn("<noscript><style>.tabs,.metric-tabs", self._page())
 
     def test_explorer_script_handles_search_input_and_metadata(self) -> None:
         script = _explorer_script()

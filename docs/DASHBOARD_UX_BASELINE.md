@@ -20,27 +20,28 @@ viewport, and observed result alongside any failure.
 
 | Job | Entry point / expected result | 1440x900 | 768x1024 | 375x812 |
 | --- | --- | --- | --- | --- |
-| Read latest forecast | Overview shows a latest forecast or an explicit unavailable state | Not browser-verified | Not browser-verified | Not browser-verified |
-| Interpret forecast horizons | Overview horizon cards identify their horizon | Not browser-verified | Not browser-verified | Not browser-verified |
-| Inspect forecast intervals | Model Metrics → quantile fans & performance trends | Not browser-verified | Not browser-verified | Not browser-verified |
-| Find matured accuracy | Model Metrics → Accuracy; distinguish sample windows | Not browser-verified | Not browser-verified | Not browser-verified |
-| Filter/reopen a past forecast | Forecast Explorer filters and shareable URL state | Not browser-verified | Not browser-verified | Not browser-verified |
-| Identify stale/missing data | Overview age state and separate generated-at footer | Not browser-verified | Not browser-verified | Not browser-verified |
+| Read latest forecast | Overview shows a latest forecast or an explicit unavailable state | Chromium smoke passed | Chromium smoke passed | Chromium smoke passed |
+| Interpret forecast horizons | Overview horizon cards identify their horizon | Chromium smoke passed | Chromium smoke passed | Chromium smoke passed |
+| Inspect forecast intervals | Model Metrics → quantile fans & performance trends | Chromium smoke passed | Chromium smoke passed | Chromium smoke passed |
+| Find matured accuracy | Model Metrics → Accuracy; distinguish sample windows | Chromium smoke passed | Chromium smoke passed | Chromium smoke passed |
+| Filter/reopen a past forecast | Forecast History filters and shareable URL state | Chromium smoke passed | Chromium smoke passed | Chromium smoke passed |
+| Identify stale/missing data | Overview age state and separate generated-at footer | Chromium smoke passed | Chromium smoke passed | Chromium smoke passed |
 
-The source-level baseline verifies connected tab controls/panels, initial
-hidden states, explorer input handling, and responsive SVG declarations in
-`tests/web/test_ui_regression.py`. These checks do not verify rendered geometry,
-focus behavior, or touch usability.
+The source-level baseline verifies connected tab controls/panels, static
+no-JavaScript content, explorer input handling, and responsive SVG declarations
+in `tests/web/test_ui_regression.py`. Browser-level tests additionally verify
+rendered geometry, focus behavior, and touch usability.
 
 ## Known limits / follow-up observations
 
-- Forecast Explorer tables intentionally use an overflow wrapper and a wide
-  minimum table width; page-level horizontal overflow must be distinguished
-  from that local table scrolling in browser checks.
-- There is no browser automation dependency or browser-level test in this
-  repository at this baseline. The static HTML has JavaScript-enhanced tabs
-  and filters, with generated server-side content as the no-JavaScript
-  fallback.
+- Forecast History tables use a focusable, labeled overflow region. Browser
+  checks confirm local table scrolling does not create page-level overflow.
+- Playwright Chromium tests are part of the regular Python unit-test workflow.
+  They cover 375x812, 720x900 (200%-zoom equivalent), 768x1024 and 1440x900,
+  keyboard/touch filters, URL reload/back state, no-JavaScript content, chart
+  alternatives, accessible names, table headers, and foreground/graphic
+  contrast tokens in both themes. Screenshots for history at each target
+  viewport/theme are uploaded by CI as `dashboard-browser-screenshots`.
 - Latest forecast age and page generation time are separate data; this
   walkthrough must not interpret page generation as market-data freshness.
 - Empty and no-matches states need fixture-specific inspection. A missing
@@ -58,14 +59,34 @@ this baseline does not justify a design-system layer.
 
 ## Browser/keyboard regression checklist
 
-- [ ] At each listed viewport, page document has no horizontal overflow;
-      table-local overflow is labeled and reachable.
-- [ ] Dashboard tabs open by pointer and keyboard; arrow/Home/End moves focus
+- [x] At each listed viewport, page document has no horizontal overflow;
+      table-local overflow is labeled, focusable and reachable.
+- [x] Dashboard tabs open by pointer and keyboard; arrow/Home/End moves focus
       and selection, and URL hashes reopen the intended section.
-- [ ] Explorer controls can be reached, named, edited, and reset using only a
+- [x] Explorer controls can be reached, named, edited, and reset using only a
       keyboard; filtered counts/no-results copy remains visible.
-- [ ] Focus remains visible and never lands inside a hidden tab panel.
-- [ ] The six jobs above remain possible in both themes, including with no-JS
+- [x] Focus remains visible and never lands inside a hidden tab panel.
+- [x] The six jobs above remain possible in both themes, including with no-JS
       content available.
-- [ ] Repeat with empty latest/history/matured fixtures and record exact
-      browser, viewport, and screenshot references.
+- [x] Empty latest/history/matured fixtures are covered by a real-browser test.
+- [ ] Manual VoiceOver/NVDA narration and 200% operating-system zoom review:
+      not performed in this automated environment. The Chromium browser test
+      checks the accessibility tree-facing names/semantics and 720 CSS-pixel
+      reflow equivalent; a human screen-reader session is still recommended.
+
+## Verification record
+
+- Browser: Playwright 1.63.0, bundled Chromium 153.0.8010.12 (local run).
+- Automated suite: `tests/web/test_browser_accessibility.py`; also run by the
+  required CI unit-test workflow after installing Chromium.
+- Viewports: 375x812, 720x900 (200%-zoom equivalent), 768x1024, 1440x900.
+- Screenshots: light and dark theme captures at each target viewport are
+  emitted by the test suite and retained in the CI artifact for seven days.
+- Input modes: keyboard and emulated touch; URL filter reload/back/forward;
+  JavaScript-disabled full-data fallback.
+- Contrast equivalent: WCAG luminance checks enforce 4.5:1 for text tokens and
+  3:1 for meaningful chart strokes/markers in light and dark themes; semantic
+  checks cover named controls, SVG title/description, scoped table headers and
+  tab/panel references.
+- Manual assistive technology: VoiceOver/NVDA was not exercised; this is
+  explicitly recorded rather than reported as passed.

@@ -23,12 +23,13 @@ class ChartTests(unittest.TestCase):
         row.update(changes)
         return row
 
-    def test_renders_fan_and_performance_with_regime_color(self) -> None:
+    def test_renders_fan_and_performance_with_semantics(self) -> None:
         html, summary = render_charts([self._row()], ["2h"], 5)
 
         self.assertIn("quantile fan chart", html)
         self.assertIn("rolling performance", html)
-        self.assertIn("#7c9cff", html)
+        self.assertIn('class="chart-actual"', html)
+        self.assertIn("Realized actual; regime trending", html)
         self.assertIn("Chart data summary", html)
         self.assertIn("chart-low-shading", html)
         self.assertIn('<svg class="chart" width="760" height="270"', html)

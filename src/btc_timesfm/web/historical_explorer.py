@@ -181,11 +181,12 @@ def render_explorer(data: Mapping[str, Any]) -> str:
         f'<label>Horizon <select id="history-horizon"><option value="">All horizons</option>{horizon_options}</select></label>'
         '<label>Maturity <select id="history-status"><option value="">All outcomes</option><option value="matured">Matured</option><option value="pending">Pending</option></select></label>'
         f'<label>Model <select id="history-model"><option value="">All models</option>{model_options}</select></label>'
-        f'</div><p id="history-count" aria-live="polite">{len(forecasts)} of {len(forecasts)} forecasts</p>'
+        f'</div><p class="sub">Filters need JavaScript; with scripts off, the full generated forecast table remains available below.</p>'
+        f'<p id="history-count" aria-live="polite">{len(forecasts)} of {len(forecasts)} forecasts</p>'
         '<div id="history-no-matches" class="empty" hidden>No forecasts match these filters. Expand the date range or reset the horizon, maturity, and model filters.</div>'
-        '<div class="table-wrap explorer-table"><table id="history-table"><thead><tr>'
-        "<th>Forecast origin (UTC; expand details)</th><th>Horizon</th><th>Model</th><th>Maturity</th>"
-        "<th>Source BTC</th><th>Original forecast</th><th>Actual / error</th>"
+        '<div class="table-wrap explorer-table" role="region" aria-label="Scrollable forecast history table" tabindex="0"><table id="history-table"><thead><tr>'
+        '<th scope="col">Forecast origin (UTC; expand details)</th><th scope="col">Horizon</th><th scope="col">Model</th><th scope="col">Maturity</th>'
+        '<th scope="col">Source BTC</th><th scope="col">Original forecast</th><th scope="col">Actual / error</th>'
         f"</tr></thead><tbody>{body}</tbody></table></div>"
         "<noscript><p>Filters require JavaScript; the complete generated forecast table above remains available.</p></noscript>"
         "</section>"
