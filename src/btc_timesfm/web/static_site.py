@@ -374,8 +374,8 @@ def _render_latest(data: dict[str, Any]) -> str:
         interval = ""
         if item.get("q10_usd") is not None and item.get("q90_usd") is not None:
             interval = (
-                f'<div class="sub">80% interval {_money(item["q10_usd"])} – '
-                f"{_money(item['q90_usd'])}</div>"
+                f'<div class="sub">q10–q90 prediction interval {_money(item["q10_usd"])} – '
+                f"{_money(item['q90_usd'])} (not a probability of gain)</div>"
             )
         prob = item.get("direction_probability")
         thresholds = item.get("thresholds")
@@ -451,11 +451,19 @@ def _render_accuracy(data: dict[str, Any]) -> str:
         for horizon in data["horizons"]:
             metrics = horizons.get(horizon, {})
             warning = metrics.get("confidence_warning")
+            samples = int(metrics.get("samples") or 0)
+            sample_note = (
+                '<span class="sub">Insufficient history</span>'
+                if samples == 0
+                else '<span class="sub">Low sample</span>'
+                if warning
+                else ""
+            )
             rows.append(
                 f"""
                 <tr class="{"low-sample" if warning else ""}">
                   <td><strong>{html.escape(horizon)}</strong></td>
-                  <td>{int(metrics.get("samples") or 0)}</td>
+                  <td>{samples} {sample_note}</td>
                   <td>{_pct(metrics.get("mae_pct"))}</td>
                   <td>{_ratio_pct(metrics.get("direction_accuracy"))}</td>
                   <td>{_ratio_pct(metrics.get("q10_q90_coverage"))}</td>
@@ -468,7 +476,7 @@ def _render_accuracy(data: dict[str, Any]) -> str:
               <summary>{labels[window]}</summary>
               <div class="table-wrap">
                 <table>
-                  <thead><tr><th>Horizon</th><th>Samples</th><th>MAE</th><th>Direction</th><th>80% coverage</th></tr></thead>
+                  <thead><tr><th>Horizon</th><th>Sample count (n)</th><th>MAE %</th><th>Direction accuracy</th><th>q10–q90 coverage</th></tr></thead>
                   <tbody>{"".join(rows)}</tbody>
                 </table>
               </div>
@@ -793,7 +801,7 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
 <div id="metrics-accuracy" class="metric-content" role="tabpanel" aria-labelledby="metrics-accuracy-button" tabindex="0">
   <section id="accuracy" aria-labelledby="accuracy-heading">
     <h2 id="accuracy-heading">Accuracy</h2>
-    <p>MAE is mean absolute percentage error. Direction is the share of forecasts that got the BTC move direction right. 80% coverage shows how often the actual price landed inside the q10–q90 interval.</p>
+   <p>MAE is the mean absolute percentage price error (lower is better). Direction accuracy is the fraction of matured forecasts that got the move direction right. q10–q90 coverage is the share of matured actual prices within the prediction interval; it is not the chance of a profitable move. Each table identifies evaluation window, forecast horizon and sample count. A prediction interval describes model uncertainty, not a guaranteed range or probability of gain. Metrics summarize historical outcomes and may not predict future performance.</p>
     {accuracy_tables}
   </section>
 </div>
