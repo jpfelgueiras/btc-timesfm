@@ -104,6 +104,24 @@ class UiRegressionTests(unittest.TestCase):
         self.assertIn("r.dataset.status", script)
         self.assertIn('el.addEventListener("input",apply)', script)
 
+    def test_dashboard_tabs_support_keyboard_and_shareable_hashes(self) -> None:
+        page = self._page()
+
+        self.assertIn("ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1", page)
+        self.assertIn("event.key==='Home'?0:event.key==='End'?tabs.length-1", page)
+        self.assertIn("'#explorer':'tab-explorer'", page)
+        self.assertIn("'#accuracy':'tab-metrics'", page)
+        self.assertIn("'#charts':'tab-metrics'", page)
+        self.assertIn("'#edge':'tab-metrics'", page)
+
+    def test_shared_theme_tokens_are_page_wide(self) -> None:
+        page = self._page()
+
+        self.assertIn(":root { color-scheme: dark; --bg:", page)
+        self.assertIn('[data-theme="light"] { --bg:', page)
+        self.assertIn("var(--panel)", page)
+        self.assertIn("var(--line)", page)
+
     def test_charts_are_responsive_svg_images(self) -> None:
         charts, _ = render_charts([], ["2h"], 5)
 
