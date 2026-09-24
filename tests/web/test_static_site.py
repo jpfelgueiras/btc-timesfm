@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from btc_timesfm.web.historical_explorer import build_explorer_data, render_explorer
 from btc_timesfm.web.static_site import (
     _render_latest,
+    _render_accuracy,
     _render_explorer,
     _render_recent,
     _utc_label,
@@ -18,6 +19,75 @@ from btc_timesfm.web.static_site import (
 
 
 class StaticSiteTests(unittest.TestCase):
+    def test_uncertainty_and_performance_copy_is_qualified(self) -> None:
+        latest_html = _render_latest(
+            {
+                "latest": {
+                    "source_price_usd": 64000,
+                    "origin_at": "2026-09-07T12:00:00Z",
+                    "predictions": [
+                        {
+                            "horizon_hours": 4,
+                            "target_at": "2026-09-07T16:00:00Z",
+                            "predicted_price_usd": 64640,
+                            "predicted_change_pct": 1.0,
+                            "q10_usd": 63000,
+                            "q90_usd": 66000,
+                        }
+                    ],
+                },
+                "latest_age_hours": 2.0,
+            }
+        )
+        self.assertIn("q10–q90 prediction interval", latest_html)
+        self.assertIn("not a probability of gain", latest_html)
+        self.assertNotIn("confidence score", latest_html.lower())
+
+        absent = _render_latest(
+            {
+                "latest": {
+                    "source_price_usd": 64000,
+                    "origin_at": "2026-09-07T12:00:00Z",
+                    "predictions": [
+                        {
+                            "horizon_hours": 4,
+                            "target_at": "2026-09-07T16:00:00Z",
+                            "predicted_price_usd": 64640,
+                            "predicted_change_pct": 1.0,
+                            "q10_usd": None,
+                            "q90_usd": None,
+                        }
+                    ],
+                },
+                "latest_age_hours": 2.0,
+            }
+        )
+        self.assertNotIn("prediction interval", absent)
+        self.assertNotIn("P(up)", absent)
+
+    def test_accuracy_copy_exposes_window_horizon_n_and_low_sample(self) -> None:
+        rendered = _render_accuracy(
+            {
+                "accuracy": {
+                    "7d": {
+                        "4h": {
+                            "samples": 2,
+                            "mae_pct": 1.2,
+                            "direction_accuracy": 0.5,
+                            "q10_q90_coverage": 0.5,
+                            "confidence_warning": "low_sample",
+                        }
+                    }
+                },
+                "horizons": ["4h"],
+            }
+        )
+        self.assertIn("7 days", rendered)
+        self.assertIn("4h", rendered)
+        self.assertIn("Sample count (n)", rendered)
+        self.assertIn('2 <span class="sub">Low sample</span>', rendered)
+        self.assertIn("q10–q90 coverage", rendered)
+
     def test_latest_summary_names_values_and_distinguishes_unknown_age(self) -> None:
         latest = {
             "source_price_usd": 64000,
