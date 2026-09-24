@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from btc_timesfm.web.historical_explorer import build_explorer_data, render_explorer
 from btc_timesfm.web.static_site import (
     _render_latest,
+    _render_explorer,
+    _render_recent,
     _utc_label,
     build_site_data,
     explorer_query,
@@ -57,10 +59,48 @@ class StaticSiteTests(unittest.TestCase):
         }
         self.assertIn("Forecast recent", _render_latest({**base, "latest_age_hours": 4.0}))
         self.assertIn("Forecast stale", _render_latest({**base, "latest_age_hours": 4.01}))
-        missing = _render_latest({"latest": None})
-        self.assertIn("No latest forecast is available", missing)
+        missing = _render_latest({"latest": None, "explorer": {"rows": []}})
+        self.assertIn("No forecast history is available", missing)
         self.assertEqual(_utc_label(None), "Unknown (UTC)")
         self.assertEqual(_utc_label("2026-09-07T12:00:00Z"), "2026-09-07 12:00 UTC")
+
+    def test_empty_dashboard_states_are_distinct_and_recoverable(self) -> None:
+        no_history = _render_latest({"latest": None, "explorer": {"rows": []}})
+        latest_missing = _render_latest(
+            {"latest": None, "explorer": {"rows": [{"origin_at": "old"}]}}
+        )
+        explorer_empty = _render_explorer({"explorer": {"rows": [], "horizons": []}})
+        explorer_with_history = _render_explorer(
+            {
+                "explorer": {
+                    "horizons": [2],
+                    "rows": [
+                        {
+                            "origin_at": "2026-09-07T12:00:00Z",
+                            "horizon_hours": 2,
+                            "target_at": "2026-09-07T14:00:00Z",
+                            "status": "pending",
+                            "regime": "range",
+                            "source_price_usd": 64000,
+                            "predicted_price_usd": 64500,
+                            "predicted_change_pct": 0.78,
+                            "q10_usd": 63000,
+                            "q90_usd": 66000,
+                            "actual_target_price_usd": None,
+                            "actual_change_pct": None,
+                            "absolute_error_pct": None,
+                            "direction_correct": None,
+                        }
+                    ],
+                }
+            }
+        )
+
+        self.assertIn("No forecast history is available yet", no_history)
+        self.assertIn("Forecast history exists, but no latest prediction", latest_missing)
+        self.assertIn("No forecast records are available in this static snapshot", explorer_empty)
+        self.assertIn("No forecasts match these filters", explorer_with_history)
+        self.assertIn("No recent forecast rows are available", _render_recent({"recent": []}))
 
     def _row(
         self,

@@ -58,6 +58,13 @@ class ChartTests(unittest.TestCase):
         self.assertNotIn("nan", html.lower())
         self.assertNotIn("inf", html.lower())
         self.assertIn("No matured forecasts with q10", html)
+        self.assertIn("Check back after outcomes mature", html)
+
+    def test_empty_performance_explains_pending_outcomes(self) -> None:
+        html, _ = render_charts([], ["2h"], 5)
+
+        self.assertIn("No matured outcomes are available for this horizon yet", html)
+        self.assertIn("Check back after target candles arrive", html)
 
     def test_escapes_untrusted_regime_text(self) -> None:
         html, _ = render_charts([self._row(regime="<script>alert(1)</script>")], ["2h"], 1)

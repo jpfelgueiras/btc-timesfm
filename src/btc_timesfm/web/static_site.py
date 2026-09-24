@@ -356,7 +356,10 @@ def _status_label(row: dict[str, Any]) -> tuple[str, str]:
 def _render_latest(data: dict[str, Any]) -> str:
     latest = data.get("latest")
     if not isinstance(latest, dict):
-        return '<div class="empty"><strong>No latest forecast is available.</strong><div>There is no forecast history to summarize yet. Check back after a forecast has been published.</div></div>'
+        has_history = bool(data.get("explorer", {}).get("rows"))
+        if has_history:
+            return '<div class="empty"><strong>No latest forecast is available.</strong><div>Forecast history exists, but no latest prediction is available to summarize. Open Forecast Explorer to inspect recorded forecasts.</div></div>'
+        return '<div class="empty"><strong>No forecast history is available yet.</strong><div>No forecast records were included in this static page. Check back after a forecast history snapshot is published.</div></div>'
 
     cards: list[str] = []
     for item in latest.get("predictions", []):
@@ -544,6 +547,8 @@ def _render_persistence_edge(data: dict[str, Any]) -> str:
 
 
 def _render_recent(data: dict[str, Any]) -> str:
+    if not data.get("recent"):
+        return '<div class="empty">No recent forecast rows are available in this snapshot. Open Forecast Explorer to inspect any retained history.</div>'
     rows: list[str] = []
     for item in data["recent"]:
         label, css = _status_label(item)
@@ -634,18 +639,24 @@ def _render_explorer(data: dict[str, Any]) -> str:
             f"<dt>Error / direction</dt><dd>{_pct(row['absolute_error_pct'])} / {label}</dd>"
             f"<dt>Target / regime</dt><dd>{html.escape(str(row['target_at']))} / {html.escape(str(row.get('regime') or 'unknown'))}</dd></dl></details>"
         )
+    empty_state = (
+        '<div class="empty">No forecast records are available in this static snapshot. '
+        "Refresh the published page after forecast history is generated.</div>"
+        if not rows
+        else '<div id="explorer-no-matches" class="empty" hidden>No forecasts match these filters. Change the date range or horizon, or clear the search field.</div>'
+    )
     return f"""<div class="explorer-controls" aria-label="Forecast explorer filters">
 <label>Range <select id="explorer-days"><option value="all">All time</option><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option></select></label>
 <label>Horizon <select id="explorer-horizon">{options}</select></label>
 <label>Search <input id="explorer-search" type="search" maxlength="80" placeholder="Origin, regime, status"></label>
 <label>Sort <select id="explorer-sort"><option value="origin">Newest origin</option><option value="horizon">Horizon</option><option value="error">Lowest error</option></select></label>
-</div><p id="explorer-count" aria-live="polite">{len(rows)} forecasts</p>
+</div><p id="explorer-count" aria-live="polite">{len(rows)} forecasts</p>{empty_state}
 <div class="table-wrap recent-table"><table id="explorer-table"><thead><tr><th>Origin</th><th>Horizon</th><th>Forecast</th><th>Actual</th><th>Error</th><th>Status</th></tr></thead><tbody>{"".join(table_rows)}</tbody></table></div>
 <div id="forecast-details">{"".join(details)}</div>"""
 
 
 def _explorer_script() -> str:
-    return """<script>(()=>{const $=id=>document.getElementById(id),table=$("explorer-table"),body=table?.tBodies[0],days=$("explorer-days"),horizon=$("explorer-horizon"),search=$("explorer-search"),sort=$("explorer-sort"),count=$("explorer-count");if(!body)return;const p=new URLSearchParams(location.search),valid=(el,v)=>el instanceof HTMLSelectElement&&[...el.options].some(o=>o.value===v);for(const [k,el] of [["days",days],["horizon",horizon],["q",search],["sort",sort]]){const v=p.get(k)||el.value;if(el===search||valid(el,v))el.value=v}const apply=()=>{const q=search.value.trim().toLowerCase(),d=days.value,h=horizon.value,s=sort.value,cut=d==="all"?0:Date.now()-Number(d)*864e5;let rows=[...body.rows];rows.forEach(r=>{const searchable=[r.textContent,r.dataset.regime,r.dataset.status].join(" ").toLowerCase(),ok=(!h||r.dataset.horizon===h)&&(!cut||Date.parse(r.dataset.origin)>=cut)&&(!q||searchable.includes(q));r.hidden=!ok});rows.sort((a,b)=>s==="horizon"?b.dataset.horizon-a.dataset.horizon:s==="error"?(parseFloat(a.cells[4].textContent)||Infinity)-(parseFloat(b.cells[4].textContent)||Infinity):Date.parse(b.dataset.origin)-Date.parse(a.dataset.origin)).forEach(r=>body.append(r));const state=new URLSearchParams;d!=="all"&&state.set("days",d);h&&state.set("horizon",h);q&&state.set("q",q);s!=="origin"&&state.set("sort",s);history.replaceState(void 0,"",location.pathname+(state.size?"?"+state:"")+location.hash);count.textContent=rows.filter(r=>!r.hidden).length+" forecasts"};[days,horizon,search,sort].forEach(el=>el.addEventListener("input",apply));apply();const origin=p.get("origin");if(origin){const detail=[...document.querySelectorAll(".forecast-detail")].find(d=>d.dataset.origin===origin);if(detail){detail.open=true;detail.scrollIntoView()}}})();</script>"""
+    return """<script>(()=>{const $=id=>document.getElementById(id),table=$("explorer-table"),body=table?.tBodies[0],days=$("explorer-days"),horizon=$("explorer-horizon"),search=$("explorer-search"),sort=$("explorer-sort"),count=$("explorer-count"),noMatches=$("explorer-no-matches");if(!body)return;const p=new URLSearchParams(location.search),valid=(el,v)=>el instanceof HTMLSelectElement&&[...el.options].some(o=>o.value===v);for(const [k,el] of [["days",days],["horizon",horizon],["q",search],["sort",sort]]){const v=p.get(k)||el.value;if(el===search||valid(el,v))el.value=v}const apply=()=>{const q=search.value.trim().toLowerCase(),d=days.value,h=horizon.value,s=sort.value,cut=d==="all"?0:Date.now()-Number(d)*864e5;let rows=[...body.rows];rows.forEach(r=>{const searchable=[r.textContent,r.dataset.regime,r.dataset.status].join(" ").toLowerCase(),ok=(!h||r.dataset.horizon===h)&&(!cut||Date.parse(r.dataset.origin)>=cut)&&(!q||searchable.includes(q));r.hidden=!ok});rows.sort((a,b)=>s==="horizon"?b.dataset.horizon-a.dataset.horizon:s==="error"?(parseFloat(a.cells[4].textContent)||Infinity)-(parseFloat(b.cells[4].textContent)||Infinity):Date.parse(b.dataset.origin)-Date.parse(a.dataset.origin)).forEach(r=>body.append(r));const state=new URLSearchParams;d!=="all"&&state.set("days",d);h&&state.set("horizon",h);q&&state.set("q",q);s!=="origin"&&state.set("sort",s);history.replaceState(void 0,"",location.pathname+(state.size?"?"+state:"")+location.hash);const visible=rows.filter(r=>!r.hidden).length;count.textContent=visible+" forecasts";if(noMatches)noMatches.hidden=visible>0};[days,horizon,search,sort].forEach(el=>el.addEventListener("input",apply));apply();const origin=p.get("origin");if(origin){const detail=[...document.querySelectorAll(".forecast-detail")].find(d=>d.dataset.origin===origin);if(detail){detail.open=true;detail.scrollIntoView()}}})();</script>"""
 
 
 def render_html(data: dict[str, Any]) -> str:
@@ -770,7 +781,7 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
 </section>
 <section id="about" aria-labelledby="about-heading">
   <h2 id="about-heading" class="visually-hidden">About</h2>
-      <div class="note">Experimental forecasting only — not financial advice. Historical accuracy does not guarantee future performance. Forecast age describes time since issuance, not a live quote or guaranteed market-data freshness.</div>
+      <div class="note">Experimental forecasting only — not financial advice. Historical accuracy does not guarantee future performance. Forecast age describes time since issuance, not a live quote or guaranteed market-data freshness. This static page cannot confirm live API or backend health.</div>
 </section>
 </div>
 <div id="tab-metrics" class="tab-content" role="tabpanel" aria-labelledby="tab-metrics-button" tabindex="0" hidden>
