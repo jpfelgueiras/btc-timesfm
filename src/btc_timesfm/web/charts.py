@@ -94,7 +94,9 @@ def _fan_chart(horizon: str, rows: list[dict[str, Any]]) -> str:
     title = f"{horizon} quantile fan chart"
     if not usable:
         return _empty(
-            title, "No matured forecasts with q10, q50, q90, and actual prices are available."
+            title,
+            "No matured forecasts with q10, q50, q90, and actual prices are available yet. "
+            "Check back after outcomes mature; forecasts without realized outcomes are not plotted.",
         )
     values = [value for _, q10, q50, q90, actual in usable for value in (q10, q50, q90, actual)]
     ys = _scale(values, 224, 28)
@@ -174,7 +176,10 @@ def _performance_chart(
     rows = _sample(rows)
     title = f"{horizon} rolling performance"
     if not rows:
-        return _empty(title, "No matured forecasts are available.")
+        return _empty(
+            title,
+            "No matured outcomes are available for this horizon yet. Check back after target candles arrive.",
+        )
     mae = [_number(row.get("absolute_error_pct")) for row in rows]
     direction = [
         1.0
@@ -277,7 +282,7 @@ def render_charts(
         performance = _performance_chart(horizon, history, persistence, low_sample_threshold)
         section = f'<details class="chart-panel" open><summary>{_escape(horizon)} horizon</summary>{fan}{performance}</details>'
         if len("".join(sections)) + len(section) > MAX_CHART_PAYLOAD_BYTES:
-            section = f'<details class="chart-panel"><summary>{_escape(horizon)} horizon</summary><p>Chart omitted to keep the static page within its payload budget.</p></details>'
+            section = f'<details class="chart-panel"><summary>{_escape(horizon)} horizon</summary><p>Chart omitted to keep this static page within its 5 MiB payload budget. Use the forecast history explorer for underlying records or try again after reducing retained history.</p></details>'
         sections.append(section)
         summary[horizon] = {
             "matured_samples": len(history),
