@@ -57,7 +57,10 @@ jobs:
             --fail-on error
 
       - name: Publish verified history repairs
-        if: steps.audit.outcome == 'success' && steps.restore.outputs.available == 'true'
+        if: >-
+          steps.audit.outcome == 'success' &&
+          steps.restore.outputs.available == 'true' &&
+          github.ref == 'refs/heads/main'
         id: repair_publish
         env:
           GH_TOKEN: ${{ github.token }}
