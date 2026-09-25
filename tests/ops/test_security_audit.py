@@ -14,7 +14,9 @@ class SecurityAuditTests(unittest.TestCase):
     def test_findings_are_not_written_to_stdout(self) -> None:
         secret_finding = "settings.py: possible literal secret-value"
         output = io.StringIO()
-        with patch("btc_timesfm.ops.security_audit.audit_repository", return_value=[secret_finding]):
+        with patch(
+            "btc_timesfm.ops.security_audit.audit_repository", return_value=[secret_finding]
+        ):
             with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as raised:
                 main()
 
