@@ -365,9 +365,7 @@ class ForecastService:
         ).fetchone()
         return row is not None
 
-    def _after_cursor(
-        self, where: str, params: list[Any], key: list[Any]
-    ) -> tuple[str, list[Any]]:
+    def _after_cursor(self, where: str, params: list[Any], key: list[Any]) -> tuple[str, list[Any]]:
         origin, horizon, model = key
         return (
             f"({where}) AND (o.origin_at < ? OR (o.origin_at = ? AND "

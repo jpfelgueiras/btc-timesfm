@@ -222,7 +222,9 @@ class TestForecastService(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["data"], [])
         self.assertEqual(body["freshness"]["observed_at"], "2026-09-16T12:00:00+00:00")
-        self.assertEqual(origin.call_count, 1)  # health check only; page query uses its own snapshot.
+        self.assertEqual(
+            origin.call_count, 1
+        )  # health check only; page query uses its own snapshot.
 
     def test_malformed_base64_cursor_returns_invalid_request(self) -> None:
         status, _, body = self.request("/v1/forecasts", query="cursor=A")
