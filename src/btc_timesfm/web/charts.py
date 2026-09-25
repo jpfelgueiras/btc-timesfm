@@ -13,12 +13,6 @@ CHART_HEIGHT = 260
 MAX_POINTS_PER_CHART = 80
 MAX_CHART_PAYLOAD_BYTES = 180_000
 ROLLING_WINDOW = 12
-REGIME_COLORS = {
-    "trending": "#7c9cff",
-    "range": "#b28cff",
-    "volatile": "#ff9f6e",
-    "unknown": "#8f9aaa",
-}
 
 
 def _number(value: Any) -> float | None:
@@ -104,8 +98,8 @@ def _fan_chart(horizon: str, rows: list[dict[str, Any]]) -> str:
     xs = _scale(list(range(len(usable))), 36, CHART_WIDTH - 20)
     band = _points(xs + list(reversed(xs)), q10_y + list(reversed(q90_y)))
     actual = "".join(
-        f'<circle cx="{x:.2f}" cy="{y:.2f}" r="3" fill="{REGIME_COLORS.get(str(row.get("regime", "unknown")).lower(), REGIME_COLORS["unknown"])}">'
-        f"<title>Actual; regime {_escape(row.get('regime') or 'unknown')}</title></circle>"
+        f'<circle class="chart-actual" cx="{x:.2f}" cy="{y:.2f}" r="3" fill="var(--text)">'
+        f"<title>Realized actual; regime {_escape(row.get('regime') or 'unknown')}</title></circle>"
         for (row, *_), x, y in zip(usable, xs, actual_y)
     )
     minimum, maximum = min(values), max(values)
@@ -135,10 +129,10 @@ def _fan_chart(horizon: str, rows: list[dict[str, Any]]) -> str:
         f'<polyline points="{_points(xs, q50_y)}" class="fan-median"/>'
         f'<polyline points="{_points(xs, actual_y)}" class="fan-actual"/>{actual}'
         + "".join(date_labels)
-        + '<text x="38" y="258" class="chart-label">q10–q90 interval · q50 median · actual outcomes</text>'
+        + '<text x="38" y="258" class="chart-label">q10–q90 interval · q50 median · realized actual dots</text>'
     )
     accessible_points = (
-        '<div class="table-wrap"><table><caption>Exact sampled forecast points: origin date, horizon, median, q10–q90 interval, and matured actual USD</caption>'
+        '<div class="table-wrap" role="region" aria-label="Scrollable exact forecast point values" tabindex="0"><table><caption>Exact sampled forecast points: origin date, horizon, median, q10–q90 interval, and matured actual USD</caption>'
         '<thead><tr><th scope="col">Origin · horizon</th><th scope="col">Median forecast</th><th scope="col">q10–q90 interval</th><th scope="col">Matured actual</th></tr></thead>'
         f"<tbody>{point_details}</tbody></table></div>"
     )
@@ -206,14 +200,14 @@ def _performance_chart(
         for row, error in zip(rows, mae)
     ]
     series = [
-        ("MAE %", mae, "#75a7ff"),
-        ("Direction %", direction, "#31d17c"),
-        ("80% coverage", coverage, "#f4c95d"),
-        ("Skill vs persistence pp", skill, "#d2a8ff"),
+        ("MAE %", mae, "performance-mae"),
+        ("Direction %", direction, "performance-direction"),
+        ("80% coverage", coverage, "performance-coverage"),
+        ("Skill vs persistence pp", skill, "performance-skill"),
     ]
     xs = _scale(list(range(len(rows))), 120, CHART_WIDTH - 20)
     body: list[str] = []
-    for panel, (label, values, color) in enumerate(series):
+    for panel, (label, values, color_class) in enumerate(series):
         rolling, counts = _rolling(values)
         top, bottom = 18 + panel * 56, 58 + panel * 56
         finite = [value for value in rolling if value is not None]
@@ -222,7 +216,7 @@ def _performance_chart(
             mapped = iter(scale_values)
             points = [(x, next(mapped)) for x, value in zip(xs, rolling) if value is not None]
             body.append(
-                f'<polyline points="{_points([x for x, _ in points], [y for _, y in points])}" fill="none" stroke="{color}" stroke-width="2"/>'
+                f'<polyline points="{_points([x for x, _ in points], [y for _, y in points])}" fill="none" class="{color_class}" stroke-width="2"/>'
             )
         finite_text = f"{min(finite):.2f}–{max(finite):.2f}" if finite else "no values"
         units = (
@@ -293,7 +287,7 @@ def render_charts(
         for horizon, values in summary.items()
     )
     fallback = (
-        '<div class="table-wrap"><table><caption>Chart data summary</caption><thead><tr><th>Horizon</th><th>Matured samples</th><th>Rendered points</th></tr></thead><tbody>'
+        '<div class="table-wrap" role="region" aria-label="Scrollable chart data summary" tabindex="0"><table><caption>Chart data summary</caption><thead><tr><th scope="col">Horizon</th><th scope="col">Matured samples</th><th scope="col">Rendered points</th></tr></thead><tbody>'
         + table_rows
         + "</tbody></table></div>"
     )

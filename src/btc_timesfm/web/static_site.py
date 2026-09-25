@@ -481,9 +481,9 @@ def _render_accuracy(data: dict[str, Any]) -> str:
             f"""
             <details {"open" if window == "30d" else ""}>
               <summary>{labels[window]}</summary>
-              <div class="table-wrap">
+              <div class="table-wrap" role="region" aria-label="Scrollable accuracy results" tabindex="0">
                 <table>
-                  <thead><tr><th>Horizon</th><th>Sample count (n)</th><th>MAE %</th><th>Direction accuracy</th><th>q10–q90 coverage</th><th>Forecast records</th></tr></thead>
+                  <thead><tr><th scope="col">Horizon</th><th scope="col">Sample count (n)</th><th scope="col">MAE %</th><th scope="col">Direction accuracy</th><th scope="col">q10–q90 coverage</th><th scope="col">Forecast records</th></tr></thead>
                   <tbody>{"".join(rows)}</tbody>
                 </table>
               </div>
@@ -545,9 +545,9 @@ def _render_persistence_edge(data: dict[str, Any]) -> str:
         for label, segments in sections:
             tables.append(
                 f"<h3>{html.escape(label)}</h3>"
-                '<div class="table-wrap edge-table"><table><thead><tr>'
-                "<th>Segment</th><th>Paired samples</th><th>MAE edge</th><th>95% CI</th>"
-                "<th>Result</th><th>Evidence</th></tr></thead>"
+                '<div class="table-wrap edge-table" role="region" aria-label="Scrollable persistence comparison results" tabindex="0"><table><thead><tr>'
+                '<th scope="col">Segment</th><th scope="col">Paired samples</th><th scope="col">MAE edge</th><th scope="col">95% CI</th>'
+                '<th scope="col">Result</th><th scope="col">Evidence</th></tr></thead>'
                 f"<tbody>{_render_edge_rows(segments)}</tbody></table></div>"
             )
         windows.append(
@@ -698,7 +698,7 @@ def render_html(data: dict[str, Any]) -> str:
 <title>BTC TimesFM Forecasts</title>
 <style>
 :root {{ color-scheme: dark; --bg:#0a0c10; --panel:#12161d; --line:#242b36; --muted:#8f9aaa; --text:#f3f6fa; --green:#31d17c; --red:#ff646f; --amber:#f4c95d; --blue:#75a7ff; }}
-[data-theme="light"] {{ --bg:#f8f9fb; --panel:#ffffff; --line:#dce1e8; --muted:#5a6577; --text:#1a1f27; --green:#1a9c56; --red:#cc3340; --amber:#b08a1e; --blue:#2563eb; }}
+[data-theme="light"] {{ --bg:#f8f9fb; --panel:#ffffff; --line:#dce1e8; --muted:#52606d; --text:#1a1f27; --green:#137a43; --red:#b42332; --amber:#805b00; --blue:#1e55b5; }}
 * {{ box-sizing:border-box; }}
 body {{ margin:0; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:radial-gradient(circle at top,#151b26 0,#0a0c10 40%); color:var(--text); line-height:1.5; }}
 [data-theme="light"] body {{ background:#f8f9fb; }}
@@ -741,6 +741,7 @@ a {{ color:var(--blue); }}
 details {{ background:var(--panel); border:1px solid var(--line); border-radius:14px; margin:10px 0; overflow:hidden; }}
 summary {{ padding:16px 18px; cursor:pointer; font-weight:700; }}
 .table-wrap {{ overflow:auto; border-top:1px solid var(--line); }}
+.table-wrap:focus-visible {{ outline:3px solid var(--blue); outline-offset:2px; }}
 table {{ width:100%; border-collapse:collapse; min-width:650px; }}
 th,td {{ padding:12px 14px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }}
 th:first-child,td:first-child {{ text-align:left; }}
@@ -764,11 +765,12 @@ dl {{ display:grid; grid-template-columns:max-content 1fr; gap:8px 18px; padding
 .note {{ margin-top:26px; padding:16px 18px; border-left:3px solid var(--blue); background:rgba(117,167,255,.06); color:var(--muted); }}
 footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
 .chart-panel {{ padding:0 0 14px; }} .chart {{ display:block; width:100%; height:auto; background:var(--panel); border-top:1px solid var(--line); }}
-.chart-grid {{ stroke:var(--line); }} .chart-label,.chart-muted {{ fill:var(--muted); font-size:12px; }} .fan-band {{ fill:rgba(117,167,255,.22); }} .fan-median {{ fill:none; stroke:var(--blue); stroke-width:2; }} .fan-actual {{ fill:none; stroke:var(--text); stroke-width:1.5; }} .chart-low-shading {{ fill:rgba(244,201,93,.12); }} .chart-low-sample {{ fill:var(--amber); }}
-@media (prefers-color-scheme: light) {{ :root {{ --bg:#f8fafc; --panel:#fff; --line:#d8dee8; --muted:#52606d; --text:#16202a; }} body {{ background:radial-gradient(circle at top,#e9f0fb 0,#f8fafc 40%); }} }}
+.chart-grid {{ stroke:var(--line); }} .chart-label,.chart-muted {{ fill:var(--muted); font-size:12px; }} .fan-band {{ fill:color-mix(in srgb,var(--blue) 18%,transparent); stroke:var(--blue); stroke-width:1; }} .fan-median {{ fill:none; stroke:var(--blue); stroke-width:2; }} .fan-actual {{ fill:none; stroke:var(--text); stroke-width:1.5; }} .chart-actual {{ stroke:var(--panel); stroke-width:1.5; }} .performance-mae {{ stroke:var(--blue); }} .performance-direction {{ stroke:var(--green); }} .performance-coverage {{ stroke:var(--amber); }} .performance-skill {{ stroke:#d2a8ff; }} .chart-low-shading {{ fill:color-mix(in srgb,var(--amber) 18%,transparent); }} .chart-low-sample {{ fill:var(--amber); stroke:var(--panel); stroke-width:1; }}
+[data-theme="light"] .performance-skill {{ stroke:#684394; }}
 @media (max-width:850px) {{ .prediction-grid {{ grid-template-columns:repeat(2,minmax(0,1fr)); }} header {{ align-items:flex-start; flex-direction:column; }} }}
 @media (max-width:520px) {{ main {{ width:min(100% - 20px,1180px); padding-top:24px; }} .prediction-grid {{ grid-template-columns:1fr; }} .current-strip {{ align-items:flex-start; flex-direction:column; }} }}
 </style>
+<noscript><style>.tabs,.metric-tabs{{display:none!important}}.tab-content[hidden],.metric-content[hidden]{{display:block!important}}</style></noscript>
 </head>
 <body>
 <a href="#content" class="skip-link">Skip to content</a>
@@ -799,7 +801,7 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
       <div class="note">Experimental forecasting only — not financial advice. Historical accuracy does not guarantee future performance. Forecast age describes time since issuance, not a live quote or guaranteed market-data freshness. This static page cannot confirm live API or backend health.</div>
 </section>
 </div>
-<div id="tab-metrics" class="tab-content" role="tabpanel" aria-labelledby="tab-metrics-button" tabindex="0" hidden>
+<div id="tab-metrics" class="tab-content" role="tabpanel" aria-labelledby="tab-metrics-button" tabindex="0">
 <div class="metric-tabs" role="tablist" aria-label="Model metric sections">
   <button class="metric-tab-button" type="button" role="tab" aria-selected="true" aria-controls="metrics-accuracy" id="metrics-accuracy-button">Accuracy</button>
   <button class="metric-tab-button" type="button" role="tab" aria-selected="false" aria-controls="metrics-charts" id="metrics-charts-button" tabindex="-1">Quantile fans &amp; performance trends</button>
@@ -812,21 +814,21 @@ footer {{ margin-top:44px; color:var(--muted); font-size:.8rem; }}
     {accuracy_tables}
   </section>
 </div>
-<div id="metrics-charts" class="metric-content" role="tabpanel" aria-labelledby="metrics-charts-button" tabindex="0" hidden>
+<div id="metrics-charts" class="metric-content" role="tabpanel" aria-labelledby="metrics-charts-button" tabindex="0">
   <section id="charts" aria-labelledby="charts-heading">
     <h2 id="charts-heading">Quantile fans &amp; performance trends</h2>
     <p>Server-generated charts show matured forecasts only. They include accessible text and a summary table, with no browser-side data processing.</p>
     {charts}
   </section>
 </div>
-<div id="metrics-edge" class="metric-content" role="tabpanel" aria-labelledby="metrics-edge-button" tabindex="0" hidden>
+<div id="metrics-edge" class="metric-content" role="tabpanel" aria-labelledby="metrics-edge-button" tabindex="0">
   <section id="edge" aria-labelledby="edge-heading">
     <h2 id="edge-heading">Ensemble edge vs persistence</h2>
     {_render_persistence_edge(data)}
   </section>
 </div>
 </div>
-<div id="tab-explorer" class="tab-content" role="tabpanel" aria-labelledby="tab-explorer-button" tabindex="0" hidden>
+<div id="tab-explorer" class="tab-content" role="tabpanel" aria-labelledby="tab-explorer-button" tabindex="0">
 {render_explorer(data.get("historical_explorer", {}))}
 </div>
 <footer role="contentinfo">Generated {html.escape(str(data["generated_at"]))} from {int(data["matured_rows"])} matured forecast rows.</footer>
@@ -865,7 +867,9 @@ def generate_site(
     )
     data["database_verification"] = verification
     page = render_html(data)
-    json_data = json.dumps(data, indent=2, sort_keys=True) + "\n"
+    # Keep the duplicate machine-readable export compact so the HTML ledger and
+    # its downloadable JSON together stay inside the GitHub Pages payload cap.
+    json_data = json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n"
     if len(page.encode("utf-8")) + len(json_data.encode("utf-8")) > MAX_SITE_BYTES:
         raise RuntimeError(f"site exceeds {MAX_SITE_BYTES} byte budget")
     output_dir.mkdir(parents=True, exist_ok=True)
