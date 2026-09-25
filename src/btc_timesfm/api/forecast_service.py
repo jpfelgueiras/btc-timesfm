@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import os
+import secrets
 import sqlite3
 import threading
 import time
@@ -31,6 +32,12 @@ from btc_timesfm.api.forecast_contract import (
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 100
+_FINGERPRINT_SECRET = os.getenv("BTC_FORECAST_FINGERPRINT_SECRET")
+if not _FINGERPRINT_SECRET:
+    # Rate-limit fingerprints only need to be stable for this process lifetime.
+    # Never use a source-controlled fallback for a cryptographic secret.
+    _FINGERPRINT_SECRET = secrets.token_hex(32)
+_FINGERPRINT_SECRET_BYTES = _FINGERPRINT_SECRET.encode("utf-8")
 
 
 def _now() -> datetime:
@@ -468,9 +475,9 @@ class ForecastService:
         return value or None
 
     def _key_fingerprint(self, key: str) -> str:
-        secret = os.getenv("BTC_FORECAST_FINGERPRINT_SECRET", "btc-forecast-fingerprint-secret")
-        digest = hmac.new(secret.encode("utf-8"), key.encode("utf-8"), hashlib.sha256).hexdigest()
-        return digest[:16]
+        return hashlib.blake2b(
+            key.encode("utf-8"), key=_FINGERPRINT_SECRET_BYTES, digest_size=8
+        ).hexdigest()
 
     def _error(
         self,
