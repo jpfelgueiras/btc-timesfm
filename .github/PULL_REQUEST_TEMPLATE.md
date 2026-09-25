@@ -8,7 +8,7 @@
 
 ## Changes
 
-- 
+<!-- List the substantive changes. -->
 
 ## Validation
 
