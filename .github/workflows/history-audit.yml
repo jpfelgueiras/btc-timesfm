@@ -6,10 +6,10 @@ on:
     - cron: "17 5 * * *"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: forecast-history-audit
+  group: btc-timesfm-forecast
   cancel-in-progress: false
 
 env:
@@ -48,11 +48,73 @@ jobs:
 
       - name: Audit durable history
         if: steps.restore.outputs.available == 'true'
+        id: audit
         run: |
           PYTHONPATH=src python -m btc_timesfm.history.history_audit \
             --db .state/forecast_history.sqlite \
             --report .state/history_audit.json \
+            --repair \
             --fail-on error
+
+      - name: Publish verified history repairs
+        if: steps.audit.outcome == 'success' && steps.restore.outputs.available == 'true'
+        id: repair_publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          applied="$(python3 -c 'import json; print(len(json.load(open(".state/history_audit.json"))["repairs"]["applied"]))')"
+          if [ "$applied" -eq 0 ]; then
+            echo "No repairable history drift found."
+            exit 0
+          fi
+
+          backup_db="$(python3 -c 'import json; print(json.load(open(".state/history_audit.json"))["repairs"]["backup"])')"
+          generation="$(date -u +%Y%m%dT%H%M%SZ)-${GITHUB_RUN_ID}"
+          backup_archive=".state/forecast_history.backup-${generation}.sqlite.gz"
+          PYTHONPATH=src python -m btc_timesfm.history.history_backup create \
+            --source "$backup_db" \
+            --output "$backup_archive" \
+            --max-bytes 52428800
+          PYTHONPATH=src python -m btc_timesfm.history.history_backup verify \
+            --archive "$backup_archive" \
+            --max-bytes 52428800
+
+          PYTHONPATH=src python -m btc_timesfm.history.history_store \
+            --db .state/forecast_history.sqlite export \
+            --format csv --output .state/forecast_history.csv
+          gzip -c .state/forecast_history.sqlite > .state/forecast_history.sqlite.gz
+          gzip -c .state/forecast_history.csv > .state/forecast_history.csv.gz
+
+          # Save a verified original generation before replacing the canonical DB.
+          gh release upload "$HISTORY_RELEASE_TAG" "$backup_archive" \
+            --repo "$GITHUB_REPOSITORY"
+          gh release upload "$HISTORY_RELEASE_TAG" \
+            .state/forecast_history.sqlite.gz .state/forecast_history.csv.gz \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$HISTORY_RELEASE_TAG" \
+            --jq '.assets | map({id: .id, name: .name, size: .size, created_at: .created_at})' \
+            > .state/release_assets.json
+          PYTHONPATH=src python -m btc_timesfm.history.history_backup retention-plan \
+            --assets-json .state/release_assets.json \
+            --keep 7 \
+            --max-total-bytes 262144000 \
+            > .state/backup_retention_plan.json
+          python3 - <<'PY' > .state/delete_backup_asset_ids.txt
+          import json
+
+          with open(".state/backup_retention_plan.json", encoding="utf-8") as handle:
+              plan = json.load(handle)
+          for asset in plan["delete"]:
+              print(asset["id"])
+          PY
+          while read -r asset_id; do
+            if [ -n "$asset_id" ]; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
+            fi
+          done < .state/delete_backup_asset_ids.txt
+          echo "Published $applied verified history repairs and retained $backup_archive."
 
       - name: Add audit report to job summary
         if: always() && steps.restore.outputs.available == 'true' && hashFiles('.state/history_audit.json') != ''

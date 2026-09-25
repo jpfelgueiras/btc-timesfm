@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -56,6 +57,27 @@ class DisasterRecoveryTests(unittest.TestCase):
             self.assertEqual(report["status"], "failed")
             self.assertIn("no recent forecast origin", report["failure"]["message"])
             self.assertEqual(archive.read_bytes(), original)
+
+    def test_drill_repairs_legacy_derived_values_on_scratch_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = self._archive(root, "2026-09-16T00:00:00+00:00")
+            database = root / "history.sqlite"
+            with sqlite3.connect(database) as connection:
+                connection.execute("UPDATE forecast_predictions SET predicted_change_pct = 99")
+            create_archive(database, archive)
+            original_archive = archive.read_bytes()
+
+            report = run_drill(
+                archive,
+                now=datetime(2026, 9, 16, tzinfo=timezone.utc),
+            )
+
+            self.assertEqual(report["status"], "passed")
+            self.assertFalse(report["audit_before_repair"]["healthy"])
+            self.assertTrue(report["audit"]["healthy"])
+            self.assertTrue(report["repair"]["applied"])
+            self.assertEqual(archive.read_bytes(), original_archive)
 
     def test_report_writer_persists_failure_report(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

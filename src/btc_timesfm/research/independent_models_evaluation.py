@@ -49,7 +49,7 @@ PRODUCTION_NOTE = (
     "in-sample gains; promotion requires the existing statistical-evidence and "
     "promotion-policy gates."
 )
-BINANCE_KLINES = "https://api.binance.com/api/v3/klines"
+BINANCE_KLINES = "https://data-api.binance.vision/api/v3/klines"
 
 
 def _direction(value: float, epsilon: float = 1e-9) -> int:
