@@ -10,6 +10,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 from btc_timesfm.api.forecast_contract import (
     validate_error_response,
@@ -206,6 +207,25 @@ class TestForecastService(unittest.TestCase):
             {},
         )
         status, _, body = self._request_service(service, "/v1/forecasts", query=f"cursor={forged}")
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"]["code"], "invalid_request")
+
+    def test_empty_filtered_page_uses_same_connection_for_freshness_origin(self) -> None:
+        service = ForecastService(
+            ServiceConfig(self.database, frozenset({"secret"}), self.health, self.audit),
+            clock=lambda: NOW,
+        )
+        with patch.object(service, "_history_origin", wraps=service._history_origin) as origin:
+            status, _, body = self._request_service(
+                service, "/v1/forecasts", query="model=missing-model"
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"], [])
+        self.assertEqual(body["freshness"]["observed_at"], "2026-09-16T12:00:00+00:00")
+        self.assertEqual(origin.call_count, 1)  # health check only; page query uses its own snapshot.
+
+    def test_malformed_base64_cursor_returns_invalid_request(self) -> None:
+        status, _, body = self.request("/v1/forecasts", query="cursor=A")
         self.assertEqual(status, 400)
         self.assertEqual(body["error"]["code"], "invalid_request")
 

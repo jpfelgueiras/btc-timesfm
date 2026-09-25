@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -245,6 +246,7 @@ class ForecastService:
         filters, limit, cursor, signature = self._filters(query)
         where, params = filters
         with self._connection() as connection:
+            connection.execute("BEGIN")
             if cursor:
                 if cursor["filters"] != signature:
                     raise ValueError("cursor filters differ")
@@ -253,10 +255,13 @@ class ForecastService:
                     raise ValueError("cursor not found")
                 where, params = self._after_cursor(where, params, key)
             rows = self._query_rows(connection, where, params, limit=limit + 1)
+            observed = str(rows[0]["origin_at"]) if rows else None
+            if observed is None:
+                row = connection.execute("SELECT MAX(origin_at) FROM forecast_origins").fetchone()
+                observed = str(row[0]) if row and row[0] else None
         has_more = len(rows) > limit
         page = rows[:limit]
         next_cursor = self._cursor(page[-1], signature) if has_more else None
-        observed = page[0]["origin_at"] if page else self._history_origin()
         payload = {
             "api_version": API_VERSION,
             "data": page,
@@ -469,9 +474,12 @@ class ForecastService:
 
     def _decode_cursor(self, value: str, filters: dict[str, str]) -> dict[str, Any]:
         try:
-            raw = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+            encoded = value.encode("ascii")
+            raw = base64.b64decode(
+                encoded + b"=" * (-len(encoded) % 4), altchars=b"-_", validate=True
+            )
             parsed = json.loads(raw)
-        except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        except (ValueError, UnicodeEncodeError, binascii.Error, json.JSONDecodeError):
             raise ValueError("invalid cursor") from None
         if (
             not isinstance(parsed, dict)
