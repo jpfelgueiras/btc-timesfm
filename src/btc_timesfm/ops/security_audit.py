@@ -64,9 +64,10 @@ def audit_repository() -> list[str]:
 def main() -> None:
     findings = audit_repository()
     if findings:
-        print("Security repository audit failed:")
-        for finding in findings:
-            print(f"- {finding}")
+        # Findings can be derived from repository content that may contain
+        # credentials. Keep details out of CI logs; the non-zero exit still
+        # marks the audit as failed for maintainers to investigate securely.
+        print("Security repository audit failed; details are suppressed to protect sensitive data.")
         raise SystemExit(1)
     print("Security repository audit passed: no credential literals or unsafe log patterns found.")
 
