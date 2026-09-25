@@ -77,7 +77,10 @@ def diversified_static_model_weights(
 
 def install_adaptive_prior() -> None:
     """Install the ridge-aware static prior when adaptive weighting is already loaded."""
-    adaptive_weighting = sys.modules.get("adaptive_weighting")
+    module_names = (f"{__package__}.adaptive_weighting", "adaptive_weighting")
+    adaptive_weighting = next(
+        (sys.modules[name] for name in module_names if name in sys.modules), None
+    )
     if adaptive_weighting is None:
         return
     if bool(getattr(adaptive_weighting, "_ridge_prior_installed", False)):

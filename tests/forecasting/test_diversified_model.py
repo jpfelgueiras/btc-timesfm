@@ -132,6 +132,25 @@ class DiversifiedModelTests(unittest.TestCase):
         enabled = augment_baselines(base, data, enabled=True)
         self.assertIn(MODEL_NAME, enabled)
 
+    def test_adaptive_static_prior_includes_opt_in_ridge_model(self) -> None:
+        from btc_timesfm.forecasting.adaptive_weighting import adaptive_model_weights
+
+        baselines = augment_baselines(
+            lambda _data: {
+                name: {f"{hour}h": {"price_usd": 100.0} for hour in TARGET_HOURS}
+                for name in ("persistence", "drift_7d", "ar1")
+            },
+            make_market(),
+            enabled=True,
+        )
+        names = list(baselines)
+
+        weights, diagnostics = adaptive_model_weights(names, "range", 2, [], {})
+
+        self.assertIn(MODEL_NAME, weights)
+        self.assertGreater(weights[MODEL_NAME], 0.0)
+        self.assertIn(MODEL_NAME, diagnostics["models"])
+
 
 if __name__ == "__main__":
     unittest.main()
