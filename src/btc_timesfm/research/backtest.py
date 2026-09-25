@@ -50,7 +50,9 @@ from btc_timesfm.forecasting.forecast_engine import (
 )
 
 
-BINANCE_KLINES = "https://api.binance.com/api/v3/klines"
+# Binance's market-data-only host is available in runner regions where the
+# trading API host may reject requests based on geography (HTTP 451).
+BINANCE_KLINES = "https://data-api.binance.vision/api/v3/klines"
 REPORT_PATH = Path("backtest_report.json")
 HORIZONS = ("2h", "4h", "8h", "16h")
 

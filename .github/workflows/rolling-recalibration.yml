@@ -25,6 +25,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/python-setup
+        with:
+          requirements-file: requirements-test.txt
       - name: Restore calibration input
         run: |
           mkdir -p .state
@@ -37,7 +39,7 @@ jobs:
             --report .state/rolling_recalibration_report.json \
             ${{ inputs.rollback && '--rollback' || '' }}
       - name: Add report to summary
-        if: always()
+        if: always() && hashFiles('.state/rolling_recalibration_report.json') != ''
         run: cat .state/rolling_recalibration_report.json >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()

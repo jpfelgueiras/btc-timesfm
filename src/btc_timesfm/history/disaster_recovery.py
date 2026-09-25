@@ -88,6 +88,14 @@ def run_drill(
             report["verification"] = restored_report["restored_database_verification"]
             report["row_counts"] = _row_counts(restored)
             audit = audit_database(restored, now=checked_at)
+            report["audit_before_repair"] = audit
+            if not audit["healthy"] and audit["summary"]["repairable_issues"]:
+                # Exercise the supported, backup-producing repair on the
+                # restored scratch copy only. This never changes the archive
+                # or production history and verifies that repairable legacy
+                # derived-field drift can be recovered.
+                audit = audit_database(restored, repair=True, now=checked_at)
+                report["repair"] = audit["repairs"]
             report["audit"] = audit
             latest_origin: str | None
             with sqlite3.connect(f"file:{restored.resolve()}?mode=ro", uri=True) as connection:

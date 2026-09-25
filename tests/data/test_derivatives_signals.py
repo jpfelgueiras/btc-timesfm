@@ -5,8 +5,27 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime, timezone
+from unittest.mock import patch
 
-from btc_timesfm.data.derivatives_signals import DERIVATIVE_FEATURE_NAMES, snapshot_from_rows
+from btc_timesfm._requests import requests
+from btc_timesfm.data.derivatives_signals import (
+    DERIVATIVE_FEATURE_NAMES,
+    fetch_derivatives_history,
+    snapshot_from_rows,
+)
+
+
+class _Response:
+    def __init__(self, payload, *, status_code: int = 200) -> None:
+        self.payload = payload
+        self.status_code = status_code
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"HTTP {self.status_code}")
+
+    def json(self):
+        return self.payload
 
 
 class DerivativesSignalTests(unittest.TestCase):
@@ -95,6 +114,25 @@ class DerivativesSignalTests(unittest.TestCase):
         self.assertEqual(snapshot["status"], "partial")
         self.assertNotIn("derivatives_oi_change_24h_pct", snapshot["features"])
         self.assertIn("derivatives_oi_change_24h_pct", snapshot["quality"]["missing_features"])
+
+    def test_history_falls_back_to_gate_funding_when_binance_is_blocked(self) -> None:
+        gate_funding = [{"t": self.origin_s - 8 * 3600, "r": "0.0001"}]
+        gate_stats = [{"time": self.origin_s - 3600, "open_interest_usd": "1000000"}]
+        with patch(
+            "btc_timesfm.data.derivatives_signals.requests.get",
+            side_effect=[
+                _Response({}, status_code=451),
+                _Response(gate_funding),
+                _Response(gate_stats),
+            ],
+        ):
+            history = fetch_derivatives_history(
+                datetime.fromtimestamp(self.origin_s - 24 * 3600, tz=timezone.utc),
+                self.origin,
+            )
+
+        self.assertEqual(history["funding"], gate_funding)
+        self.assertEqual(history["stats"], gate_stats)
 
 
 if __name__ == "__main__":

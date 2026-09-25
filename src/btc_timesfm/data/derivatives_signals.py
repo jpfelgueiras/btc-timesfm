@@ -4,6 +4,8 @@
 Funding comes from Binance USD-M BTCUSDT perpetual futures. Open interest and
 liquidation notionals come from Gate BTC_USDT perpetual contract statistics,
 which expose hourly historical aggregates without authentication.
+Gate's public funding history endpoint is a fallback when Binance futures APIs
+are unavailable from a runner's region.
 
 All normalization is origin-time bounded: rows newer than the forecast origin
 are ignored before features are derived. Provider failures and stale inputs are
@@ -20,6 +22,7 @@ from btc_timesfm._requests import requests
 
 BINANCE_FUNDING_URL = "https://fapi.binance.com/fapi/v1/fundingRate"
 GATE_CONTRACT_STATS_URL = "https://api.gateio.ws/api/v4/futures/usdt/contract_stats"
+GATE_FUNDING_URL = "https://api.gateio.ws/api/v4/futures/usdt/funding_rate"
 BINANCE_SYMBOL = "BTCUSDT"
 GATE_CONTRACT = "BTC_USDT"
 SIGNAL_SCHEMA_VERSION = 1
@@ -65,7 +68,7 @@ def _timestamp_seconds(row: dict[str, Any]) -> int | None:
 
 
 def _funding_timestamp_seconds(row: dict[str, Any]) -> int | None:
-    numeric = _float(row.get("fundingTime"))
+    numeric = _float(row.get("fundingTime", row.get("t")))
     if numeric is None:
         return None
     timestamp = int(numeric)
@@ -96,6 +99,24 @@ def _field(row: dict[str, Any] | None, names: tuple[str, ...]) -> float | None:
         if value is not None:
             return value
     return None
+
+
+def _fetch_gate_funding(start_s: int, end_s: int) -> list[dict[str, Any]]:
+    response = requests.get(
+        GATE_FUNDING_URL,
+        params=(
+            ("contract", GATE_CONTRACT),
+            ("from", start_s),
+            ("to", end_s),
+            ("limit", 1000),
+        ),
+        timeout=30,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, list):
+        raise ValueError("unexpected Gate funding response")
+    return [row for row in payload if isinstance(row, dict)]
 
 
 def _pct_change(current: float | None, previous: float | None) -> float | None:
@@ -130,7 +151,7 @@ def snapshot_from_rows(
 
     features: dict[str, float] = {}
     if latest_funding is not None and not funding_stale:
-        rate = _float(latest_funding.get("fundingRate"))
+        rate = _float(latest_funding.get("fundingRate", latest_funding.get("r")))
         if rate is not None:
             features["derivatives_funding_rate_pct"] = rate * 100.0
 
@@ -189,7 +210,7 @@ def snapshot_from_rows(
             "provider_errors": provider_errors,
         },
         "providers": {
-            "funding": {"name": "binance_usdm", "symbol": BINANCE_SYMBOL},
+            "funding": {"name": "binance_usdm_with_gate_fallback", "symbol": BINANCE_SYMBOL},
             "open_interest_liquidations": {"name": "gate_futures", "contract": GATE_CONTRACT},
         },
         "raw": {
@@ -230,6 +251,14 @@ def fetch_derivatives_snapshot(origin_at: datetime) -> dict[str, Any]:
     except (requests.RequestException, ValueError) as exc:
         errors["binance_funding"] = type(exc).__name__
 
+    if not funding_rows:
+        try:
+            funding_rows = _fetch_gate_funding(origin_s - 30 * 3600, origin_s)
+            if funding_rows:
+                errors.pop("binance_funding", None)
+        except (requests.RequestException, ValueError) as exc:
+            errors["gate_funding"] = type(exc).__name__
+
     try:
         response = requests.get(
             GATE_CONTRACT_STATS_URL,
@@ -268,18 +297,23 @@ def fetch_derivatives_history(
 
     start_s = int(start.timestamp())
     end_s = int(end.timestamp())
-    funding_response = requests.get(
-        BINANCE_FUNDING_URL,
-        params=(
-            ("symbol", BINANCE_SYMBOL),
-            ("startTime", start_s * 1000),
-            ("endTime", end_s * 1000),
-            ("limit", 1000),
-        ),
-        timeout=30,
-    )
-    funding_response.raise_for_status()
-    funding_payload = funding_response.json()
+    try:
+        funding_response = requests.get(
+            BINANCE_FUNDING_URL,
+            params=(
+                ("symbol", BINANCE_SYMBOL),
+                ("startTime", start_s * 1000),
+                ("endTime", end_s * 1000),
+                ("limit", 1000),
+            ),
+            timeout=30,
+        )
+        funding_response.raise_for_status()
+        funding_payload = funding_response.json()
+        if not isinstance(funding_payload, list):
+            raise ValueError("unexpected Binance funding history response")
+    except (requests.RequestException, ValueError):
+        funding_payload = _fetch_gate_funding(start_s, end_s)
 
     stats_response = requests.get(
         GATE_CONTRACT_STATS_URL,
@@ -295,7 +329,7 @@ def fetch_derivatives_history(
     stats_response.raise_for_status()
     stats_payload = stats_response.json()
 
-    if not isinstance(funding_payload, list) or not isinstance(stats_payload, list):
+    if not isinstance(stats_payload, list):
         raise RuntimeError("Unexpected derivatives history response")
     return {
         "funding": [row for row in funding_payload if isinstance(row, dict)],
