@@ -397,10 +397,15 @@ After a reviewed promotion, `rollback_safeguards.py` retains the previous champi
 
 ## Tests
 
-Run the complete unit-test suite:
+The project supports Python 3.11, 3.12, and 3.13. Dependency versions are
+locked in `uv.lock`; runtime dependencies, the platform-aware TimesFM/Torch
+model extra, tests, and security tooling are separately declared in
+`pyproject.toml`. Install the locked test environment and run the complete suite.
+The model extra is additionally required to run forecasts:
 
 ```bash
-pip install -r requirements-test.txt
+python -m pip install uv==0.12.19
+uv sync --locked --no-default-groups --group test
 PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
@@ -416,13 +421,13 @@ The durable history lives in the `forecast-history-v1` GitHub Release. `.state/p
 
 ## Run locally
 
-Python 3.11:
+Python 3.11, 3.12, or 3.13:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py' -v
+python -m pip install uv==0.12.19
+uv sync --locked --no-default-groups --extra model
 PYTHONPATH=src python -m btc_timesfm.cli.btc_forecast
 ```
 

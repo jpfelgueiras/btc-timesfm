@@ -38,7 +38,7 @@ jobs:
 
       - uses: ./.github/actions/python-setup
         with:
-          requirements-file: requirements.txt
+          dependency-set: runtime
 
       - name: Initialize forecast observability
         run: PYTHONPATH=src python -m btc_timesfm.ops.observability init --run-type production_forecast
