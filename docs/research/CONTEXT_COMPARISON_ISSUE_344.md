@@ -5,9 +5,15 @@ Run `PYTHONPATH=src python -m btc_timesfm.research.context_comparison` to write
 `context_comparison_report.json`. It performs no network requests or checkpoint
 downloads and does not modify the production configuration.
 
-The bounded context catalog is 64, 168, 336, 512, and 1024 hourly log returns.
-Each window uses one additional candle for its physical lookback (for example,
-336 returns require 337 closes). The production checkpoint remains
+The bounded proposal catalog is 64, 168, 336, 512, and 1024 hourly log returns.
+The current runtime contract establishes only 168, 336, and 512; 64 and 1024
+are reported blocked/unverified until an explicit runtime contract check
+establishes support. Each window uses one additional candle (for example, 336
+returns require 337 closes), but those lengths therefore have different
+physical lookbacks. They are policy comparisons, not same-physical-lookback
+contrasts. A controlled step-count contrast is blocked until a verified
+common-frequency setup maps multiple context lengths to the same physical
+lookback. The production checkpoint remains
 `google/timesfm-3.0-pytorch` revision
 `43046b85ec22d584a13f8098c2ed39c889e129c2`, CPU, batch size 1, 16-step
 prediction, quantiles enabled, and symmetric averaging disabled. Only the
