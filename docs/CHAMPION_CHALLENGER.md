@@ -29,7 +29,7 @@ Before the promotion policy is evaluated, `champion_challenger_intervals.py` att
 
 The final recommendation comes from `promotion_policy.py`. The champion-vs-challenger report includes the policy ID, decision, evidence, checks, production-health snapshot, and reasons. A `review` result means the candidate cleared the configured evidence and safety thresholds; it does not change production automatically.
 
-The workflow remains review-only. Issue #43 may later open a deterministic configuration PR from an approved recommendation, but production changes still require normal review and CI.
+The completed #43 automation can open a deterministic configuration PR only for a policy-approved recommendation. The PR is a review artifact: it does not merge or deploy itself, and any production change still requires normal human review and passing CI.
 
 ## Retention
 
