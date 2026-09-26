@@ -176,8 +176,13 @@ class ForecastService:
         if path == "/readyz":
             status, _, _, _ = self._health_state_response()
             reason = "OK" if status == 200 else "Service Unavailable"
-            body = "ready\n" if status == 200 else "not ready\n"
-            return self._plain(start_response, f"{status} {reason}", body, "text/plain; charset=utf-8")
+            readiness_body = "ready\n" if status == 200 else "not ready\n"
+            return self._plain(
+                start_response,
+                f"{status} {reason}",
+                readiness_body,
+                "text/plain; charset=utf-8",
+            )
         if path == "/metrics":
             return self._metrics_response(start_response)
         status, headers, payload, audit = self.handle(environ)

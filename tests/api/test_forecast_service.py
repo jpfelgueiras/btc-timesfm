@@ -146,24 +146,36 @@ class TestForecastService(unittest.TestCase):
         self.assertEqual(events[-1]["forecast_ids"], [body["data"][0]["forecast_id"]])
         self.assertNotIn("secret", self.audit.read_text(encoding="utf-8"))
 
-    def test_audit_rotation_bounds_retained_bytes_and_persistence_failure_is_fail_open(self) -> None:
+    def test_audit_rotation_bounds_retained_bytes_and_persistence_failure_is_fail_open(
+        self,
+    ) -> None:
         service = ForecastService(
             ServiceConfig(
-                self.database, frozenset({"secret"}), self.health, self.audit,
-                audit_max_bytes=150, audit_backups=2,
+                self.database,
+                frozenset({"secret"}),
+                self.health,
+                self.audit,
+                audit_max_bytes=150,
+                audit_backups=2,
             ),
             clock=lambda: NOW,
         )
         for _ in range(5):
             self._request_service(service, "/v1/health")
         service._write_audit({"payload": "sensitive oversized event " + "x" * 1000})
-        retained = [self.audit, self.audit.with_name("audit.jsonl.1"), self.audit.with_name("audit.jsonl.2")]
+        retained = [
+            self.audit,
+            self.audit.with_name("audit.jsonl.1"),
+            self.audit.with_name("audit.jsonl.2"),
+        ]
         self.assertLessEqual(
             sum(path.stat().st_size for path in retained if path.exists()), 3 * 150
         )
         self.assertNotIn(
             "sensitive oversized event",
-            "".join(path.read_text(encoding="utf-8") for path in retained if path.exists()),
+            "".join(
+                path.read_text(encoding="utf-8") for path in retained if path.exists()
+            ),
         )
         with patch.object(service, "_audit", side_effect=OSError("disk unavailable")):
             status, _, _ = self._request_service(service, "/v1/health")
@@ -172,10 +184,14 @@ class TestForecastService(unittest.TestCase):
     def test_probe_routes_and_scrapeable_metrics(self) -> None:
         def probe(path: str) -> tuple[int, str]:
             captured: dict[str, Any] = {}
-            body = b"".join(self.service(
-                {"REQUEST_METHOD": "GET", "PATH_INFO": path},
-                lambda status_line, headers: captured.update(status=status_line, headers=headers),
-            )).decode()
+            body = b"".join(
+                self.service(
+                    {"REQUEST_METHOD": "GET", "PATH_INFO": path},
+                    lambda status_line, headers: captured.update(
+                        status=status_line, headers=headers
+                    ),
+                )
+            ).decode()
             return int(captured["status"].split()[0]), body
 
         status, _ = probe("/livez")
@@ -184,10 +200,12 @@ class TestForecastService(unittest.TestCase):
         self.assertEqual(status, 200)
         self.request("/v1/health")
         captured: dict[str, Any] = {}
-        body = b"".join(self.service(
-            {"REQUEST_METHOD": "GET", "PATH_INFO": "/metrics"},
-            lambda status_line, headers: captured.update(status=status_line, headers=headers),
-        )).decode()
+        body = b"".join(
+            self.service(
+                {"REQUEST_METHOD": "GET", "PATH_INFO": "/metrics"},
+                lambda status_line, headers: captured.update(status=status_line, headers=headers),
+            )
+        ).decode()
         self.assertIn("forecast_api_requests_total 1", body)
         self.assertIn('forecast_api_responses_total{status="200"} 1', body)
         self.health.write_text(
