@@ -64,6 +64,7 @@ def data_source_label(offline_dataset: str | None) -> str:
         return f"Offline dataset: {offline_dataset}"
     return "Binance BTCUSDT 1h (historical proxy for BTC/USD)"
 
+
 # Use the same issue #6 adaptive policy as production. During walk-forward tests
 # there is no durable DB; only target candles already visible at each simulated
 # origin can mature prior forecasts, which preserves no-look-ahead behavior.
