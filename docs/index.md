@@ -28,3 +28,7 @@ flowchart LR
     history --> dashboard[Static dashboard]
     outcome --> dashboard
 ```
+
+In order: a forecast is recorded, its target price becomes available and is
+stored as a matured outcome, and the static dashboard presents both records.
+This summary remains available when a browser cannot render the diagram.
