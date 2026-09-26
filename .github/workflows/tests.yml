@@ -17,6 +17,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  documentation:
+    name: Documentation build + links
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: ./.github/actions/python-setup
+        with:
+          dependency-set: docs
+
+      - name: Build documentation strictly
+        run: mkdocs build --strict
+
+      - name: Validate documentation links and source references
+        run: python scripts/validate_docs.py
+
   quality-gates:
     name: Unit tests + quality
     runs-on: ubuntu-latest
