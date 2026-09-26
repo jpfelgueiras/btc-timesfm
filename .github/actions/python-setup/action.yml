@@ -2,7 +2,7 @@ name: Python workflow setup
 description: Configure Python and install dependencies after the workflow checks out the repository.
 inputs:
   dependency-set:
-    description: Dependency set to install (runtime, test, security, or none).
+    description: Dependency set to install (runtime, test, security, docs, or none).
     required: false
     default: none
   python-version:
@@ -27,6 +27,7 @@ runs:
           runtime) uv sync --locked --no-default-groups --extra model ;;
           test) uv sync --locked --no-default-groups --group test ;;
           security) uv sync --locked --no-default-groups --group security ;;
+          docs) uv sync --locked --no-default-groups --group docs ;;
           *) echo "Unsupported dependency set: ${{ inputs.dependency-set }}" >&2; exit 2 ;;
         esac
         echo "$PWD/.venv/bin" >> "$GITHUB_PATH"

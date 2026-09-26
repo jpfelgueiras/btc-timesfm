@@ -174,6 +174,16 @@ class TestValidateSiteOutput(unittest.TestCase):
     def test_valid_site_passes(self) -> None:
         result = validate_site_output(self._write_site(_make_valid_html(), _make_valid_data()))
         self.assertTrue(result["passed"], result["errors"])
+
+    def test_forecast_contract_passes_at_pages_forecasts_route(self) -> None:
+        forecasts = Path(self._tmpdir.name) / "forecasts"
+        forecasts.mkdir()
+        (forecasts / "index.html").write_text(_make_valid_html(), encoding="utf-8")
+        (forecasts / "data.json").write_text(json.dumps(_make_valid_data()), encoding="utf-8")
+
+        result = validate_site_output(forecasts)
+
+        self.assertTrue(result["passed"], result["errors"])
         self.assertEqual(result["schema_version"], SCHEMA_VERSION)
 
     def test_missing_index_html(self) -> None:

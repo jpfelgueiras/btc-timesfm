@@ -36,7 +36,10 @@ jobs:
 
       - uses: ./.github/actions/python-setup
         with:
-          dependency-set: runtime
+          dependency-set: docs
+
+      - name: Build documentation portal
+        run: mkdocs build --strict
 
       - name: Download durable forecast history
         env:
@@ -54,11 +57,13 @@ jobs:
         run: |
           PYTHONPATH=src python -m btc_timesfm.web.static_site \
             --db .state/forecast_history.sqlite \
-            --output-dir site
+            --output-dir build/forecasts
 
       - name: Validate site output contract
         run: |
-          PYTHONPATH=src python -m btc_timesfm.web.contract_validation site
+          PYTHONPATH=src python -m btc_timesfm.web.contract_validation build/forecasts
+          test -f build/index.html
+          touch build/.nojekyll
 
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
@@ -66,7 +71,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
-          path: site
+          path: build
 
   deploy:
     permissions:
