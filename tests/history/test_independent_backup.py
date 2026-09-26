@@ -42,10 +42,13 @@ class IndependentBackupTests(unittest.TestCase):
             archive = root / "history.sqlite.gz"
             create_archive(db, archive)
 
-            with patch(
-                "btc_timesfm.history.independent_backup.subprocess.run",
-                side_effect=OSError("secret access key"),
-            ), self.assertRaisesRegex(RuntimeError, "operation failed") as error:
+            with (
+                patch(
+                    "btc_timesfm.history.independent_backup.subprocess.run",
+                    side_effect=OSError("secret access key"),
+                ),
+                self.assertRaisesRegex(RuntimeError, "operation failed") as error,
+            ):
                 upload_and_verify(archive, "s3://bucket/history/latest.sqlite.gz")
             self.assertNotIn("secret access key", str(error.exception))
 
