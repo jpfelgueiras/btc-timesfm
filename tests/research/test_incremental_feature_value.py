@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from btc_timesfm.forecasting.feature_registry import MARKET_FEATURE_NAMES
+from btc_timesfm.forecasting.feature_registry import FEATURE_REGISTRY, MARKET_FEATURE_NAMES
 from btc_timesfm.research.incremental_feature_value import (
     CANDIDATE_GROUPS,
     audit_feature_rows,
@@ -36,33 +36,19 @@ class IncrementalFeatureValueTests(unittest.TestCase):
         self.assertEqual(volume["common_available_origin_indices"], [0])
 
     def test_common_cohort_and_missingness_use_all_origins_as_denominator(self) -> None:
+        group_features = CANDIDATE_GROUPS["ohlc_shape_volatility"]
         report = audit_feature_rows(
             [
                 {
                     "origin_at": "2025-01-01T01:00:00Z",
-                    "features": {
-                        "range_24h_avg_pct": 1,
-                        "volatility_6h_pct": 2,
-                        "volatility_24h_pct": 3,
-                        "volatility_7d_pct": 4,
-                    },
+                    "features": {name: 1 for name in group_features},
                     "feature_capture_times": {
                         name: "2025-01-01T00:00:00Z"
-                        for name in (
-                            "range_24h_avg_pct",
-                            "volatility_6h_pct",
-                            "volatility_24h_pct",
-                            "volatility_7d_pct",
-                        )
+                        for name in group_features
                     },
                     "feature_vintages": {
                         name: "2025-01-01T00:00:00Z"
-                        for name in (
-                            "range_24h_avg_pct",
-                            "volatility_6h_pct",
-                            "volatility_24h_pct",
-                            "volatility_7d_pct",
-                        )
+                        for name in group_features
                     },
                 },
                 {"origin_at": "2025-01-01T02:00:00Z", "features": {}},
@@ -87,6 +73,23 @@ class IncrementalFeatureValueTests(unittest.TestCase):
         self.assertIsNone(report["performance_claim"])
         self.assertEqual(report["execution_parity"]["status"], "not_measured")
         self.assertIn("helper-level fallback", report["execution_parity"]["reason"])
+
+    def test_ohlc_technical_group_contains_registered_market_features(self) -> None:
+        expected = {
+            "range_24h_avg_pct",
+            "volatility_6h_pct",
+            "volatility_24h_pct",
+            "volatility_7d_pct",
+            "rsi_14",
+            "momentum_6h_pct",
+            "momentum_24h_pct",
+            "momentum_7d_pct",
+        }
+        group = CANDIDATE_GROUPS["ohlc_shape_volatility"]
+
+        self.assertEqual(group, expected)
+        self.assertLessEqual(group, set(FEATURE_REGISTRY))
+        self.assertLessEqual(group, set(MARKET_FEATURE_NAMES))
 
     def test_external_group_includes_registered_open_interest_changes_and_common_cohort(
         self,

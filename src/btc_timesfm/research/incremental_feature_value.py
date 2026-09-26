@@ -16,7 +16,16 @@ from btc_timesfm.forecasting.feature_registry import FEATURE_REGISTRY, MARKET_FE
 CANDIDATE_GROUPS = {
     "volume_transform": frozenset({"volume_zscore_7d"}),
     "ohlc_shape_volatility": frozenset(
-        {"range_24h_avg_pct", "volatility_6h_pct", "volatility_24h_pct", "volatility_7d_pct"}
+        {
+            "range_24h_avg_pct",
+            "volatility_6h_pct",
+            "volatility_24h_pct",
+            "volatility_7d_pct",
+            "rsi_14",
+            "momentum_6h_pct",
+            "momentum_24h_pct",
+            "momentum_7d_pct",
+        }
     ),
     "calendar": frozenset(
         {"hour_utc", "weekday_utc", "hour_sin", "hour_cos", "weekday_sin", "weekday_cos"}
