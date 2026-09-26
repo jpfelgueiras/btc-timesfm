@@ -73,7 +73,9 @@ def main() -> None:
     args = parser.parse_args()
     if args.command == "upload":
         report = upload_and_verify(args.archive, args.uri)
-        args.report.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        args.report.write_text(
+            json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
     else:
         report = restore_from_s3(args.uri, args.output)
     print(json.dumps(report, indent=2, sort_keys=True))
