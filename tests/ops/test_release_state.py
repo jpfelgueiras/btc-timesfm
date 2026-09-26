@@ -42,8 +42,12 @@ class ReleaseStateTests(unittest.TestCase):
         self.fail_uploads = 1
         sleep = Mock()
         persist_assets(
-            [self.asset], release_tag="history", repository="owner/repo", run_id="42",
-            run=self.gh, sleep=sleep,
+            [self.asset],
+            release_tag="history",
+            repository="owner/repo",
+            run_id="42",
+            run=self.gh,
+            sleep=sleep,
         )
         self.assertEqual(sum(command[2] == "upload" for command in self.commands), 2)
         self.assertEqual(sum(command[2] == "download" for command in self.commands), 1)
@@ -53,8 +57,13 @@ class ReleaseStateTests(unittest.TestCase):
         self.fail_uploads = 3
         with self.assertRaisesRegex(ReleaseStateError, "run_id=42.*attempts=3"):
             persist_assets(
-                [self.asset], release_tag="history", repository="owner/repo", run_id="42",
-                attempts=3, run=self.gh, sleep=Mock(),
+                [self.asset],
+                release_tag="history",
+                repository="owner/repo",
+                run_id="42",
+                attempts=3,
+                run=self.gh,
+                sleep=Mock(),
             )
         self.assertEqual(sum(command[2] == "upload" for command in self.commands), 3)
 
@@ -62,8 +71,13 @@ class ReleaseStateTests(unittest.TestCase):
         self.corrupt_readback = True
         with self.assertRaisesRegex(ReleaseStateError, "digest_mismatch"):
             persist_assets(
-                [self.asset], release_tag="history", repository="owner/repo", run_id="42",
-                attempts=2, run=self.gh, sleep=Mock(),
+                [self.asset],
+                release_tag="history",
+                repository="owner/repo",
+                run_id="42",
+                attempts=2,
+                run=self.gh,
+                sleep=Mock(),
             )
         self.assertEqual(sum(command[2] == "download" for command in self.commands), 2)
 

@@ -74,7 +74,9 @@ def persist_assets(
                 if actual != expected:
                     failure_class = "digest_mismatch"
                     raise ReleaseStateError("Release asset read-back digest mismatch")
-                print(f"Verified release state run_id={run_id} asset={asset.name} attempts={attempt}")
+                print(
+                    f"Verified release state run_id={run_id} asset={asset.name} attempts={attempt}"
+                )
                 break
             except (OSError, subprocess.SubprocessError, ReleaseStateError) as exc:
                 # Do not log subprocess output or exception text: gh diagnostics may contain sensitive data.
@@ -93,7 +95,7 @@ def persist_assets(
                         f"Release state persistence exhausted for {asset.name} "
                         f"(run_id={run_id}, attempts={attempts}, failure_class={failure_class})"
                     ) from None
-                sleep(min(2**(attempt - 1), 8))
+                sleep(min(2 ** (attempt - 1), 8))
 
 
 def validate_restored_state(paths: list[Path], *, release_exists: bool) -> None:
