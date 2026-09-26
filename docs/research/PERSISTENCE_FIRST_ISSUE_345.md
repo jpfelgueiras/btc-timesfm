@@ -1,0 +1,45 @@
+# TimesFM incremental skill: persistence-first ablation (#345)
+
+**Status: blocked; no qualifying candidate and no production change.** The
+download-free report is generated with
+`PYTHONPATH=src python -m btc_timesfm.research.persistence_first_ablation`.
+It does not execute inference or fabricate forecasts.
+
+## Evidence status
+
+The canonical frozen D1 BTC/USD corpus from #339 has zero eligible coverage in
+this checkout. Protocol #342 and gates #343/#344 are merged, but #343 and #344
+remain blocked; consequently no candidate passes their prerequisite gates.
+D1 paired outer predictions are unavailable and prospective D3 confirmation is
+not mature. The report records zero eligible origins and remains blocked.
+
+The D2 ledger has at most 95 paired observations. Its mixed-version,
+short-history results are descriptive only: the ensemble was worse than
+persistence at 8h and 16h. D2 is not a qualifying corpus, does not support an
+acceptance pass, and does not establish an ensemble removal or deployment
+decision. See `PERSISTENCE_SHRINKAGE_V5_STATUS.md` for the historical metrics.
+
+## Bounded design
+
+The primary catalog has seven policy families (maximum eight): persistence;
+current production ensemble; equal model/family weights; TimesFM-only;
+per-context delete-one; drift/AR delete-one; and fixed shrinkage toward
+persistence. `research.persistence_shrinkage` supplies research-only weight
+mechanics, including exact zero member weights and 100% persistence. Learned
+weights may be fitted only on inner OOF data. Per-context and drift/AR deletions
+are analyses inside their declared families, not an invitation to search an
+unbounded model catalog. Ridge is a separate challenger and is eligible only
+after its model-use and corpus prerequisites are verified. No unsupported or
+unverified model alternatives are admitted.
+
+After base-model parity, adaptive, regime, directional, coverage, and
+correlation weighting terms must each be ablated separately. Every comparison
+uses identical exact origins, retains failed forecasts, and scores matured
+outcomes only after forecasts are formed. Comparisons use nested chronological
+walk-forward folds, with all tuning confined to inner OOF data.
+
+Success requires at least 3% improvement with dependence-aware confidence
+intervals over production, persistence, and the strongest naive baseline, no
+horizon loss above 5%, and no direction loss above 2 percentage points.
+Until eligible data and all gates exist, the status is blocked/inconclusive;
+research outputs cannot alter production or automate promotion.
