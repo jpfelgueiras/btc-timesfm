@@ -25,11 +25,12 @@ jobs:
 
       - uses: ./.github/actions/python-setup
         with:
-          requirements-file: requirements-security.txt
+          dependency-set: security
 
       - name: Audit Python dependencies
         run: |
-          pip-audit -r requirements.txt --progress-spinner off
+          uv export --locked --no-default-groups --extra model --no-emit-project --format requirements-txt --output-file /tmp/runtime-audit.txt
+          pip-audit -r /tmp/runtime-audit.txt --progress-spinner off
 
       - name: Check repository for credential leakage
         run: PYTHONPATH=src python -m btc_timesfm.ops.security_audit

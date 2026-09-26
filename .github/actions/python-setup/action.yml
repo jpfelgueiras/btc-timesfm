@@ -1,22 +1,32 @@
 name: Python workflow setup
 description: Configure Python and install dependencies after the workflow checks out the repository.
 inputs:
-  requirements-file:
-    description: Requirements file to install. Leave empty when no dependencies are needed.
+  dependency-set:
+    description: Dependency set to install (runtime, test, security, or none).
     required: false
-    default: ""
+    default: none
+  python-version:
+    description: Supported Python version to configure.
+    required: false
+    default: "3.11"
 runs:
   using: composite
   steps:
     - name: Set up Python
       uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
       with:
-        python-version: "3.11"
+        python-version: ${{ inputs.python-version }}
         cache: pip
-        cache-dependency-path: ${{ inputs.requirements-file || 'requirements.txt' }}
+        cache-dependency-path: uv.lock
     - name: Install dependencies
-      if: inputs.requirements-file != ''
+      if: inputs.dependency-set != 'none'
       shell: bash
       run: |
-        python -m pip install --upgrade pip
-        pip install -r "${{ inputs.requirements-file }}"
+        python -m pip install "uv==0.12.19"
+        case "${{ inputs.dependency-set }}" in
+          runtime) uv sync --locked --no-default-groups --extra model ;;
+          test) uv sync --locked --no-default-groups --group test ;;
+          security) uv sync --locked --no-default-groups --group security ;;
+          *) echo "Unsupported dependency set: ${{ inputs.dependency-set }}" >&2; exit 2 ;;
+        esac
+        echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
