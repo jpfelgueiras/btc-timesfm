@@ -357,10 +357,11 @@ class ForecastService:
         if not isinstance(raw, dict) or not isinstance(raw.get("stages"), dict):
             return None
         required_stages = {"market_data", "forecast", "history", "x_post"}
-        if (
-            raw.get("overall_health") not in {"healthy", "degraded", "open"}
-            or not required_stages.issubset(raw["stages"])
-        ):
+        if raw.get("overall_health") not in {
+            "healthy",
+            "degraded",
+            "open",
+        } or not required_stages.issubset(raw["stages"]):
             return None
         if any(
             not isinstance(item, dict)
@@ -635,17 +636,24 @@ class ForecastService:
             retention_seconds = self.config.audit_max_age_days * 86_400
             now = time.time()
             for index in range(self.config.audit_backups + 1):
-                candidate = self.config.audit_path if index == 0 else self.config.audit_path.with_name(
-                    f"{self.config.audit_path.name}.{index}"
+                candidate = (
+                    self.config.audit_path
+                    if index == 0
+                    else self.config.audit_path.with_name(f"{self.config.audit_path.name}.{index}")
                 )
                 if candidate.exists() and now - candidate.stat().st_mtime > retention_seconds:
                     candidate.unlink()
-            if self.config.audit_path.exists() and self.config.audit_path.stat().st_size >= max_bytes:
+            if (
+                self.config.audit_path.exists()
+                and self.config.audit_path.stat().st_size >= max_bytes
+            ):
                 for index in range(self.config.audit_backups, 0, -1):
                     source = self.config.audit_path.with_name(
                         self.config.audit_path.name + (f".{index - 1}" if index > 1 else "")
                     )
-                    destination = self.config.audit_path.with_name(f"{self.config.audit_path.name}.{index}")
+                    destination = self.config.audit_path.with_name(
+                        f"{self.config.audit_path.name}.{index}"
+                    )
                     if source.exists():
                         if index == self.config.audit_backups:
                             source.unlink(missing_ok=True)

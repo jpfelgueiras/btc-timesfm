@@ -173,9 +173,7 @@ class TestForecastService(unittest.TestCase):
         )
         self.assertNotIn(
             "sensitive oversized event",
-            "".join(
-                path.read_text(encoding="utf-8") for path in retained if path.exists()
-            ),
+            "".join(path.read_text(encoding="utf-8") for path in retained if path.exists()),
         )
         with patch.object(service, "_audit", side_effect=OSError("disk unavailable")):
             status, _, _ = self._request_service(service, "/v1/health")
