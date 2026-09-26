@@ -180,7 +180,8 @@ def build_gate_report(
                     actual_at != target_at
                     or matured_at < target_at
                     or evaluated_at is None
-                    or matured_at > evaluated_at
+                    or evaluated_at <= target_at
+                    or evaluated_at <= matured_at
                 ):
                     invalid_outcomes = True
                     continue
@@ -195,6 +196,7 @@ def build_gate_report(
 
     counts: dict[int, int] = {}
     prospective_counts: dict[int, int] = {}
+    prospective_origins: dict[int, list[datetime]] = {}
     for key in paired:
         horizon = key[1]
         origin_at = _time(key[0])
@@ -206,11 +208,35 @@ def build_gate_report(
             and prospective_start <= origin_at < evaluated_at
         ):
             prospective_counts[horizon] = prospective_counts.get(horizon, 0) + 1
+            prospective_origins.setdefault(horizon, []).append(origin_at)
         else:
             invalid_outcomes = True
     if invalid_outcomes:
-        reasons.append("outcomes contain invalid joins, maturity timestamps, or out-of-window origins")
+        reasons.append(
+            "outcomes contain invalid joins, maturity timestamps, or out-of-window origins"
+        )
     required_horizons = set(audit.get("required_horizons", (2, 4, 8, 16)))
+    prospective_windows: dict[int, dict[str, Any]] = {}
+    for horizon in required_horizons:
+        origins = prospective_origins.get(horizon, [])
+        first = min(origins) if origins else None
+        last = max(origins) if origins else None
+        span = (last - first) if first is not None and last is not None else None
+        prospective_windows[horizon] = {
+            "start_at": first.isoformat() if first is not None else None,
+            "end_at": last.isoformat() if last is not None else None,
+            "span_days": span.total_seconds() / 86400 if span is not None else None,
+        }
+        if (
+            prospective_start is None
+            or first is None
+            or last is None
+            or abs(first - prospective_start) > timedelta(hours=1)
+            or last < prospective_start + timedelta(days=30)
+        ):
+            reasons.append(
+                f"prospective paired origins for horizon {horizon} do not span the required 30 days"
+            )
     if any(
         counts.get(horizon, 0) < 200 or prospective_counts.get(horizon, 0) < 200
         for horizon in required_horizons
@@ -226,6 +252,7 @@ def build_gate_report(
         "stages": ["raw", "pre_coherence", "final"],
         "paired_counts_by_horizon": counts,
         "prospective_paired_counts_by_horizon": prospective_counts,
+        "prospective_origin_windows_by_horizon": prospective_windows,
         "metrics": [
             "pinball_q10_q50_q90",
             "coverage_80",

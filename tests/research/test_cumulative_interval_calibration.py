@@ -59,12 +59,12 @@ class CumulativeIntervalCalibrationTests(unittest.TestCase):
         outcomes = []
         frozen = datetime(2024, 2, 1, tzinfo=timezone.utc)
         prospective_start = datetime(2024, 3, 1, tzinfo=timezone.utc)
-        evaluated = datetime(2024, 3, 31, tzinfo=timezone.utc)
+        evaluated = datetime(2024, 4, 2, tzinfo=timezone.utc)
         for index in range(400):
             origin = (
                 datetime(2024, 1, 1, tzinfo=timezone.utc) + timedelta(hours=index * 3)
                 if index < 200
-                else prospective_start + timedelta(hours=(index - 200) * 3)
+                else prospective_start + timedelta(days=30 * (index - 200) / 199)
             )
             target = origin + timedelta(hours=4)
             for stage in ("raw_cumulative", "pre_coherence", "final"):
@@ -115,6 +115,7 @@ class CumulativeIntervalCalibrationTests(unittest.TestCase):
         self.assertEqual(report["status"], "ready_for_evaluation")
         self.assertEqual(report["paired_counts_by_horizon"], {4: 200})
         self.assertEqual(report["prospective_paired_counts_by_horizon"], {4: 200})
+        self.assertEqual(report["prospective_origin_windows_by_horizon"][4]["span_days"], 30.0)
 
     def test_one_row_partial_duplicate_mismatched_and_unpaired_data_block(self) -> None:
         predictions, outcomes, audit = self._valid_inputs()
@@ -168,7 +169,7 @@ class CumulativeIntervalCalibrationTests(unittest.TestCase):
             outcome["period"] = "prospective"
         report = self._gate(predictions, outcomes, audit)
         self.assertEqual(report["status"], "ready_for_evaluation")
-        future = [{**row, "matured_at": "2024-04-01T00:00:00+00:00"} for row in outcomes]
+        future = [{**row, "matured_at": "2024-05-01T00:00:00+00:00"} for row in outcomes]
         self.assertEqual(self._gate(predictions, future, audit)["status"], "blocked")
         false_actual = [{**row, "actual_at": row["target_at"]} for row in outcomes]
         false_actual[0]["actual_at"] = "2024-01-01T00:00:00+00:00"
@@ -177,6 +178,29 @@ class CumulativeIntervalCalibrationTests(unittest.TestCase):
         self.assertEqual(self._gate(predictions, outcomes, too_early)["status"], "blocked")
         naive = {**audit, "frozen_at": "2024-02-01T00:00:00"}
         self.assertEqual(self._gate(predictions, outcomes, naive)["status"], "blocked")
+
+    def test_elapsed_manifest_does_not_replace_30_day_paired_origin_span(self) -> None:
+        predictions, outcomes, audit = self._valid_inputs()
+        start = datetime.fromisoformat(audit["prospective_start"])
+        for row in predictions:
+            origin = datetime.fromisoformat(row["origin_at"])
+            if origin >= start:
+                shortened = start + (origin - start) * (5 / 6)
+                target = shortened + timedelta(hours=4)
+                row["origin_at"] = shortened.isoformat()
+                row["target_at"] = target.isoformat()
+        for row in outcomes:
+            origin = datetime.fromisoformat(row["origin_at"])
+            if origin >= start:
+                shortened = start + (origin - start) * (5 / 6)
+                target = shortened + timedelta(hours=4)
+                row["origin_at"] = shortened.isoformat()
+                row["target_at"] = target.isoformat()
+                row["actual_at"] = target.isoformat()
+                row["matured_at"] = (target + timedelta(minutes=1)).isoformat()
+        report = self._gate(predictions, outcomes, audit)
+        self.assertEqual(report["status"], "blocked")
+        self.assertLess(report["prospective_origin_windows_by_horizon"][4]["span_days"], 30)
 
     def test_naive_timestamps_are_rejected(self) -> None:
         with self.assertRaises(ValueError):
