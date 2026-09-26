@@ -31,7 +31,7 @@ Proposed nav (destination sections; v9 content is authored by the linked follow-
 | --- | --- | --- |
 | `/` (`docs/index.md`) | First-time users: project purpose, links to dashboard, setup, forecast explanation, and limitations | #358, #359 |
 | `/getting-started/` | Python support, install/model dependencies, verified local quick start and commands | #358 |
-| `/forecasts/` (Docs section) | Dashboard link plus output fields, uncertainty, forecast lifecycle, TimesFM contract and limitations; the interactive dashboard itself is `/forecasts/` on the site | #359, #360 |
+| `/forecasting/` | Dashboard link plus output fields, uncertainty, forecast lifecycle, TimesFM contract and limitations; the interactive dashboard itself is `/forecasts/` on the site | #359, #360 |
 | `/data/` | Market providers, validation, timestamps, preprocessing and active feature groups | #361 |
 | `/evaluation/` | Baselines, walk-forward methods, metrics, evidence and research interpretation | #362 |
 | `/api/` | Versioned payload contract, WSGI service, auth/runtime boundaries, examples | #363 |
