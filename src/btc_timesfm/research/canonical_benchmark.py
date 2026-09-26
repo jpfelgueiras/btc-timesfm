@@ -71,7 +71,7 @@ def audit_csv(path: Path) -> dict[str, Any]:
             revision = int(row["revision"])
             if str(revision) != row["revision"].strip() or revision != 0:
                 raise ValueError("revision must be exactly 0; revised candles are ambiguous")
-            if vintage_timestamp > candle_timestamp + HOUR_SECONDS:
+            if vintage_timestamp > candle_timestamp:
                 raise ValueError("vintage is later than candle close; not point-in-time eligible")
             timestamps.append(candle_timestamp)
             venues.add(row["venue"].strip())

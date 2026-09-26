@@ -58,6 +58,13 @@ observations. The current checkout contains no canonical corpus; its limited rec
 Kraken/Bitstamp feeds and the BTCUSDT replay downloader do not establish the
 required multi-year same-venue BTC/USD history. Do not interpret the current
 historical BTCUSDT replay or the audit gate as evidence of forecasting skill.
+Coinbase Exchange historical candles are not an admissible substitute: its public
+endpoint limits requests to 300 candles and warns that history may be incomplete;
+it is also a different venue and the candle response does not establish historical
+first-publication vintage or revision state. Kraken's current OHLC fetch is bounded
+to 720 hourly candles and Bitstamp's fallback to 1,000. Neither those bounded live
+feeds nor retrospective Coinbase candles demonstrate the required production-venue
+point-in-time corpus.
 
 Run the normal walk-forward backtest to produce `backtest_report.json`:
 

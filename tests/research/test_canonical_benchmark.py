@@ -77,6 +77,17 @@ class CanonicalBenchmarkTests(unittest.TestCase):
         self.assertEqual(report["warmup_period"]["missing_hours"], 0)
         self.assertFalse(report["eligible_for_skill_comparison"])
 
+    def test_vintage_at_or_before_close_is_accepted(self) -> None:
+        timestamps = self._complete_timestamps()
+
+        def prior_vintage(row, index):
+            if index == 0:
+                row["vintage"] = _iso(timestamps[0] - HOUR_SECONDS)
+
+        with tempfile.TemporaryDirectory() as directory:
+            report = audit_csv(self._write_rows(directory, timestamps, mutate=prior_vintage))
+        self.assertEqual(report["status"], "ready_for_replay")
+
     def test_target_and_warmup_are_independently_required(self) -> None:
         timestamps = self._complete_timestamps()
         timestamps.remove(TARGET_START_TS)
@@ -129,6 +140,15 @@ class CanonicalBenchmarkTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             report = audit_csv(self._write_rows(directory, timestamps, mutate=future_vintage))
+        self.assertEqual(report["status"], "blocked")
+        self.assertTrue(any("not point-in-time eligible" in error for error in report["errors"]))
+
+        def one_hour_late(row, index):
+            if index == 0:
+                row["vintage"] = _iso(timestamps[0] + HOUR_SECONDS)
+
+        with tempfile.TemporaryDirectory() as directory:
+            report = audit_csv(self._write_rows(directory, timestamps, mutate=one_hour_late))
         self.assertEqual(report["status"], "blocked")
         self.assertTrue(any("not point-in-time eligible" in error for error in report["errors"]))
 
