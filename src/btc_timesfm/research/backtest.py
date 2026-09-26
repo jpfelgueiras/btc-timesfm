@@ -57,6 +57,14 @@ BINANCE_KLINES = "https://data-api.binance.vision/api/v3/klines"
 REPORT_PATH = Path("backtest_report.json")
 HORIZONS = ("2h", "4h", "8h", "16h")
 
+
+def data_source_label(offline_dataset: str | None) -> str:
+    """Describe the backtest's input source for its report and manifest."""
+    if offline_dataset:
+        return f"Offline dataset: {offline_dataset}"
+    return "Binance BTCUSDT 1h (historical proxy for BTC/USD)"
+
+
 # Use the same issue #6 adaptive policy as production. During walk-forward tests
 # there is no durable DB; only target candles already visible at each simulated
 # origin can mature prior forecasts, which preserves no-look-ahead behavior.
@@ -459,10 +467,9 @@ def main() -> None:
             closes=offline_data["closes"],
             volumes=offline_data["volumes"],
         )
-        data_source = f"Offline dataset: {args.offline_dataset}"
     else:
         data = fetch_binance_history(args.days)
-        data_source = "Binance BTCUSDT 1h (historical proxy for BTC/USD)"
+    data_source = data_source_label(args.offline_dataset)
     first = 513
     last = len(data.closes) - max(TARGET_HOURS) - 1
     if last <= first:
@@ -514,7 +521,6 @@ def main() -> None:
     cross_validation = evaluate_cross_validation(samples, actual_by_timestamp, cv_folds)
 
     generated_at = datetime.now(timezone.utc)
-    data_source = "Binance BTCUSDT 1h (historical proxy for BTC/USD)"
     cv_parameters = {
         "mode": args.cv_mode,
         "folds_requested": args.cv_folds,
