@@ -27,6 +27,12 @@ def valid_contract() -> dict:
             "horizon": horizon,
             "actual_at": _plus_hours(1 + i // 24, i % 24, horizon + 1),
             "matured_at": _plus_hours(1 + i // 24, i % 24, horizon + 1),
+            "actual_value": 100.0,
+            "raw": {"prediction": 100.1, "interval": [99.0, 101.0]},
+            "final": {"prediction": 100.0, "interval": [99.0, 101.0]},
+            "failure": None,
+            "source_id": "venue/pair",
+            "vintage_id": "v1",
         }
         for horizon in (2, 4, 8, 16)
         for i in range(200)
@@ -35,6 +41,7 @@ def valid_contract() -> dict:
         "freeze": {
             "frozen_at": "2025-02-28T00:00:00+00:00",
             "cutoff_at": "2025-02-27T00:00:00+00:00",
+            "evaluation_cutoff": "2025-04-01T00:00:00+00:00",
             "stopping_rule": "fixed 30-day window",
             "corpus_sha256": "abc",
             "family_id": "all-tried-v1",
@@ -193,6 +200,76 @@ class FinalSelectionTests(unittest.TestCase):
         self.assertEqual(report["status"], "blocked")
         self.assertTrue(any("exact positive integer" in item for item in report["reasons"]))
         self.assertTrue(any("family count" in item for item in report["reasons"]))
+
+    def test_frozen_selection_rows_require_exact_utc_and_target_arithmetic(self) -> None:
+        contract = valid_contract()
+        contract["freeze"]["selection_pairs"][0]["origin"] = "2025-03-01T01:00:00+01:00"
+        contract["freeze"]["selection_pairs"][1]["target"] = "not-a-timestamp"
+        contract["freeze"]["selection_pairs"][2]["target"] = "2025-03-01T13:00:00+00:00"
+        report = validate_contract(contract)
+        self.assertTrue(any("must use UTC" in item for item in report["reasons"]))
+        self.assertTrue(any("ISO-8601" in item for item in report["reasons"]))
+        self.assertTrue(
+            any("target must equal origin plus horizon" in item for item in report["reasons"])
+        )
+
+    def test_candidate_selection_rows_are_validated_not_only_compared(self) -> None:
+        contract = valid_contract()
+        contract["candidates"][0]["pairs"][0]["target"] = "2025-03-01T13:00:00+00:00"
+        contract["candidates"][0]["pairs"][1]["origin"] = "2025-03-01T01:00:00-01:00"
+        report = validate_contract(contract)
+        self.assertTrue(
+            any("target must equal origin plus horizon" in item for item in report["reasons"])
+        )
+        self.assertTrue(any("must use UTC" in item for item in report["reasons"]))
+
+    def test_attempt_family_includes_non_mapping_entries(self) -> None:
+        contract = valid_contract()
+        contract["candidates"].append(None)
+        report = validate_contract(contract)
+        self.assertEqual(report["attempted_candidate_count"], 4)
+        self.assertTrue(any("candidate[3] is not a manifest" in item for item in report["reasons"]))
+        self.assertTrue(any("family count" in item for item in report["reasons"]))
+
+    def test_prospective_requires_recorded_values_stages_and_identity(self) -> None:
+        contract = valid_contract()
+        row = contract["prospective"]["pairs"]["challenger-a"][0]
+        del row["actual_value"]
+        del row["raw"]
+        row["failure"] = "inference failed"
+        row["vintage_id"] = "wrong-vintage"
+        report = validate_contract(contract)
+        self.assertTrue(any("actual_value" in item for item in report["reasons"]))
+        self.assertTrue(any("raw/final/failure tracking" in item for item in report["reasons"]))
+        self.assertTrue(
+            any("failed prospective forecast rows" in item for item in report["reasons"])
+        )
+        self.assertTrue(any("identity mismatch: vintage_id" in item for item in report["reasons"]))
+
+    def test_stage_presence_booleans_are_not_forecast_evidence(self) -> None:
+        contract = valid_contract()
+        selection_row = contract["candidates"][0]["pairs"][0]
+        selection_row["raw"] = True
+        prospective_row = contract["prospective"]["pairs"]["challenger-a"][0]
+        prospective_row["raw"] = True
+        report = validate_contract(contract)
+        self.assertTrue(
+            any("dropped raw/final forecast tracking" in item for item in report["reasons"])
+        )
+        self.assertTrue(
+            any(
+                "prospective row missing raw/final/failure tracking" in item
+                for item in report["reasons"]
+            )
+        )
+
+    def test_evaluation_cutoff_must_match_frozen_cutoff_and_follow_maturity(self) -> None:
+        contract = valid_contract()
+        contract["prospective"]["evaluation_cutoff"] = "2025-03-30T00:00:00+00:00"
+        report = validate_contract(contract)
+        self.assertTrue(
+            any("exactly match the frozen manifest cutoff" in item for item in report["reasons"])
+        )
 
     def test_frozen_selection_pair_set_is_required_and_exact(self) -> None:
         contract = valid_contract()

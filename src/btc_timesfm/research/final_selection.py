@@ -10,7 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -36,6 +36,10 @@ def _number(value: object) -> float | None:
     return result if math.isfinite(result) else None
 
 
+def _forecast_record(value: object) -> bool:
+    return isinstance(value, Mapping) and _number(value.get("prediction")) is not None
+
+
 def _time(value: object, label: str, reasons: list[str]) -> datetime | None:
     if not isinstance(value, str):
         reasons.append(f"{label} must be an ISO-8601 timestamp with timezone")
@@ -48,6 +52,30 @@ def _time(value: object, label: str, reasons: list[str]) -> datetime | None:
         reasons.append(f"{label} must be an ISO-8601 timestamp with timezone")
         return None
     return parsed
+
+
+def _utc_time(value: object, label: str, reasons: list[str]) -> datetime | None:
+    parsed = _time(value, label, reasons)
+    if parsed is not None and parsed.utcoffset() != timedelta(0):
+        reasons.append(f"{label} must use UTC")
+        return None
+    return parsed
+
+
+def _pair_key(
+    row: Mapping[str, Any], label: str, reasons: list[str]
+) -> tuple[str, str, int] | None:
+    horizon = _positive_int(row.get("horizon"))
+    if horizon is None:
+        reasons.append(f"{label} horizon must be an exact positive integer")
+        return None
+    origin = _utc_time(row.get("origin"), f"{label} origin", reasons)
+    target = _utc_time(row.get("target"), f"{label} target", reasons)
+    if origin is None or target is None:
+        return None
+    if target - origin != timedelta(hours=horizon):
+        reasons.append(f"{label} target must equal origin plus horizon")
+    return (origin.isoformat(), target.isoformat(), horizon)
 
 
 def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
@@ -75,6 +103,9 @@ def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
             reasons.append(f"freeze manifest missing {key}")
     frozen_at = _time(freeze.get("frozen_at"), "freeze.frozen_at", reasons)
     cutoff = _time(freeze.get("cutoff_at"), "freeze.cutoff_at", reasons)
+    frozen_evaluation_cutoff = _time(
+        freeze.get("evaluation_cutoff"), "freeze.evaluation_cutoff", reasons
+    )
     if frozen_at and cutoff and cutoff > frozen_at:
         reasons.append("selection cutoff must not be after freeze time")
     if freeze.get("stopping_rule") and "fixed" not in str(freeze["stopping_rule"]).lower():
@@ -98,14 +129,13 @@ def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
             if not isinstance(row, Mapping):
                 reasons.append("frozen selection_pairs contains an invalid row")
                 continue
-            horizon = _positive_int(row.get("horizon"))
-            if horizon is None:
-                reasons.append("frozen selection pair horizon must be an exact positive integer")
-                continue
-            frozen_keys.append((str(row.get("origin", "")), str(row.get("target", "")), horizon))
+            key = _pair_key(row, "frozen selection pair", reasons)
+            if key is not None:
+                frozen_keys.append(key)
         if len(frozen_keys) != len(set(frozen_keys)):
             reasons.append("frozen selection_pairs contains duplicate origin/target/horizon keys")
     for index, candidate in enumerate(candidates):
+        attempted += 1
         if not isinstance(candidate, Mapping):
             reasons.append(f"candidate[{index}] is not a manifest")
             continue
@@ -113,7 +143,6 @@ def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
         if not candidate_id or candidate_id in ids:
             reasons.append(f"candidate[{index}] has missing or duplicate candidate_id")
         ids.add(candidate_id)
-        attempted += 1
         status = candidate.get("status")
         if status not in {"eligible", "blocked", "failed", "ineligible"}:
             reasons.append(f"candidate {candidate_id or index} has invalid status")
@@ -132,15 +161,15 @@ def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
             if not isinstance(row, Mapping):
                 reasons.append(f"candidate {candidate_id} contains invalid pair row")
                 continue
-            horizon = _positive_int(row.get("horizon"))
-            if horizon is None:
-                reasons.append(
-                    f"candidate {candidate_id} horizon must be an exact positive integer"
-                )
+            key = _pair_key(row, f"candidate {candidate_id} selection pair", reasons)
+            if key is None:
                 continue
-            key = (str(row.get("origin", "")), str(row.get("target", "")), horizon)
             keys.append(key)
-            if not row.get("raw") or not row.get("final") or "failure" not in row:
+            if (
+                not _forecast_record(row.get("raw"))
+                or not _forecast_record(row.get("final"))
+                or "failure" not in row
+            ):
                 reasons.append(f"candidate {candidate_id} dropped raw/final forecast tracking")
             if row.get("failure"):
                 reasons.append(f"candidate {candidate_id} has failed forecasts in eligible pairs")
@@ -195,6 +224,10 @@ def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
     evaluation_cutoff = _time(
         prospective.get("evaluation_cutoff"), "prospective.evaluation_cutoff", reasons
     )
+    if frozen_evaluation_cutoff is None or evaluation_cutoff != frozen_evaluation_cutoff:
+        reasons.append(
+            "prospective evaluation_cutoff must exactly match the frozen manifest cutoff"
+        )
     if frozen_at and prospect_start and prospect_start <= frozen_at:
         reasons.append("prospective D3 must start after the freeze")
     if (
@@ -207,6 +240,8 @@ def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
         reasons.append("prospective end_at must be after start_at")
     if evaluation_cutoff and prospect_end and evaluation_cutoff > prospect_end:
         reasons.append("prospective evaluation_cutoff must not be after end_at")
+    if evaluation_cutoff and prospect_start and evaluation_cutoff <= prospect_start:
+        reasons.append("prospective evaluation_cutoff must be inside the prospective interval")
     prospective_pairs = prospective.get("pairs")
     if not isinstance(prospective_pairs, Mapping):
         reasons.append("prospective exact pair records by candidate are missing")
@@ -223,32 +258,50 @@ def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
             if not isinstance(row, Mapping):
                 reasons.append(f"candidate {candidate_id} prospective pair is invalid")
                 continue
-            horizon = _positive_int(row.get("horizon"))
-            if horizon is None:
-                reasons.append(
-                    f"candidate {candidate_id} prospective horizon must be an exact positive integer"
-                )
+            pair_key = _pair_key(row, f"candidate {candidate_id} prospective pair", reasons)
+            if pair_key is None:
                 continue
+            origin = _utc_time(row.get("origin"), "prospective pair origin", reasons)
+            target = _utc_time(row.get("target"), "prospective pair target", reasons)
+            horizon = pair_key[2]
             if horizon not in HORIZONS:
                 reasons.append(
                     f"candidate {candidate_id} prospective horizon {horizon} is unsupported"
                 )
                 continue
-            origin = _time(row.get("origin"), "prospective pair origin", reasons)
-            target = _time(row.get("target"), "prospective pair target", reasons)
-            actual_at = _time(row.get("actual_at"), "prospective pair actual_at", reasons)
-            matured_at = _time(row.get("matured_at"), "prospective pair matured_at", reasons)
+            actual_at = _utc_time(row.get("actual_at"), "prospective pair actual_at", reasons)
+            matured_at = _utc_time(row.get("matured_at"), "prospective pair matured_at", reasons)
+            actual_value = _number(row.get("actual_value"))
+            row_failure = row.get("failure")
+            identity_ok = True
+            for field in ("source_id", "vintage_id"):
+                if row.get(field) != expected_ids.get(field):
+                    identity_ok = False
+                    reasons.append(
+                        f"candidate {candidate_id} prospective pair identity mismatch: {field}"
+                    )
+            has_stages = (
+                _forecast_record(row.get("raw"))
+                and _forecast_record(row.get("final"))
+                and "failure" in row
+            )
+            if not has_stages:
+                reasons.append(
+                    f"candidate {candidate_id} prospective row missing raw/final/failure tracking"
+                )
+            if row_failure:
+                reasons.append(f"candidate {candidate_id} has failed prospective forecast rows")
+            if actual_value is None:
+                reasons.append(
+                    f"candidate {candidate_id} prospective actual_value must be finite numeric"
+                )
             if origin and target:
-                key = (origin.isoformat(), target.isoformat(), horizon)
+                key = pair_key
                 if key in seen:
                     reasons.append(
                         f"candidate {candidate_id} has duplicate prospective exact pairs"
                     )
                 seen.add(key)
-                if (target - origin).total_seconds() != horizon * 3600:
-                    reasons.append(
-                        f"candidate {candidate_id} target must equal origin plus horizon"
-                    )
                 if prospect_start and origin <= prospect_start:
                     reasons.append(
                         f"candidate {candidate_id} prospective origin is not after D3 start"
@@ -261,13 +314,22 @@ def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
                 reasons.append(f"candidate {candidate_id} outcome matured before its target")
             if matured_at and evaluation_cutoff and matured_at > evaluation_cutoff:
                 reasons.append(f"candidate {candidate_id} outcome matured after evaluation cutoff")
+            if actual_at and evaluation_cutoff and actual_at >= evaluation_cutoff:
+                reasons.append(f"candidate {candidate_id} actual_at must precede evaluation cutoff")
+            if matured_at and evaluation_cutoff and matured_at >= evaluation_cutoff:
+                reasons.append(f"candidate {candidate_id} maturity must precede evaluation cutoff")
             if (
                 origin
                 and target
                 and actual_at == target
+                and actual_value is not None
                 and matured_at
                 and evaluation_cutoff
+                and identity_ok
+                and has_stages
+                and not row_failure
                 and matured_at <= evaluation_cutoff
+                and actual_at < evaluation_cutoff
             ):
                 counts[horizon] += 1
         for horizon, count in counts.items():
