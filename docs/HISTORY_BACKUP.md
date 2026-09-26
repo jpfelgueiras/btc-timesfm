@@ -1,6 +1,6 @@
 # Forecast-history retention, backup and recovery
 
-The durable SQLite forecast history is a critical research asset. Production keeps a canonical database plus bounded, verified rollback generations in the private GitHub Release tagged `forecast-history-v1`.
+The durable SQLite forecast history is a critical research asset. Production keeps a canonical database plus bounded, verified rollback generations in the public GitHub Release tagged `forecast-history-v1`. Release assets are publicly accessible; do not treat forecast history as confidential or store secrets/private data in it. The independently administered S3-compatible backup is separately configured for private access.
 
 ## Release assets
 
@@ -100,7 +100,7 @@ Verification decompresses to a temporary location and validates the contained SQ
 
 ## Restore procedure
 
-Download a selected generation from the private Release:
+Download a selected generation from the public Release:
 
 ```bash
 gh release download forecast-history-v1 \

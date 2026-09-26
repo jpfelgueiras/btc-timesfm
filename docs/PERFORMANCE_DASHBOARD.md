@@ -55,7 +55,7 @@ Outputs:
 
 ## Automation
 
-`.github/workflows/performance-dashboard.yml` runs daily and on manual dispatch. It downloads the canonical `forecast_history.sqlite.gz` asset from the private `forecast-history-v1` GitHub Release, verifies/decompresses it, regenerates all three dashboard formats, appends the Markdown report to the Actions job summary, and uploads the dashboard files as a 90-day workflow artifact.
+`.github/workflows/performance-dashboard.yml` runs daily and on manual dispatch. It downloads the canonical `forecast_history.sqlite.gz` asset from the public `forecast-history-v1` GitHub Release, verifies/decompresses it, regenerates all three dashboard formats, appends the Markdown report to the Actions job summary, and uploads the dashboard files as a 90-day workflow artifact. Release assets are publicly accessible; forecast history is not confidential.
 
 The workflow requires only the repository `GITHUB_TOKEN` with read access. It does not post to X and does not modify forecast history.
 
