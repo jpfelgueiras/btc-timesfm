@@ -3,6 +3,18 @@
 **Decision: blocked/inconclusive; retain the hourly production forecast and
 make no 15m/4h model or blend recommendation.**
 
+Issue #347 adds a causal UTC 5m-to-15m aggregation gate and a bounded native
+comparison report (`btc_timesfm.research.native_multitimeframe`). Aggregation
+accepts only complete contiguous three-candle buckets; partial buckets are
+omitted, timestamps must be strictly increasing and UTC-boundary aligned, and
+OHLCV aggregation uses first open, maximum high, minimum low, last close, and
+summed volume. Forecast comparisons intersect exact Unix UTC target-close
+timestamps. The report blocks by default because neither an eligible immutable
+same-venue fine-resolution corpus nor a supported TimesFM 15m runtime frequency
+contract is available. It does not invoke a model or create frequency metadata.
+The summary-ridge control is identified separately and is never presented as a
+native-model result.
+
 The checkout contains OHLCV multi-resolution summary/ablation utilities, but no
 immutable finest-resolution BTC/USD corpus with retained provider/vintage
 lineage and aligned 15m/1h/4h TimesFM predictions. The required D1 hourly USD
@@ -37,4 +49,6 @@ blend; blend weights are inner-OOF only.
    prospective D3; do not claim current summary-feature work is a native-model
    comparison.
 
-No inference or production behavior is changed by this blocked status report.
+An unavailable corpus or runtime contract is not evidence of poor forecast
+accuracy; no negative accuracy claim is made. No inference or production
+behavior is changed by this blocked status report.
