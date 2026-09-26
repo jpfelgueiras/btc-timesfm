@@ -62,7 +62,18 @@ jobs:
             gh release download "$HISTORY_RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --pattern 'x_post_registry.json' \
-              --dir .state >/dev/null 2>&1 || true
+              --dir .state
+            PYTHONPATH=src python - <<'PY'
+          from pathlib import Path
+          from btc_timesfm.ops.release_state import validate_restored_state
+          validate_restored_state([Path('.state/x_post_registry.json')], release_exists=True)
+          PY
+          else
+            release_exists="$(gh release list --repo "$GITHUB_REPOSITORY" --json tagName --jq "any(.[]; .tagName == \"$HISTORY_RELEASE_TAG\")")"
+            if [ "$release_exists" != "false" ]; then
+              echo "Could not establish that this is a first run; refusing fresh start." >&2
+              exit 1
+            fi
           fi
 
       - name: Decide whether forecast is due
@@ -95,11 +106,19 @@ jobs:
             gh release download "$HISTORY_RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --pattern 'x_post_registry.json' \
-              --dir .state >/dev/null 2>&1 || true
+              --dir .state
             gh release download "$HISTORY_RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --pattern 'pipeline_health.json' \
-              --dir .state >/dev/null 2>&1 || true
+              --dir .state
+            PYTHONPATH=src python - <<'PY'
+          from pathlib import Path
+          from btc_timesfm.ops.release_state import validate_restored_state
+          validate_restored_state(
+              [Path('.state/x_post_registry.json'), Path('.state/pipeline_health.json')],
+              release_exists=True,
+          )
+          PY
             gh release download "$HISTORY_RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --pattern 'optional_source_retention.json' \
@@ -114,6 +133,11 @@ jobs:
             touch .state/history_restored_from_release
             echo "Restored durable production state from release $HISTORY_RELEASE_TAG"
           else
+            release_exists="$(gh release list --repo "$GITHUB_REPOSITORY" --json tagName --jq "any(.[]; .tagName == \"$HISTORY_RELEASE_TAG\")")"
+            if [ "$release_exists" != "false" ]; then
+              echo "Could not establish that this is a first run; refusing fresh start." >&2
+              exit 1
+            fi
             echo "No durable history release exists yet; the first forecast will create it."
           fi
 
@@ -369,7 +393,6 @@ jobs:
 
       - name: Persist X and health metadata
         if: always() && steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success'
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -385,8 +408,8 @@ jobs:
             assets+=(.state/optional_source_retention.json)
           fi
           if [ "${#assets[@]}" -gt 0 ]; then
-            gh release upload "$HISTORY_RELEASE_TAG" "${assets[@]}" \
-              --repo "$GITHUB_REPOSITORY" --clobber
+            PYTHONPATH=src python -m btc_timesfm.ops.release_state persist \
+              --release "$HISTORY_RELEASE_TAG" "${assets[@]}"
           fi
 
       - name: Refresh pipeline health report

@@ -263,6 +263,8 @@ Before each mutation, the workflow keeps the successfully restored database as `
 
 The workflow will only overwrite an existing Release when that same run successfully restored it first. This prevents a transient download/authentication failure from replacing the real dataset with a newly initialized empty database.
 
+The durable X idempotency registry and pipeline-health circuit state are also required when the Release exists. Restore fails on missing, malformed, or unsupported state instead of silently starting with empty state. Small state assets are uploaded with three bounded attempts and exact SHA-256 read-back verification; exhausted retries or verification failure fail the forecast job. Safe diagnostics record the workflow run id, asset name, attempt count, and failure class without logging command output or state contents. Optional health notifications remain nonblocking.
+
 The small `.state/previous_forecast.json` Actions cache remains in place for fast scheduler decisions. It is not the long-term source of truth, but it also provides a bootstrap source for recent forecasts if the durable database is being created for the first time.
 
 ## Continuous shadow monitoring
