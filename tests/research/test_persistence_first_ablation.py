@@ -33,6 +33,28 @@ class PersistenceFirstAblationTests(unittest.TestCase):
         self.assertFalse(report["evidence"]["d2"]["acceptance_eligible"])
         self.assertEqual(report["additional_ablations"]["ridge"]["status"], "blocked")
 
+    def test_report_enumerates_exact_bounded_catalog_without_generated_candidates(self) -> None:
+        report = build_report(
+            model_names=["persistence", "timesfm_168"],
+            production_weights={"persistence": 0.5, "timesfm_168": 0.5},
+        )
+        candidates = report["candidate_weights"]
+        self.assertEqual([candidate["name"] for candidate in candidates], list(POLICY_MATRIX))
+        self.assertEqual(report["policy_matrix"], [candidate["name"] for candidate in candidates])
+        self.assertLessEqual(len(candidates), MAX_POLICY_FAMILIES)
+        self.assertTrue(
+            all(
+                candidate
+                == {
+                    "name": candidate["name"],
+                    "status": "planned_not_generated",
+                    "weights": None,
+                    "eligible": False,
+                }
+                for candidate in candidates
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

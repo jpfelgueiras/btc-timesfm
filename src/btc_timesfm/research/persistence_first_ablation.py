@@ -12,8 +12,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from btc_timesfm.research.persistence_shrinkage import candidate_policy_weights
-
 POLICY_MATRIX = (
     "persistence",
     "current_production_ensemble",
@@ -33,14 +31,16 @@ def build_report(
 ) -> dict[str, Any]:
     """Build a fail-closed report; this issue report cannot claim corpus eligibility.
 
-    ``model_names`` and weights exercise the reusable candidate mechanics, but
-    cannot override the absent #339 corpus gate or generate predictions.
+    Candidate policies are catalogued but not generated until validated inputs
+    and the #339 corpus gate are available.
     """
+    del model_names, production_weights  # Kept for backwards-compatible callers.
     if len(POLICY_MATRIX) > MAX_POLICY_FAMILIES:
         raise RuntimeError("policy family catalog exceeds its declared bound")
-    policies = None
-    if model_names is not None and production_weights is not None:
-        policies = candidate_policy_weights(model_names, production_weights)
+    candidates = [
+        {"name": name, "status": "planned_not_generated", "weights": None, "eligible": False}
+        for name in POLICY_MATRIX
+    ]
     return {
         "schema_version": 1,
         "experiment": "issue-345-timesfm-incremental-skill-persistence-first-ablation",
@@ -62,7 +62,7 @@ def build_report(
             "d1_d3": "unavailable_or_not_mature",
         },
         "policy_matrix": list(POLICY_MATRIX),
-        "candidate_weights": policies,
+        "candidate_weights": candidates,
         "additional_ablations": {
             "per_context_delete": "separate matched-origin analysis; preserve failures",
             "drift_ar_delete": "separate matched-origin analysis; preserve failures",
