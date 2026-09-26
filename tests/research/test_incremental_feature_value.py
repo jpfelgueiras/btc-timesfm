@@ -43,13 +43,9 @@ class IncrementalFeatureValueTests(unittest.TestCase):
                     "origin_at": "2025-01-01T01:00:00Z",
                     "features": {name: 1 for name in group_features},
                     "feature_capture_times": {
-                        name: "2025-01-01T00:00:00Z"
-                        for name in group_features
+                        name: "2025-01-01T00:00:00Z" for name in group_features
                     },
-                    "feature_vintages": {
-                        name: "2025-01-01T00:00:00Z"
-                        for name in group_features
-                    },
+                    "feature_vintages": {name: "2025-01-01T00:00:00Z" for name in group_features},
                 },
                 {"origin_at": "2025-01-01T02:00:00Z", "features": {}},
             ]
