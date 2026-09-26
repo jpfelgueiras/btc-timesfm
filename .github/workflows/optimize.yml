@@ -38,7 +38,7 @@ jobs:
 
       - uses: ./.github/actions/python-setup
         with:
-          requirements-file: requirements.txt
+          dependency-set: runtime
 
       - name: Restore production health snapshot
         env:

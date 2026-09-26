@@ -14,14 +14,14 @@ tests, documentation, and bug reports are welcome.
 
 ## Development setup
 
-The project targets Python 3.11. From a fresh clone, create an environment and
-install the test and quality dependencies:
+The project supports Python 3.11, 3.12, and 3.13. From a fresh clone, create an
+environment and install the locked test and quality dependencies:
 
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements-test.txt
+python -m pip install uv==0.12.19
+uv sync --locked --no-default-groups --group test
 ```
 
 Run tests and the checks used by CI before submitting a pull request:

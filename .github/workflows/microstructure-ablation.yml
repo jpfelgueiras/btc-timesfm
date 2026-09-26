@@ -32,7 +32,7 @@ jobs:
 
       - uses: ./.github/actions/python-setup
         with:
-          requirements-file: requirements-test.txt
+          dependency-set: test
 
       - name: Restore durable forecast history
         env:

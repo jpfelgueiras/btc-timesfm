@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -224,7 +225,7 @@ class ForecastService:
             row = connection.execute("SELECT MAX(origin_at) FROM forecast_origins").fetchone()
             if row is None or row[0] is None:
                 return self._error(404, "forecast_not_found", "No forecast is available.", audit)
-            records = self._query_rows(connection, "o.origin_at = ?", [row[0]])
+            records = self._query_rows(connection, "o.origin_at = ?", [row[0]], limit=1)
         if not records:
             return self._error(404, "forecast_not_found", "No forecast is available.", audit)
         payload = {
@@ -243,12 +244,24 @@ class ForecastService:
         if health is None or health["status"] == "unavailable":
             return self._error(503, "history_unavailable", "Durable history is unavailable.", audit)
         filters, limit, cursor, signature = self._filters(query)
+        where, params = filters
         with self._connection() as connection:
-            records = self._query_rows(connection, filters[0], filters[1])
-        start = self._cursor_index(records, cursor, signature) if cursor else 0
-        page = records[start : start + limit]
-        next_cursor = self._cursor(page[-1], signature) if len(records) > start + limit else None
-        observed = page[0]["origin_at"] if page else self._latest_origin(records)
+            connection.execute("BEGIN")
+            if cursor:
+                if cursor["filters"] != signature:
+                    raise ValueError("cursor filters differ")
+                key = cursor["key"]
+                if not self._cursor_exists(connection, where, params, key):
+                    raise ValueError("cursor not found")
+                where, params = self._after_cursor(where, params, key)
+            rows = self._query_rows(connection, where, params, limit=limit + 1)
+            observed = str(rows[0]["origin_at"]) if rows else None
+            if observed is None:
+                row = connection.execute("SELECT MAX(origin_at) FROM forecast_origins").fetchone()
+                observed = str(row[0]) if row and row[0] else None
+        has_more = len(rows) > limit
+        page = rows[:limit]
+        next_cursor = self._cursor(page[-1], signature) if has_more else None
         payload = {
             "api_version": API_VERSION,
             "data": page,
@@ -324,13 +337,41 @@ class ForecastService:
         return str(row[0]) if row and row[0] else None
 
     def _query_rows(
-        self, connection: sqlite3.Connection, where: str, params: list[Any]
+        self, connection: sqlite3.Connection, where: str, params: list[Any], *, limit: int
     ) -> list[dict[str, Any]]:
         rows = connection.execute(
-            f"""SELECT o.origin_at, o.generated_at, o.source_name, o.pair, o.source_price_usd, o.experiment_run_id, o.configuration_id, o.experiment_manifest_json, p.model_name, p.horizon_hours, p.target_at, p.predicted_price_usd, p.predicted_change_pct, p.q10_usd, p.q50_usd, p.q90_usd, p.model_agreement FROM forecast_predictions p JOIN forecast_origins o USING(origin_at) WHERE {where} ORDER BY o.origin_at DESC, p.horizon_hours ASC, p.model_name ASC""",
-            params,
+            f"""SELECT o.origin_at, o.generated_at, o.source_name, o.pair, o.source_price_usd, o.experiment_run_id, o.configuration_id, o.experiment_manifest_json, p.model_name, p.horizon_hours, p.target_at, p.predicted_price_usd, p.predicted_change_pct, p.q10_usd, p.q50_usd, p.q90_usd, p.model_agreement FROM forecast_predictions p JOIN forecast_origins o USING(origin_at) WHERE {where} ORDER BY o.origin_at DESC, p.horizon_hours ASC, p.model_name ASC LIMIT ?""",
+            [*params, limit],
         ).fetchall()
         return [self._resource(row) for row in rows]
+
+    def _cursor_exists(
+        self, connection: sqlite3.Connection, where: str, params: list[Any], key: list[Any]
+    ) -> bool:
+        if (
+            len(key) != 3
+            or not isinstance(key[0], str)
+            or not isinstance(key[1], int)
+            or isinstance(key[1], bool)
+            or not isinstance(key[2], str)
+            or key[1] < 1
+        ):
+            raise ValueError("invalid cursor")
+        row = connection.execute(
+            f"""SELECT 1 FROM forecast_predictions p JOIN forecast_origins o USING(origin_at)
+                WHERE ({where}) AND o.origin_at = ? AND p.horizon_hours = ? AND p.model_name = ?
+                LIMIT 1""",
+            [*params, *key],
+        ).fetchone()
+        return row is not None
+
+    def _after_cursor(self, where: str, params: list[Any], key: list[Any]) -> tuple[str, list[Any]]:
+        origin, horizon, model = key
+        return (
+            f"({where}) AND (o.origin_at < ? OR (o.origin_at = ? AND "
+            "(p.horizon_hours > ? OR (p.horizon_hours = ? AND p.model_name > ?))))",
+            [*params, origin, origin, horizon, horizon, model],
+        )
 
     def _resource(self, row: sqlite3.Row) -> dict[str, Any]:
         origin = str(row["origin_at"])
@@ -418,17 +459,6 @@ class ForecastService:
         cursor = self._decode_cursor(query["cursor"][0], signature) if "cursor" in query else None
         return (" AND ".join(clauses) or "1 = 1", params), limit, cursor, signature
 
-    def _cursor_index(
-        self, records: list[dict[str, Any]], cursor: dict[str, Any], signature: dict[str, str]
-    ) -> int:
-        if cursor.get("filters") != signature:
-            raise ValueError("cursor filters differ")
-        key = cursor.get("key")
-        for index, record in enumerate(records):
-            if [record["origin_at"], record["horizon_hours"], record["model"]["name"]] == key:
-                return index + 1
-        raise ValueError("cursor not found")
-
     def _cursor(self, record: dict[str, Any], filters: dict[str, str]) -> str:
         raw = json.dumps(
             {
@@ -442,9 +472,12 @@ class ForecastService:
 
     def _decode_cursor(self, value: str, filters: dict[str, str]) -> dict[str, Any]:
         try:
-            raw = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+            encoded = value.encode("ascii")
+            raw = base64.b64decode(
+                encoded + b"=" * (-len(encoded) % 4), altchars=b"-_", validate=True
+            )
             parsed = json.loads(raw)
-        except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        except (ValueError, UnicodeEncodeError, binascii.Error, json.JSONDecodeError):
             raise ValueError("invalid cursor") from None
         if (
             not isinstance(parsed, dict)

@@ -28,7 +28,7 @@ jobs:
 
       - uses: ./.github/actions/python-setup
         with:
-          requirements-file: requirements-test.txt
+          dependency-set: test
 
       - name: Install Chromium for dashboard browser tests
         run: python -m playwright install --with-deps chromium
@@ -204,6 +204,29 @@ jobs:
         run: |
           echo "Unit tests + quality: $RESULT"
           test "$RESULT" = "success"
+
+  supported-python:
+    name: Core tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: ./.github/actions/python-setup
+        with:
+          dependency-set: test
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Chromium for browser tests
+        run: python -m playwright install --with-deps chromium
+
+      - name: Run core tests
+        run: PYTHONPATH=src unittest-parallel -s tests -p 'test_*.py' -t .
 
   unit-tests-legacy-compat:
     name: unit-tests

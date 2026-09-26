@@ -122,7 +122,7 @@ class HistoryMigrationTests(unittest.TestCase):
         self.assertEqual(result["schema_version"], CURRENT_SCHEMA_VERSION)
         self.assertEqual(
             [item["version"] for item in result["applied_migrations"]],
-            [1, 2, 3, 4, 5],
+            [1, 2, 3, 4, 5, 6],
         )
         self.assertEqual(validate_database(self.db_path)["integrity"], "ok")
 
@@ -140,7 +140,7 @@ class HistoryMigrationTests(unittest.TestCase):
         diagnostics = schema_diagnostics(self.db_path)
         self.assertEqual(
             [item["version"] for item in diagnostics["applied_migrations"]],
-            [1, 2, 3, 4, 5],
+            [1, 2, 3, 4, 5, 6],
         )
 
     def test_coherence_diagnostics_are_preserved_in_snapshots(self) -> None:

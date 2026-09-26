@@ -66,7 +66,8 @@ For a report created with the standard CLI, use the recorded Git SHA and the val
 
 ```bash
 git checkout <experiment_manifest.code.git_sha>
-pip install -r requirements.txt
+python -m pip install uv==0.12.19
+uv sync --locked --no-default-groups --extra model
 PYTHONPATH=src python -m btc_timesfm.research.backtest --days <days_requested> --samples <samples_requested>
 ```
 
