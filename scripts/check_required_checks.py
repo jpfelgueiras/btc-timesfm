@@ -18,7 +18,6 @@ def validate_rulesets(rulesets: list[dict[str, Any]]) -> list[str]:
     errors: list[str] = []
     found_checks: set[str] = set()
     for ruleset in rulesets:
-        name = ruleset.get("name", "<unnamed>")
         if ruleset.get("enforcement") != "active":
             continue
         for rule in ruleset.get("rules", []):

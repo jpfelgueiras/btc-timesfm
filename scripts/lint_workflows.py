@@ -56,7 +56,7 @@ def validate(path: Path) -> list[str]:
             "WORKFLOWS: ${{ steps.workflows.outcome }}",
             "ACTION_PINS: ${{ steps.action-pins.outcome }}",
             "TYPECHECK: ${{ steps.typecheck.outcome }}",
-            "exit \"$failed\"",
+            'exit "$failed"',
         )
         errors.extend(
             f"{path}: missing quality-gate enforcement contract {field}"
