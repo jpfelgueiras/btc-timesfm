@@ -16,12 +16,14 @@ on:
 permissions:
   # Read the source and update the dedicated forecast-history Release assets.
   contents: write
+  issues: write
 
 env:
   HISTORY_RELEASE_TAG: forecast-history-v1
   HISTORY_BACKUP_KEEP: "7"
   HISTORY_BACKUP_MAX_BYTES: "52428800"
   HISTORY_BACKUP_MAX_TOTAL_BYTES: "262144000"
+  HISTORY_INDEPENDENT_BACKUP_URI: ${{ vars.HISTORY_INDEPENDENT_BACKUP_URI }}
 
 concurrency:
   group: btc-timesfm-forecast
@@ -212,6 +214,9 @@ jobs:
         if: steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.HISTORY_BACKUP_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.HISTORY_BACKUP_AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ vars.HISTORY_BACKUP_AWS_REGION }}
         run: |
           set -euo pipefail
           assets=(
@@ -254,6 +259,16 @@ jobs:
               --max-bytes "$HISTORY_BACKUP_MAX_BYTES" \
               > .state/uploaded_backup_verification.json
 
+            if [ -z "$HISTORY_INDEPENDENT_BACKUP_URI" ]; then
+              echo "Independent history backup is not configured (HISTORY_INDEPENDENT_BACKUP_URI)." >&2
+              echo "Release canonical assets have not been replaced." >&2
+              exit 1
+            fi
+            PYTHONPATH=src python -m btc_timesfm.history.independent_backup upload \
+              --archive ".state/backup_verify/${backup_name}" \
+              --uri "$HISTORY_INDEPENDENT_BACKUP_URI" \
+              --report .state/independent_backup_verification.json
+
             # Only after the new rollback generation has been re-downloaded and
             # verified may the current canonical assets be replaced.
             gh release upload "$HISTORY_RELEASE_TAG" "${assets[@]}" \
@@ -289,6 +304,15 @@ jobs:
               --notes 'Machine-managed durable history for production BTC forecasts. Do not edit assets manually.' \
               --latest=false
           fi
+
+      - name: Open incident for history backup or publication failure
+        if: failure() && steps.forecast_run.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Forecast history backup/publication failed" \
+            --body "History backup or publication failed in run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Follow [history backup runbook]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/HISTORY_BACKUP.md). Inspect the workflow logs; secret values are not included."
 
       - name: Observe durable history health
         if: always() && steps.due.outputs.run_forecast == 'true' && steps.forecast_run.outcome == 'success'
@@ -335,6 +359,13 @@ jobs:
             echo '### History backup retention' >> "$GITHUB_STEP_SUMMARY"
             echo '```json' >> "$GITHUB_STEP_SUMMARY"
             cat .state/backup_retention_plan.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f .state/independent_backup_verification.json ]; then
+            echo '' >> "$GITHUB_STEP_SUMMARY"
+            echo '### Independent history backup' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat .state/independent_backup_verification.json >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ -f shadow_deployment_summary.md ]; then
@@ -455,5 +486,6 @@ jobs:
             .state/x_post_prepared.json
             .state/uploaded_backup_verification.json
             .state/backup_retention_plan.json
+            .state/independent_backup_verification.json
           if-no-files-found: warn
           retention-days: 7

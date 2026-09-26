@@ -14,6 +14,7 @@ concurrency:
 
 env:
   HISTORY_RELEASE_TAG: forecast-history-v1
+  HISTORY_INDEPENDENT_BACKUP_URI: ${{ vars.HISTORY_INDEPENDENT_BACKUP_URI }}
   RUNBOOK_PATH: docs/DISASTER_RECOVERY.md
 
 jobs:
@@ -30,30 +31,28 @@ jobs:
           dependency-set: runtime
 
       - name: Restore latest backup archive to scratch storage
+        id: independent_restore
         env:
           GH_TOKEN: ${{ github.token }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.HISTORY_BACKUP_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.HISTORY_BACKUP_AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ vars.HISTORY_BACKUP_AWS_REGION }}
         run: |
           set -euo pipefail
           mkdir -p .drill
-          gh release download "$HISTORY_RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern 'forecast_history.backup-*.sqlite.gz' \
-            --dir .drill
-          archive="$(python3 - <<'PY'
-          from pathlib import Path
-          archives = list(Path('.drill').glob('forecast_history.backup-*.sqlite.gz'))
-          if not archives:
-              raise SystemExit('No versioned forecast-history backup assets are available')
-          print(max(archives, key=lambda path: path.stat().st_mtime))
-          PY
-          )"
-          cp "$archive" .drill/latest-backup.sqlite.gz
+          if [ -z "$HISTORY_INDEPENDENT_BACKUP_URI" ]; then
+            echo "Independent backup is not configured; set HISTORY_INDEPENDENT_BACKUP_URI." >&2
+            exit 1
+          fi
+          PYTHONPATH=src python -m btc_timesfm.history.independent_backup restore \
+            --uri "$HISTORY_INDEPENDENT_BACKUP_URI" \
+            --output .drill/independent-backup.sqlite.gz > .drill/independent_restore.json
 
       - name: Run non-mutating recovery drill
         id: drill
         run: |
           PYTHONPATH=src python -m btc_timesfm.history.disaster_recovery \
-            --archive .drill/latest-backup.sqlite.gz \
+            --archive .drill/independent-backup.sqlite.gz \
             --report .drill/disaster_recovery_report.json
 
       - name: Add drill report to job summary
@@ -69,11 +68,13 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: forecast-history-disaster-recovery
-          path: .drill/disaster_recovery_report.json
+          path: |
+            .drill/disaster_recovery_report.json
+            .drill/independent_restore.json
           retention-days: 90
 
       - name: Create failure issue
-        if: steps.drill.outcome == 'failure'
+        if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
