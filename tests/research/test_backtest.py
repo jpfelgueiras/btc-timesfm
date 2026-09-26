@@ -7,13 +7,21 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
+import numpy as np
+
 from tests.support.unit_test_stubs import install_timesfm_stub
 
 install_timesfm_stub()
 
-from btc_timesfm.research.backtest import evaluate_cross_validation, summarize  # noqa: E402
+from btc_timesfm.research.backtest import (  # noqa: E402
+    data_source_label,
+    evaluate_cross_validation,
+    summarize,
+)
 from btc_timesfm.forecasting.benchmarks import BENCHMARK_NAMES  # noqa: E402
 from btc_timesfm.forecasting.cross_validation import build_purged_walk_forward_folds  # noqa: E402
+from btc_timesfm.forecasting.experiment_manifest import build_experiment_manifest  # noqa: E402
+from btc_timesfm.forecasting.forecast_engine import MarketData  # noqa: E402
 
 
 def horizon_prices(price: float) -> dict[str, dict[str, float]]:
@@ -60,6 +68,31 @@ def make_sample(
 
 
 class BacktestSummaryTests(unittest.TestCase):
+    def test_offline_source_is_preserved_in_manifest_with_market_data_hash(self) -> None:
+        data = MarketData(
+            timestamps=[1_700_000_000, 1_700_003_600],
+            opens=np.asarray([100.0, 101.0]),
+            highs=np.asarray([102.0, 103.0]),
+            lows=np.asarray([99.0, 100.0]),
+            closes=np.asarray([101.0, 102.0]),
+            volumes=np.asarray([10.0, 11.0]),
+        )
+        source = data_source_label("fixtures/history.npz")
+        manifest = build_experiment_manifest(
+            run_type="backtest",
+            data=data,
+            data_source=source,
+            data_pair="BTC/USDT",
+            git_sha="test",
+        )
+
+        self.assertEqual(source, "Offline dataset: fixtures/history.npz")
+        self.assertEqual(manifest["data"]["source"], source)
+        self.assertRegex(manifest["data"]["ohlcv_sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(
+            data_source_label(None), "Binance BTCUSDT 1h (historical proxy for BTC/USD)"
+        )
+
     def test_summary_exposes_all_benchmarks_for_every_horizon(self) -> None:
         report = summarize([make_sample(regime="range", current=100.0, actual=102.0)])
         for horizon in ("2h", "4h", "8h", "16h"):

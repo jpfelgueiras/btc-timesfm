@@ -32,7 +32,13 @@ are:
 
 The remote history is hourly **Binance BTCUSDT**, a BTC/USDT research proxy, not
 the production Kraken BTC/USD market. Results from it must not be presented as
-canonical BTC/USD evidence or exact production-market replay. Origins are
+canonical BTC/USD evidence or exact production-market replay. An offline run's
+report and experiment-manifest `data.source` retain the exact label
+`Offline dataset: <path>` (for example, `Offline dataset: fixtures/history.npz`)
+instead of being relabeled as Binance. The manifest's `data.ohlcv_sha256` is a
+SHA-256 digest over the normalized timestamps and OHLCV arrays; it fingerprints
+the loaded market data, not the `.npz` file bytes or its metadata. The Binance
+run label is `Binance BTCUSDT 1h (historical proxy for BTC/USD)`. Origins are
 selected across the available candle range (up to 60 by default), leaving the
 longest 16-hour target in range. A run can fail when its history cannot support
 the requested origins/folds. An offline file changes the source, but does not by
