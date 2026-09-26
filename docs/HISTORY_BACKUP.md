@@ -20,6 +20,36 @@ A versioned backup is created from the previously restored, verified canonical d
 
 ## Retention policy
 
+## Independent copy
+
+The Release remains canonical. Before replacing its assets, each normal publish
+also copies the verified prior canonical archive to the configured S3-compatible
+object URI in `HISTORY_INDEPENDENT_BACKUP_URI` and downloads it again for
+checksum and SQLite/schema verification. Configure repository variable
+`HISTORY_INDEPENDENT_BACKUP_URI` (for example
+`s3://<private-bucket>/btc-timesfm/forecast-history/latest.sqlite.gz`),
+`HISTORY_BACKUP_AWS_REGION`, and repository secrets
+`HISTORY_BACKUP_AWS_ACCESS_KEY_ID` / `HISTORY_BACKUP_AWS_SECRET_ACCESS_KEY`.
+The AWS identity needs write/read access only to this object prefix. The bucket
+must be in an independently administered account/provider with private access,
+encryption at rest, object versioning, and a lifecycle policy retaining at least
+30 days of versions. The workflow's AWS CLI uses environment credentials; it
+does not print command diagnostics or credentials.
+
+The scheduled production cadence is every two hours. The recovery objective is
+**RPO 3 hours** and **RTO 1 hour**. A copy/verification failure opens a GitHub
+incident issue and stops canonical Release replacement and pruning. Missing
+destination configuration is also an explicit failure, not an implied backup.
+On the first-ever publish there is no prior canonical archive to copy; the
+independent copy begins after the next successful forecast publish.
+
+The forecast workflow summary reports verification time, bytes, SHA-256, and
+SQLite/schema verification. The weekly drill reports the latest independent
+restore and alerts through a failure issue if it cannot restore and verify.
+Operators should treat a last successful independent copy older than the 3-hour
+RPO as an incident. Repository has no destination configured by default; set
+the variable and secrets above before relying on independent recovery.
+
 Defaults are intentionally conservative and can be changed in `.github/workflows/forecast.yml`:
 
 - retain at most **7 versioned generations**
