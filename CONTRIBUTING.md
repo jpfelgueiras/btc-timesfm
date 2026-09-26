@@ -39,6 +39,10 @@ any tests you could not run and why in your pull request.
 
 ## Change guidelines
 
+For repository orientation, domain test locations, and practical guidance on
+provider, model, API, dashboard, and leakage-safe forecasting changes, see the
+[developer guide](docs/development.md).
+
 - Keep changes focused and explain the motivation and user impact.
 - Add or update tests for behavior changes and bug fixes.
 - Update documentation when commands, configuration, APIs, or behavior change.
