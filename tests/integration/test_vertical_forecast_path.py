@@ -27,7 +27,7 @@ from btc_timesfm.data.market_data_sources import (
 from btc_timesfm.data.market_data_validation import ValidationConfig
 from btc_timesfm.forecasting.forecast_engine import MarketData
 from btc_timesfm.history.history_store import ForecastHistoryStore
-from btc_timesfm.ops import observability
+from btc_timesfm.ops import observability, validated_entrypoints
 from btc_timesfm.ops.validated_entrypoints import run_forecast
 from btc_timesfm.web.static_site import build_site_data
 
@@ -106,15 +106,21 @@ class VerticalForecastPathTests(unittest.TestCase):
         }
 
     def _run(
-        self, *, inference_error: Exception | None = None, persistence_error: bool = False
+        self,
+        *,
+        fetch_error: Exception | None = None,
+        inference_error: Exception | None = None,
+        persistence_error: bool = False,
     ) -> None:
-        selection = select_market_data(
-            primary_provider=_Provider(self.data),
-            secondary_provider=_Provider(self.data),
-            now=datetime.fromtimestamp(self.origin + 60, timezone.utc),
-            validation_config=ValidationConfig(),
-            provider_config=ProviderConfig(),
-        )
+        selection = None
+        if fetch_error is None:
+            selection = select_market_data(
+                primary_provider=_Provider(self.data),
+                secondary_provider=_Provider(self.data),
+                now=datetime.fromtimestamp(self.origin + 60, timezone.utc),
+                validation_config=ValidationConfig(),
+                provider_config=ProviderConfig(),
+            )
         original_store = btc_forecast.ForecastHistoryStore
 
         class FailingStore(original_store):
@@ -124,7 +130,15 @@ class VerticalForecastPathTests(unittest.TestCase):
                 return super().ingest_snapshot(*args, **kwargs)
 
         patches = [
-            patch.object(btc_forecast, "fetch_redundant_hourly", return_value=selection),
+            (
+                patch.object(
+                    btc_forecast, "fetch_redundant_hourly", side_effect=fetch_error
+                )
+                if fetch_error is not None
+                else patch.object(
+                    btc_forecast, "fetch_redundant_hourly", return_value=selection
+                )
+            ),
             patch.object(btc_forecast, "load_timesfm", return_value=object()),
             patch.object(
                 btc_forecast,
@@ -177,6 +191,15 @@ class VerticalForecastPathTests(unittest.TestCase):
             patch.object(btc_forecast, "SHADOW_SUMMARY_PATH", self.root / "shadow.md"),
             patch.object(observability, "REPORT_PATH", self.root / "observability.json"),
             patch.object(observability, "EVENT_LOG_PATH", self.root / "observability.jsonl"),
+            patch.object(
+                validated_entrypoints,
+                "PipelineObserver",
+                side_effect=lambda **kwargs: observability.PipelineObserver(
+                    report_path=self.root / "observability.json",
+                    event_log_path=self.root / "observability.jsonl",
+                    **kwargs,
+                ),
+            ),
             patch.dict("os.environ", {"BTC_RUN_ID": "vertical-run-336"}),
         ]
         with ExitStack() as stack:
@@ -275,23 +298,31 @@ class VerticalForecastPathTests(unittest.TestCase):
         self.assertEqual(site_latest["target_at"], forecast["target_at"])
         self.assertEqual(site["latest_age_hours"], 0.17)
 
-    def test_stale_and_malformed_candles_never_create_public_history(self) -> None:
-        stale = self._candles()
-        stale.timestamps = [timestamp - 48 * 3600 for timestamp in stale.timestamps]
-        malformed = self._candles()
-        malformed.closes[-1] = -1.0
-        for label, candles in (("stale", stale), ("malformed", malformed)):
-            with self.subTest(input=label):
+    def test_stale_and_malformed_provider_errors_never_publish_forecasts(self) -> None:
+        cases = (
+            ("stale", "stale_data"),
+            ("malformed", "invalid_ohlcv"),
+        )
+        for input_name, failure_class in cases:
+            with self.subTest(input=input_name):
+                (self.root / "observability.json").unlink(missing_ok=True)
+                (self.root / "observability.jsonl").unlink(missing_ok=True)
                 with self.assertRaises(NoHealthyMarketDataProvider):
-                    select_market_data(
-                        primary_provider=_Provider(candles),
-                        secondary_provider=_Provider(candles),
-                        now=datetime.fromtimestamp(self.origin + 60, timezone.utc),
-                        validation_config=ValidationConfig(),
-                        provider_config=ProviderConfig(),
+                    self._run(
+                        fetch_error=NoHealthyMarketDataProvider(
+                            f"fixture provider rejected {input_name} candles: {failure_class}"
+                        )
                     )
                 self.assertFalse(self.database.exists())
                 self.assertFalse(self.output.exists())
+                report = json.loads(
+                    (self.root / "observability.json").read_text(encoding="utf-8")
+                )
+                stage = next(
+                    item for item in report["stages"] if item["name"] == "market_data_fetch"
+                )
+                self.assertEqual(stage["status"], "failed")
+                self.assertEqual(stage["error_type"], "NoHealthyMarketDataProvider")
 
     def test_inference_and_persistence_failures_have_failed_stages_and_no_publication(
         self,
