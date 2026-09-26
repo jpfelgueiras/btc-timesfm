@@ -8,6 +8,7 @@ from btc_timesfm.research.native_multitimeframe import (
     aggregate_ohlcv_15m,
     build_report,
     exact_target_matches,
+    score_exact_targets,
 )
 
 
@@ -51,9 +52,52 @@ class NativeMultiTimeframeTests(unittest.TestCase):
         self.assertIn("separate control", report["summary_ridge_control"])
         self.assertIn("corpus", report["blockers"][0])
         self.assertIn("frequency", report["blockers"][1])
-        ready = build_report(corpus_available=True, runtime_frequency_supported=True)
-        self.assertEqual(ready["status"], "ready_for_scoring")
-        self.assertIsNone(ready["accuracy_claim"])
+        booleans_only = build_report(corpus_available=True, runtime_frequency_supported=True)
+        self.assertEqual(booleans_only["status"], "blocked")
+        self.assertEqual(booleans_only["matched_targets"], 0)
+
+    def test_scoring_uses_only_exact_targets_with_shared_origins(self) -> None:
+        scoring = score_exact_targets(
+            {100: 1.0, 200: 3.0, 300: 5.0, 400: 7.0},
+            {100: 2.0, 200: 2.0, 300: 4.0, 500: 8.0},
+            {100: 0.0, 200: 1.0, 300: 3.0, 400: 6.0, 500: 7.0},
+            hourly_origins={100: 10, 200: 20, 300: 30, 400: 40},
+            native_origins={100: 10, 200: 21, 300: 30, 500: 50},
+        )
+        self.assertEqual(scoring["matched_targets"], 2)
+        self.assertEqual(scoring["eligible_hourly_count"], 2)
+        self.assertEqual(scoring["eligible_native_count"], 2)
+        self.assertEqual(scoring["hourly_losses"]["mae"], 1.5)
+        self.assertEqual(scoring["native_losses"]["mae"], 1.5)
+        self.assertAlmostEqual(scoring["residual_correlation"], -1.0)
+
+        report = build_report(
+            corpus_available=True,
+            runtime_frequency_supported=True,
+            corpus_contract={
+                "immutable": True,
+                "venue": "example",
+                "symbol": "BTC/USD",
+                "frequency": "15m",
+            },
+            runtime_contract={"model": "TimesFM", "frequency": "15m", "supported": True},
+            scoring=scoring,
+        )
+        self.assertEqual(report["status"], "ready_for_scoring")
+        self.assertEqual(report["matched_targets"], 2)
+
+    def test_missing_origin_or_contract_keeps_report_blocked(self) -> None:
+        scoring = score_exact_targets({1: 1.0}, {1: 1.0}, {1: 1.0}, hourly_origins={1: 0})
+        self.assertEqual(scoring["matched_targets"], 0)
+        self.assertEqual(
+            build_report(
+                corpus_available=True,
+                runtime_frequency_supported=True,
+                scoring={"matched_targets": 10, "eligible_hourly_count": 10,
+                         "eligible_native_count": 10, "hourly_losses": {}, "native_losses": {}},
+            )["status"],
+            "blocked",
+        )
 
 
 if __name__ == "__main__":

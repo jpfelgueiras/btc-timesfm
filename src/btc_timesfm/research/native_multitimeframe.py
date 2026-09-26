@@ -84,23 +84,124 @@ def exact_target_matches(
     ]
 
 
+def score_exact_targets(
+    hourly: Mapping[int, float],
+    native: Mapping[int, float],
+    actual: Mapping[int, float],
+    *,
+    hourly_origins: Mapping[int, int] | None = None,
+    native_origins: Mapping[int, int] | None = None,
+) -> dict[str, Any]:
+    """Score forecast pairs only where both models share target and origin, and truth exists."""
+    common = set(hourly) & set(native) & set(actual)
+    if hourly_origins is not None or native_origins is not None:
+        if hourly_origins is None or native_origins is None:
+            common.clear()
+        else:
+            common = {
+                target
+                for target in common
+                if target in hourly_origins
+                and target in native_origins
+                and hourly_origins[target] == native_origins[target]
+            }
+    pairs = [
+        (float(hourly[target]), float(native[target]), float(actual[target]))
+        for target in sorted(common)
+        if all(
+            math.isfinite(float(value))
+            for value in (hourly[target], native[target], actual[target])
+        )
+    ]
+    hourly_residuals = [prediction - truth for prediction, _, truth in pairs]
+    native_residuals = [prediction - truth for _, prediction, truth in pairs]
+
+    def losses(residuals: list[float]) -> dict[str, float | None]:
+        if not residuals:
+            return {"mae": None, "mse": None}
+        return {
+            "mae": sum(abs(value) for value in residuals) / len(residuals),
+            "mse": sum(value * value for value in residuals) / len(residuals),
+        }
+
+    correlation: float | None = None
+    if len(pairs) >= 2:
+        mean_hourly = sum(hourly_residuals) / len(pairs)
+        mean_native = sum(native_residuals) / len(pairs)
+        covariance = sum(
+            (left - mean_hourly) * (right - mean_native)
+            for left, right in zip(hourly_residuals, native_residuals)
+        )
+        hourly_ss = sum((value - mean_hourly) ** 2 for value in hourly_residuals)
+        native_ss = sum((value - mean_native) ** 2 for value in native_residuals)
+        if hourly_ss > 0 and native_ss > 0:
+            correlation = covariance / math.sqrt(hourly_ss * native_ss)
+    return {
+        "matched_targets": len(pairs),
+        "eligible_hourly_count": len(pairs),
+        "eligible_native_count": len(pairs),
+        "hourly_losses": losses(hourly_residuals),
+        "native_losses": losses(native_residuals),
+        "residual_correlation": correlation,
+    }
+
+
 def build_report(
-    *, corpus_available: bool = False, runtime_frequency_supported: bool = False
+    *,
+    corpus_available: bool = False,
+    runtime_frequency_supported: bool = False,
+    corpus_contract: Mapping[str, Any] | None = None,
+    runtime_contract: Mapping[str, Any] | None = None,
+    scoring: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     blockers = []
-    if not corpus_available:
+    verified_corpus = bool(
+        corpus_contract
+        and corpus_contract.get("immutable") is True
+        and corpus_contract.get("venue")
+        and corpus_contract.get("symbol") == "BTC/USD"
+        and corpus_contract.get("frequency") == "15m"
+    )
+    verified_runtime = bool(
+        runtime_contract
+        and runtime_contract.get("model") == "TimesFM"
+        and runtime_contract.get("frequency") == "15m"
+        and runtime_contract.get("supported") is True
+    )
+    if not corpus_available or not verified_corpus:
         blockers.append("immutable same-venue 15m BTC/USD corpus unavailable")
-    if not runtime_frequency_supported:
+    if not runtime_frequency_supported or not verified_runtime:
         blockers.append("TimesFM runtime frequency contract for 15m is unavailable")
+    def has_losses(value: Any) -> bool:
+        return isinstance(value, Mapping) and all(
+            key in value
+            and isinstance(value[key], (int, float))
+            and math.isfinite(value[key])
+            and value[key] >= 0
+            for key in ("mae", "mse")
+        )
+
+    valid_scoring = bool(
+        scoring
+        and isinstance(scoring.get("matched_targets"), int)
+        and scoring["matched_targets"] >= 2
+        and scoring.get("eligible_hourly_count") == scoring.get("matched_targets")
+        and scoring.get("eligible_native_count") == scoring.get("matched_targets")
+        and has_losses(scoring.get("hourly_losses"))
+        and has_losses(scoring.get("native_losses"))
+    )
+    if not valid_scoring:
+        blockers.append("at least two exact matched forecast pairs with scoring output are required")
     return {
         "schema_version": 1,
-        "status": "blocked" if blockers else "ready_for_scoring",
+        "status": "ready_for_scoring" if not blockers else "blocked",
         "blockers": blockers,
         "comparison": "native 1h versus native 15m on identical UTC target closes",
         "optional_4h_targets": ["4h", "8h", "16h"],
         "summary_ridge_control": "separate control; never treated as native TimesFM",
         "blend": "not evaluated; standalone skill and residual dependence precede inner-OOF convex weighting",
-        "matched_targets": 0,
+        "matched_targets": scoring.get("matched_targets", 0) if scoring else 0,
+        "scoring": dict(scoring) if scoring else None,
         "accuracy_claim": None,
         "accuracy_claim_note": "Blocked/unavailable evidence is not a negative accuracy result.",
         "production_changed": False,
