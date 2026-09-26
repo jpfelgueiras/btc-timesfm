@@ -51,11 +51,13 @@ machine-managed persistent state; do not edit its assets manually.
   do not publish to GitHub Releases unless an operator explicitly invokes the
   publication workflow/action. See [history schema](HISTORY_SCHEMA.md).
 - Production's durable canonical forecast database and analysis export are
-  `forecast_history.sqlite.gz` and `forecast_history.csv.gz` in private Release
-  `forecast-history-v1`; bounded rollback generations and X/health state are
-  also Release assets. These are distinct from the optional independent S3 copy.
-  Retention, integrity checks, failure order, and manual restore steps are in
-  [history backup](HISTORY_BACKUP.md).
+  `forecast_history.sqlite.gz` and `forecast_history.csv.gz` in the public GitHub
+  Release `forecast-history-v1`; bounded rollback generations and X/health state
+  are also Release assets. These assets are publicly accessible: do not treat
+  forecast history as confidential or store secrets/private data in it. The
+  Release is distinct from the optional independently administered private S3
+  copy. Retention, integrity checks, failure order, and manual restore steps are
+  in [history backup](HISTORY_BACKUP.md).
 - Scheduled X publication follows forecast/data/drift/history health gates and
   an authenticated session preflight. A durable idempotency reservation is
   written before the X write; ambiguous outcomes are not automatically replayed.
