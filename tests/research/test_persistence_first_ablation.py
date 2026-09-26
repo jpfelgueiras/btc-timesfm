@@ -4,7 +4,7 @@ import unittest
 
 from btc_timesfm.research.persistence_first_ablation import (
     MAX_POLICY_FAMILIES,
-    POLICY_MATRIX,
+    PLANNED_POLICY_FAMILIES,
     build_report,
 )
 from btc_timesfm.research.persistence_shrinkage import candidate_policy_weights
@@ -12,10 +12,10 @@ from btc_timesfm.research.persistence_shrinkage import candidate_policy_weights
 
 class PersistenceFirstAblationTests(unittest.TestCase):
     def test_catalog_is_bounded_and_excludes_unverified_alternatives(self) -> None:
-        self.assertLessEqual(len(POLICY_MATRIX), MAX_POLICY_FAMILIES)
-        self.assertIn("per_context_delete_one", POLICY_MATRIX)
-        self.assertNotIn("new_checkpoint", POLICY_MATRIX)
-        self.assertNotIn("standalone_ridge", POLICY_MATRIX)
+        self.assertLessEqual(len(PLANNED_POLICY_FAMILIES), MAX_POLICY_FAMILIES)
+        self.assertIn("per_context_delete_one", PLANNED_POLICY_FAMILIES)
+        self.assertNotIn("new_checkpoint", PLANNED_POLICY_FAMILIES)
+        self.assertNotIn("standalone_ridge", PLANNED_POLICY_FAMILIES)
 
     def test_candidate_mechanics_allow_full_persistence(self) -> None:
         names = ["persistence", "timesfm_168", "timesfm_336", "drift_7d", "ar1"]
@@ -33,27 +33,30 @@ class PersistenceFirstAblationTests(unittest.TestCase):
         self.assertFalse(report["evidence"]["d2"]["acceptance_eligible"])
         self.assertEqual(report["additional_ablations"]["ridge"]["status"], "blocked")
 
-    def test_report_enumerates_exact_bounded_catalog_without_generated_candidates(self) -> None:
+    def test_report_separates_planned_families_from_generated_weight_vectors(self) -> None:
         report = build_report(
             model_names=["persistence", "timesfm_168"],
             production_weights={"persistence": 0.5, "timesfm_168": 0.5},
         )
         candidates = report["candidate_weights"]
-        self.assertEqual([candidate["name"] for candidate in candidates], list(POLICY_MATRIX))
-        self.assertEqual(report["policy_matrix"], [candidate["name"] for candidate in candidates])
-        self.assertLessEqual(len(candidates), MAX_POLICY_FAMILIES)
-        self.assertTrue(
-            all(
-                candidate
-                == {
-                    "name": candidate["name"],
-                    "status": "planned_not_generated",
-                    "weights": None,
-                    "eligible": False,
-                }
-                for candidate in candidates
-            )
+        expected = candidate_policy_weights(
+            ["persistence", "timesfm_168"],
+            {"persistence": 0.5, "timesfm_168": 0.5},
         )
+        self.assertEqual([candidate["name"] for candidate in candidates], list(expected))
+        self.assertEqual([candidate["weights"] for candidate in candidates], list(expected.values()))
+        self.assertTrue(all(candidate["eligible"] is False for candidate in candidates))
+        self.assertTrue(
+            all(candidate["status"] == "weights_generated_not_evaluated" for candidate in candidates)
+        )
+        self.assertEqual(report["planned_policy_families"], list(PLANNED_POLICY_FAMILIES))
+        self.assertTrue(set(report["planned_policy_families"]).isdisjoint(expected))
+        self.assertIn("per_context_delete_one", report["planned_policy_families"])
+
+    def test_report_without_inputs_has_no_candidate_vectors(self) -> None:
+        report = build_report()
+        self.assertEqual(report["candidate_weights"], [])
+        self.assertTrue(all(not candidate["eligible"] for candidate in report["candidate_weights"]))
 
 
 if __name__ == "__main__":

@@ -12,7 +12,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-POLICY_MATRIX = (
+from btc_timesfm.research.persistence_shrinkage import candidate_policy_weights
+
+PLANNED_POLICY_FAMILIES = (
     "persistence",
     "current_production_ensemble",
     "equal_model_and_family_weights",
@@ -31,15 +33,26 @@ def build_report(
 ) -> dict[str, Any]:
     """Build a fail-closed report; this issue report cannot claim corpus eligibility.
 
-    Candidate policies are catalogued but not generated until validated inputs
-    and the #339 corpus gate are available.
+    Planned families are always listed; unfit candidate weight vectors are
+    included only when their model names and frozen weights are supplied.
     """
-    del model_names, production_weights  # Kept for backwards-compatible callers.
-    if len(POLICY_MATRIX) > MAX_POLICY_FAMILIES:
+    if len(PLANNED_POLICY_FAMILIES) > MAX_POLICY_FAMILIES:
         raise RuntimeError("policy family catalog exceeds its declared bound")
+    if (model_names is None) != (production_weights is None):
+        raise ValueError("model_names and production_weights must be provided together")
+    vectors = (
+        candidate_policy_weights(model_names, production_weights)
+        if model_names is not None and production_weights is not None
+        else {}
+    )
     candidates = [
-        {"name": name, "status": "planned_not_generated", "weights": None, "eligible": False}
-        for name in POLICY_MATRIX
+        {
+            "name": name,
+            "status": "weights_generated_not_evaluated",
+            "weights": weights,
+            "eligible": False,
+        }
+        for name, weights in vectors.items()
     ]
     return {
         "schema_version": 1,
@@ -61,7 +74,7 @@ def build_report(
             },
             "d1_d3": "unavailable_or_not_mature",
         },
-        "policy_matrix": list(POLICY_MATRIX),
+        "planned_policy_families": list(PLANNED_POLICY_FAMILIES),
         "candidate_weights": candidates,
         "additional_ablations": {
             "per_context_delete": "separate matched-origin analysis; preserve failures",
