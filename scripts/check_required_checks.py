@@ -85,7 +85,13 @@ def validate_rulesets(rulesets: list[dict[str, Any]], repository: str = "") -> l
 
 def fetch_rulesets(repository: str) -> list[dict[str, Any]]:
     listing = subprocess.run(
-        ["gh", "api", "--paginate", "--slurp", f"repos/{repository}/rulesets?includes_parents=true"],
+        [
+            "gh",
+            "api",
+            "--paginate",
+            "--slurp",
+            f"repos/{repository}/rulesets?includes_parents=true",
+        ],
         check=True,
         capture_output=True,
         text=True,
@@ -120,7 +126,13 @@ def main() -> int:
             ).stdout.strip()
         )
         errors = validate_rulesets(fetch_rulesets(repository), repository)
-    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, KeyError, ValueError) as error:
+    except (
+        OSError,
+        subprocess.CalledProcessError,
+        json.JSONDecodeError,
+        KeyError,
+        ValueError,
+    ) as error:
         print(f"unable to verify GitHub rulesets: {error}", file=sys.stderr)
         return 2
     if errors:

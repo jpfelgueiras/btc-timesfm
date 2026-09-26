@@ -32,22 +32,31 @@ class RequiredChecksTests(unittest.TestCase):
                 "type": "required_status_checks",
                 "parameters": {
                     "required_status_checks": [
-                        {"context": name}
-                        for name in sorted(check_required_checks.REQUIRED_CHECKS)
+                        {"context": name} for name in sorted(check_required_checks.REQUIRED_CHECKS)
                     ]
                 },
             },
-            {"type": "pull_request", "parameters": {"required_approving_review_count": review_count}},
+            {
+                "type": "pull_request",
+                "parameters": {"required_approving_review_count": review_count},
+            },
         ]
 
     def test_accepts_active_rules_with_canonical_and_compatibility_contexts(self) -> None:
-        self.assertEqual(check_required_checks.validate_rulesets([self.ruleset()], "owner/repo"), [])
+        self.assertEqual(
+            check_required_checks.validate_rulesets([self.ruleset()], "owner/repo"), []
+        )
 
     def test_ignores_other_branch_and_tag_scopes(self) -> None:
         rules = self.protective_rules()
         unrelated = [
-            self.ruleset(conditions={"ref_name": {"include": ["refs/heads/release/*"], "exclude": []}}, rules=rules),
-            self.ruleset(conditions={"ref_name": {"include": ["refs/tags/*"], "exclude": []}}, rules=rules),
+            self.ruleset(
+                conditions={"ref_name": {"include": ["refs/heads/release/*"], "exclude": []}},
+                rules=rules,
+            ),
+            self.ruleset(
+                conditions={"ref_name": {"include": ["refs/tags/*"], "exclude": []}}, rules=rules
+            ),
         ]
         errors = check_required_checks.validate_rulesets(unrelated, "owner/repo")
         self.assertIn("missing required status checks", errors[0])
@@ -66,7 +75,9 @@ class RequiredChecksTests(unittest.TestCase):
         self.assertTrue(check_required_checks.validate_rulesets([matching], "other/repo"))
 
     def test_zero_approval_pull_request_rule_is_not_a_review_requirement(self) -> None:
-        errors = check_required_checks.validate_rulesets([self.ruleset(rules=self.protective_rules(0))])
+        errors = check_required_checks.validate_rulesets(
+            [self.ruleset(rules=self.protective_rules(0))]
+        )
         self.assertIn("no active ruleset enforces pull-request review", errors)
 
     def test_inherited_unconditional_and_current_scoped_rulesets_combine(self) -> None:
@@ -75,7 +86,9 @@ class RequiredChecksTests(unittest.TestCase):
             conditions={"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
             rules=[{"type": "pull_request", "parameters": {"required_approving_review_count": 2}}],
         )
-        self.assertEqual(check_required_checks.validate_rulesets([inherited, current], "owner/repo"), [])
+        self.assertEqual(
+            check_required_checks.validate_rulesets([inherited, current], "owner/repo"), []
+        )
 
     def test_unknown_scope_fails_closed(self) -> None:
         ruleset = self.ruleset(conditions={"ref_name": {"include": "*", "exclude": []}})
