@@ -131,13 +131,15 @@ class BrowserAccessibilityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.temp_dir = tempfile.TemporaryDirectory()
-        Path(cls.temp_dir.name, "index.html").write_text(_page_fixture(), encoding="utf-8")
-        Path(cls.temp_dir.name, "empty.html").write_text(_empty_fixture(), encoding="utf-8")
+        forecasts_dir = Path(cls.temp_dir.name, "forecasts")
+        forecasts_dir.mkdir()
+        Path(forecasts_dir, "index.html").write_text(_page_fixture(), encoding="utf-8")
+        Path(forecasts_dir, "empty.html").write_text(_empty_fixture(), encoding="utf-8")
         handler = functools.partial(_QuietHandler, directory=cls.temp_dir.name)
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         cls.server_thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.server_thread.start()
-        cls.base_url = f"http://127.0.0.1:{cls.server.server_port}/index.html"
+        cls.base_url = f"http://127.0.0.1:{cls.server.server_port}/forecasts/index.html"
 
     @classmethod
     def tearDownClass(cls) -> None:
