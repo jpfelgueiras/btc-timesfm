@@ -44,10 +44,14 @@ class PersistenceFirstAblationTests(unittest.TestCase):
             {"persistence": 0.5, "timesfm_168": 0.5},
         )
         self.assertEqual([candidate["name"] for candidate in candidates], list(expected))
-        self.assertEqual([candidate["weights"] for candidate in candidates], list(expected.values()))
+        self.assertEqual(
+            [candidate["weights"] for candidate in candidates], list(expected.values())
+        )
         self.assertTrue(all(candidate["eligible"] is False for candidate in candidates))
         self.assertTrue(
-            all(candidate["status"] == "weights_generated_not_evaluated" for candidate in candidates)
+            all(
+                candidate["status"] == "weights_generated_not_evaluated" for candidate in candidates
+            )
         )
         self.assertEqual(report["planned_policy_families"], list(PLANNED_POLICY_FAMILIES))
         self.assertTrue(set(report["planned_policy_families"]).isdisjoint(expected))
