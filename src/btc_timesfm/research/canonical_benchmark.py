@@ -90,9 +90,11 @@ def audit_csv(path: Path) -> dict[str, Any]:
             pairs.add(row["pair"].strip().upper())
             values = [float(row[name]) for name in ("open", "high", "low", "close", "volume")]
             opening, high, low, close, volume = values
-            if not all(math.isfinite(value) for value in values) or min(
-                opening, high, low, close
-            ) <= 0 or volume < 0:
+            if (
+                not all(math.isfinite(value) for value in values)
+                or min(opening, high, low, close) <= 0
+                or volume < 0
+            ):
                 raise ValueError("non-finite or non-positive OHLCV")
             if low > min(opening, close) or high < max(opening, close) or high < low:
                 raise ValueError("impossible OHLC relationship")
@@ -106,8 +108,7 @@ def audit_csv(path: Path) -> dict[str, Any]:
         errors.append(f"{duplicates} duplicate hourly timestamps")
     unique = sorted(set(ordered))
     gaps = sum(
-        max(0, (right - left) // HOUR_SECONDS - 1)
-        for left, right in zip(unique, unique[1:])
+        max(0, (right - left) // HOUR_SECONDS - 1) for left, right in zip(unique, unique[1:])
     )
     if gaps:
         errors.append(f"{gaps} missing hourly candles")
@@ -141,15 +142,13 @@ def audit_csv(path: Path) -> dict[str, Any]:
     target_gaps = expected_target - len(target_timestamps)
     warmup_gaps = expected_warmup - len(warmup_timestamps)
     if target_gaps:
-        errors.append(f"target period missing {target_gaps} of {expected_target} hourly observations")
+        errors.append(
+            f"target period missing {target_gaps} of {expected_target} hourly observations"
+        )
     if warmup_gaps:
         errors.append(f"warm-up missing {warmup_gaps} of {expected_warmup} hourly observations")
     eligible = (
-        not errors
-        and usd_pair
-        and not invalid_rows
-        and target_gaps == 0
-        and warmup_gaps == 0
+        not errors and usd_pair and not invalid_rows and target_gaps == 0 and warmup_gaps == 0
     )
     if not unique:
         errors.append("no readable hourly observations")
@@ -203,43 +202,49 @@ def main() -> None:
     parser.add_argument("--data", type=Path, help="single-venue hourly BTC/USD CSV")
     parser.add_argument("--output", type=Path, default=Path("canonical_benchmark_audit.json"))
     args = parser.parse_args()
-    report = audit_csv(args.data) if args.data else {
-        "status": "blocked",
-        "eligible_for_skill_comparison": False,
-        "reason": "No canonical dataset supplied; Kraken OHLC is a limited recent window and Binance BTCUSDT is not BTC/USD.",
-        "source_file": None,
-        "source_sha256": None,
-        "venue": None,
-        "pair": None,
-        "row_count": 0,
-        "unique_hourly_count": 0,
-        "first_utc": None,
-        "last_utc": None,
-        "span_hours": 0,
-        "target_period": {
-            "start_inclusive": TARGET_START.isoformat(),
-            "end_exclusive": TARGET_END.isoformat(),
-            "expected_hours": (TARGET_END_TS - TARGET_START_TS) // HOUR_SECONDS,
-            "observed_hours": 0,
-            "missing_hours": (TARGET_END_TS - TARGET_START_TS) // HOUR_SECONDS,
-        },
-        "target_period_observations": 0,
-        "warmup_period": {
-            "start_inclusive": datetime.fromtimestamp(WARMUP_START_TS, timezone.utc).isoformat(),
-            "end_exclusive": TARGET_START.isoformat(),
-            "expected_hours": REQUIRED_WARMUP_DAYS * 24,
-            "observed_hours": 0,
-            "missing_hours": REQUIRED_WARMUP_DAYS * 24,
-        },
-        "warmup_days": 0,
-        "gaps": None,
-        "duplicates": None,
-        "vintage_column_present": False,
-        "revision_column_present": False,
-        "errors": ["eligible >=180-day same-venue BTC/USD corpus unavailable"],
-        "policy": "forecast_policy.PRODUCTION_POLICY; research ridge disabled",
-        "research_models_enabled": False,
-    }
+    report = (
+        audit_csv(args.data)
+        if args.data
+        else {
+            "status": "blocked",
+            "eligible_for_skill_comparison": False,
+            "reason": "No canonical dataset supplied; Kraken OHLC is a limited recent window and Binance BTCUSDT is not BTC/USD.",
+            "source_file": None,
+            "source_sha256": None,
+            "venue": None,
+            "pair": None,
+            "row_count": 0,
+            "unique_hourly_count": 0,
+            "first_utc": None,
+            "last_utc": None,
+            "span_hours": 0,
+            "target_period": {
+                "start_inclusive": TARGET_START.isoformat(),
+                "end_exclusive": TARGET_END.isoformat(),
+                "expected_hours": (TARGET_END_TS - TARGET_START_TS) // HOUR_SECONDS,
+                "observed_hours": 0,
+                "missing_hours": (TARGET_END_TS - TARGET_START_TS) // HOUR_SECONDS,
+            },
+            "target_period_observations": 0,
+            "warmup_period": {
+                "start_inclusive": datetime.fromtimestamp(
+                    WARMUP_START_TS, timezone.utc
+                ).isoformat(),
+                "end_exclusive": TARGET_START.isoformat(),
+                "expected_hours": REQUIRED_WARMUP_DAYS * 24,
+                "observed_hours": 0,
+                "missing_hours": REQUIRED_WARMUP_DAYS * 24,
+            },
+            "warmup_days": 0,
+            "gaps": None,
+            "duplicates": None,
+            "vintage_column_present": False,
+            "revision_column_present": False,
+            "errors": ["eligible >=180-day same-venue BTC/USD corpus unavailable"],
+            "policy": "forecast_policy.PRODUCTION_POLICY; research ridge disabled",
+            "research_models_enabled": False,
+        }
+    )
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
 

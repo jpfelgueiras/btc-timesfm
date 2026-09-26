@@ -110,7 +110,9 @@ class CanonicalBenchmarkTests(unittest.TestCase):
             report = audit_csv(path)
         self.assertEqual(report["status"], "blocked")
         self.assertGreater(report["invalid_rows"], 0)
-        self.assertTrue(any("empty or missing required values" in error for error in report["errors"]))
+        self.assertTrue(
+            any("empty or missing required values" in error for error in report["errors"])
+        )
 
     def test_malformed_csv_is_reported_as_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -150,9 +152,7 @@ class CanonicalBenchmarkTests(unittest.TestCase):
                     if index == 0:
                         row[field] = " "
 
-                report = audit_csv(
-                    self._write_rows(directory, timestamps, mutate=blank_identity)
-                )
+                report = audit_csv(self._write_rows(directory, timestamps, mutate=blank_identity))
             self.assertEqual(report["status"], "blocked")
             self.assertGreater(report["invalid_rows"], 0)
 
@@ -233,7 +233,9 @@ class CanonicalBenchmarkTests(unittest.TestCase):
                 row["low"] = "102"
 
         with tempfile.TemporaryDirectory() as directory:
-            report = audit_csv(self._write_rows(directory, self._complete_timestamps(), mutate=invalid))
+            report = audit_csv(
+                self._write_rows(directory, self._complete_timestamps(), mutate=invalid)
+            )
         self.assertEqual(report["status"], "blocked")
         self.assertGreater(report["invalid_rows"], 0)
 
