@@ -46,13 +46,13 @@ estimates, not that a trade has an 80% chance to make money.
 
 ## Forecast History: inspect individual records
 
-Use **Forecast History** to look through the recorded forecasts. The explorer
-can filter by horizon and age of origin (7, 30, or 90 days, or all history),
-search the visible origin, horizon, regime, or status text, and sort by newest
-origin, horizon, or lowest error. The table gives origin, horizon, forecast,
-actual, error, and status. Open a row's origin or its detail entry to see the
-source price, predicted price and change, q10–q90 interval (labeled “80%
-interval”), target and regime, plus actual outcome and error when available.
+Use **Forecast History** to look through the recorded forecasts. Its visible
+filters are **Date range** (last 7, 30, or 90 days, or all available history),
+**Horizon** (all horizons or one horizon), **Maturity** (all outcomes, matured,
+or pending), and **Model** (all models or one model). There are no search or sort
+controls. The table gives forecast origin, horizon/model/role, source BTC and
+forecast, and maturity/actual/error. Expand a forecast origin to see its target,
+q10–q90 interval, and experiment details.
 
 An outcome is **Pending** until its target time has passed and an actual target
 price is available. Once matured, the actual price and error describe the
