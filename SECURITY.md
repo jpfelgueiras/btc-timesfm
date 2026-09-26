@@ -21,6 +21,6 @@ Lower-severity findings should also be fixed promptly; suppressions should be na
 
 ## Dependency policy
 
-Runtime Python dependencies must use explicit compatible version constraints in `requirements.txt`. Security/quality tooling is isolated in dedicated requirements files. GitHub Actions used by the security workflow are pinned to immutable commit SHAs; Dependabot remains responsible for proposing reviewed SHA updates.
+Runtime Python dependencies must use explicit compatible version constraints in `pyproject.toml`, with resolved versions recorded in `uv.lock`. Security and quality tooling are isolated in dependency groups. GitHub Actions used by the security workflow are pinned to immutable commit SHAs; Dependabot remains responsible for proposing reviewed SHA updates.
 
 Never commit X cookies, session tokens, API credentials, private keys, or generated files containing them. Use GitHub Actions secrets for runtime credentials.

@@ -19,6 +19,10 @@ updates:
           - "requests"
           - "numpy"
           - "twikit"
+      python-model:
+        patterns:
+          - "timesfm*"
+          - "torch*"
       python-quality:
         dependency-type: development
         patterns:
@@ -26,6 +30,9 @@ updates:
           - "ruff"
           - "mypy"
           - "types-requests"
+          - "playwright"
+          - "unittest-parallel"
+          - "pip-audit"
 
   - package-ecosystem: github-actions
     directory: "/"

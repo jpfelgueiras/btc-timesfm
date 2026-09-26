@@ -2,7 +2,7 @@
 
 ## Project overview
 
-This is a Python 3.11 BTC/USD forecasting project. Application code lives in
+This is a Python 3.11–3.13 BTC/USD forecasting project. Application code lives in
 `src/btc_timesfm/`, tests in `tests/`, operational scripts in `scripts/`, and
 project documentation in `docs/`. The production workflow forecasts hourly
 log returns, combines TimesFM contexts with baseline models, and persists
@@ -10,9 +10,10 @@ forecasts and matured outcomes in SQLite.
 
 ## Development
 
-- Use Python 3.11 and follow the `src/` package layout.
-- Install development and test dependencies with `python -m pip install -r
-  requirements-test.txt` (runtime dependencies are in `requirements.txt`).
+- Support Python 3.11, 3.12, and 3.13 and follow the `src/` package layout.
+- Install locked development and test dependencies with `uv sync --locked
+  --no-default-groups --group test` (runtime, model, test, and
+  security dependency sets are declared in `pyproject.toml` and pinned in `uv.lock`).
 - Set `PYTHONPATH=src` when running package commands directly from a checkout.
 - Follow the existing style: type-aware Python, Ruff configuration from
   `pyproject.toml` (100-character configured line length), and focused changes.
