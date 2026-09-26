@@ -32,6 +32,38 @@ HORIZONS = ("2h", "4h", "8h", "16h")
 REPORT_PATH = Path("target_comparison_report.json")
 
 
+def accumulate_return_path(origin_price: float, hourly_returns: Iterable[float]) -> np.ndarray:
+    """Reconstruct prices from an hourly log-return path, causally from the origin."""
+    if not math.isfinite(origin_price) or origin_price <= 0:
+        raise ValueError("origin_price must be finite and positive")
+    returns = np.asarray(list(hourly_returns), dtype=np.float64)
+    if returns.ndim != 1 or not np.all(np.isfinite(returns)):
+        raise ValueError("hourly_returns must be a finite one-dimensional path")
+    return origin_price * np.exp(np.cumsum(returns))
+
+
+def cumulative_quantile_paths(
+    origin_price: float, hourly_quantiles: Mapping[str, Iterable[float]]
+) -> dict[str, np.ndarray]:
+    """Accumulate each supplied marginal quantile path independently.
+
+    These are marginal-path diagnostics, not mathematically calibrated quantiles
+    of cumulative returns: marginal hourly quantiles do not define their joint law.
+    """
+    expected = {"q10", "q50", "q90"}
+    if set(hourly_quantiles) != expected:
+        raise ValueError("hourly_quantiles must contain exactly q10, q50, and q90")
+    paths = {
+        name: accumulate_return_path(origin_price, hourly_quantiles[name])
+        for name in sorted(expected)
+    }
+    if any(len(paths[name]) != len(paths["q50"]) for name in expected):
+        raise ValueError("quantile paths must have equal lengths")
+    if np.any(paths["q10"] > paths["q50"]) or np.any(paths["q50"] > paths["q90"]):
+        raise ValueError("hourly quantile paths cross after accumulation")
+    return paths
+
+
 def target_value(price: float, origin_price: float, target: str) -> float:
     """Return the matured label represented by ``target`` at one horizon."""
     if price <= 0 or origin_price <= 0:
@@ -139,12 +171,33 @@ def evaluate_origins(origins: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
                 if values["price_ape_pct"]
                 else None,
             }
-    return {"per_origin": ledger, "summary": summary, "failures": failures}
+    return {
+        "kind": "incumbent_roundtrip_diagnostics_not_candidate_evidence",
+        "per_origin": ledger,
+        "summary": summary,
+        "failures": failures,
+    }
 
 
 def decide(report: Mapping[str, Any]) -> dict[str, Any]:
-    """Apply conservative V5 gates to the available, non-proxy evidence."""
-    # The three transformed incumbent views are not independent target models.
+    """Apply prerequisite and conservative V5 gates; proxies never qualify."""
+    manifest = report.get("manifest", {})
+    blockers = []
+    if not manifest.get("eligible_corpus", False):
+        blockers.append("eligible immutable benchmark corpus unavailable")
+    if not manifest.get("direct_head_available", False):
+        blockers.append("no supported independently supervised direct-target head")
+    if blockers:
+        return {
+            "decision": "blocked",
+            "reason": "; ".join(blockers),
+            "promotion_eligible": False,
+            "required_evidence": [
+                "validated immutable BTC/USD corpus passing the canonical benchmark gate",
+                "supported independently trained predictions for each candidate target",
+                "nested purged walk-forward folds, matured labels, and paired dependence-aware intervals",
+            ],
+        }
     return {
         "decision": "inconclusive",
         "reason": "direct target head unavailable; transformed incumbent views are diagnostics, not candidates",
@@ -162,12 +215,29 @@ def build_report(
     origins: Iterable[Mapping[str, Any]], manifest: Mapping[str, Any] | None = None
 ) -> dict[str, Any]:
     evidence = evaluate_origins(origins)
+    experiment_manifest = {
+        "eligible_corpus": False,
+        "direct_head_available": False,
+        "direct_head_status": "unavailable_no_supported_training_or_inference_contract",
+        "production_baseline": "frozen hourly log-return path and persistence",
+        **dict(manifest or {}),
+    }
     report: dict[str, Any] = {
         "schema_version": 1,
         "targets": list(TARGETS),
         "horizons": list(HORIZONS),
-        "manifest": dict(manifest or {}),
+        "manifest": experiment_manifest,
         "evidence": evidence,
+        "candidate_status": {
+            "hourly_log_return_accumulation": "incumbent_diagnostic_only",
+            "normalized_price_level": "blocked_no_independent_head",
+            "log_price_level": "blocked_no_independent_head",
+            "direct_cumulative_log_return": "blocked_no_independent_head",
+        },
+        "quantile_semantics": (
+            "Accumulated q10/q50/q90 hourly marginals are not calibrated cumulative-return "
+            "quantiles without a joint predictive distribution."
+        ),
     }
     report["decision"] = decide(report)
     return report
