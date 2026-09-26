@@ -32,6 +32,7 @@ from btc_timesfm.forecasting.statistical_significance import (
     DEFAULT_MIN_PAIRED_SAMPLES,
     paired_bootstrap_comparison,
 )
+from btc_timesfm.forecasting.policy_parity import audit_forecast_policy_parity
 from btc_timesfm.forecasting.forecast_engine import (
     TARGET_HOURS,
     MarketData,
@@ -466,7 +467,7 @@ def _significance_comparison(candidate: dict[str, Any], current: dict[str, Any])
             metric="mae_pct",
             lower_is_better=True,
             method="moving_block",
-            block_length=16,
+            block_length=24,
         ),
         "direction_accuracy": paired_bootstrap_comparison(
             candidate_metrics["direction_accuracy"],
@@ -474,7 +475,7 @@ def _significance_comparison(candidate: dict[str, Any], current: dict[str, Any])
             metric="direction_accuracy",
             lower_is_better=False,
             method="moving_block",
-            block_length=16,
+            block_length=24,
         ),
         "by_horizon_mae_pct": {
             horizon: paired_bootstrap_comparison(
@@ -483,7 +484,7 @@ def _significance_comparison(candidate: dict[str, Any], current: dict[str, Any])
                 metric=f"{horizon}_mae_pct",
                 lower_is_better=True,
                 method="moving_block",
-                block_length=16,
+                block_length=24,
             )
             for horizon in HORIZONS
         },
@@ -495,7 +496,7 @@ def _significance_comparison(candidate: dict[str, Any], current: dict[str, Any])
             metric="mae_pct",
             lower_is_better=True,
             method="moving_block",
-            block_length=16,
+            block_length=24,
         )
     }
     return {
@@ -661,6 +662,8 @@ def main() -> None:
         "schema_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "data_source": data_source_str,
+        "forecast_policy_parity_audit": audit_forecast_policy_parity(),
+        "model_variant_label": "research_optimizer_variant; production parity blocked",
         "tested_period": {"days": args.days, "samples": len(base_samples)},
         "search_space": {
             "candidate_count": len(catalog),
@@ -676,7 +679,7 @@ def main() -> None:
             "maximum_worst_fold_relative_degradation": MAX_WORST_FOLD_RELATIVE_DEGRADATION,
             "statistical_evidence": {
                 "method": "paired_moving_block_bootstrap",
-                "block_length_origins": 16,
+                "block_length_origins": 24,
                 "horizon_clustering": "mean_within_origin",
                 "confidence": DEFAULT_CONFIDENCE,
                 "iterations": DEFAULT_BOOTSTRAP_ITERATIONS,

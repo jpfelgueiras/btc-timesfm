@@ -26,7 +26,11 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-from btc_timesfm.forecasting.statistical_significance import paired_bootstrap_comparison
+from btc_timesfm.forecasting.statistical_significance import (
+    DEFAULT_MIN_BLOCK_LENGTH,
+    DEFAULT_MIN_EFFECTIVE_SAMPLES,
+    paired_bootstrap_comparison,
+)
 
 INTERACTION_SCHEMA_VERSION = 1
 REPORT_PATH = Path("feature_interaction_analysis_report.json")
@@ -380,9 +384,16 @@ def promotion_status_from_evidence(
     improvement_fraction: float | None,
     promotion_min_samples: int,
     min_stable_folds: int,
+    effective_block_count: float | None = None,
+    min_effective_blocks: int = DEFAULT_MIN_EFFECTIVE_SAMPLES,
 ) -> str:
-    """Promotion requires candidate-better evidence, enough samples, and stability."""
-    if samples < promotion_min_samples:
+    """Promotion also requires enough effective blocks under dependent losses."""
+    effective_blocks = (
+        samples / DEFAULT_MIN_BLOCK_LENGTH
+        if effective_block_count is None
+        else effective_block_count
+    )
+    if samples < promotion_min_samples or effective_blocks < min_effective_blocks:
         return "insufficient_evidence"
     stable = (
         fold_count >= min_stable_folds
@@ -554,6 +565,7 @@ def evaluate_interaction(
             improvement_fraction=improvement_fraction,
             promotion_min_samples=promotion_min_samples,
             min_stable_folds=min_stable_folds,
+            effective_block_count=significance.get("effective_block_count_proxy"),
         )
 
         by_horizon[target_key] = {

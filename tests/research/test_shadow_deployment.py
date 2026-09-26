@@ -260,8 +260,16 @@ class ShadowDeploymentTests(unittest.TestCase):
         persistence_conclusion = evaluation["significance"]["vs_persistence"]["objective"][
             "conclusion"
         ]
-        self.assertEqual(champion_conclusion, "candidate_better")
-        self.assertEqual(persistence_conclusion, "candidate_better")
+        self.assertEqual(champion_conclusion, "inconclusive")
+        self.assertEqual(persistence_conclusion, "inconclusive")
+        self.assertEqual(
+            evaluation["significance"]["vs_champion"]["objective"]["reason"],
+            "insufficient_effective_samples",
+        )
+        self.assertEqual(
+            evaluation["significance"]["vs_champion"]["objective"]["effective_block_count_proxy"],
+            round(35 / 24, 6),
+        )
 
     def test_evaluation_is_deterministic(self) -> None:
         challenger = self._register_challenger()
@@ -302,7 +310,8 @@ class ShadowDeploymentTests(unittest.TestCase):
         self.assertTrue(lenient["maturity"]["checks"]["enough_live_samples"])
         self.assertTrue(lenient["maturity"]["checks"]["enough_paired_samples_per_horizon"])
         self.assertTrue(lenient["maturity"]["checks"]["observation_window_met"])
-        self.assertEqual(lenient["promotion"]["decision"], "eligible")
+        self.assertEqual(lenient["promotion"]["decision"], "blocked")
+        self.assertFalse(lenient["promotion"]["checks"]["enough_effective_blocks_vs_champion"])
 
     def test_promotion_requires_minimum_pairs_at_each_horizon(self) -> None:
         challenger = self._register_challenger()
@@ -345,7 +354,11 @@ class ShadowDeploymentTests(unittest.TestCase):
                 observation_window_days=20,
             ),
         )
-        self.assertEqual(weaker["promotion"]["decision"], "eligible")
+        self.assertEqual(weaker["promotion"]["decision"], "blocked")
+        self.assertIn(
+            "requirement_not_met:enough_effective_blocks_vs_champion",
+            weaker["promotion"]["reasons"],
+        )
 
     def test_evaluation_pairs_maturity_separately_per_horizon(self) -> None:
         origin = _iso(_origin_timestamp(0))

@@ -11,6 +11,8 @@ import numpy as np
 DEFAULT_BOOTSTRAP_ITERATIONS = 5000
 DEFAULT_CONFIDENCE = 0.95
 DEFAULT_MIN_PAIRED_SAMPLES = 32
+DEFAULT_MIN_EFFECTIVE_SAMPLES = 8
+DEFAULT_MIN_BLOCK_LENGTH = 24
 DEFAULT_SEED = 0
 
 
@@ -33,8 +35,10 @@ def paired_bootstrap_comparison(
     iterations: int = DEFAULT_BOOTSTRAP_ITERATIONS,
     min_samples: int = DEFAULT_MIN_PAIRED_SAMPLES,
     seed: int = DEFAULT_SEED,
-    method: Literal["iid", "moving_block", "stationary"] = "iid",
+    method: Literal["iid", "moving_block", "stationary"] = "moving_block",
     block_length: int | None = None,
+    min_effective_samples: int = DEFAULT_MIN_EFFECTIVE_SAMPLES,
+    minimum_block_length: int = DEFAULT_MIN_BLOCK_LENGTH,
 ) -> dict[str, Any]:
     """Compare paired measurements with a deterministic bootstrap confidence interval.
 
@@ -52,6 +56,10 @@ def paired_bootstrap_comparison(
         raise ValueError("iterations must be at least 100")
     if min_samples < 1:
         raise ValueError("min_samples must be positive")
+    if min_effective_samples < 1:
+        raise ValueError("min_effective_samples must be positive")
+    if minimum_block_length < 1:
+        raise ValueError("minimum_block_length must be positive")
     if method not in ("iid", "moving_block", "stationary"):
         raise ValueError("unsupported bootstrap method")
     if block_length is not None and block_length < 1:
@@ -71,7 +79,11 @@ def paired_bootstrap_comparison(
             "confidence": confidence,
             "bootstrap_method": method,
             "block_length": block_length,
+            "block_length_basis": "not_applicable_empty_sample",
+            "block_variance_correction": 1.0,
             "effective_samples": 0.0,
+            "effective_block_count_proxy": 0.0,
+            "minimum_effective_samples": min_effective_samples,
             "improvement_ci": {"lower": None, "upper": None},
             "probability_candidate_better": None,
             "conclusion": "inconclusive",
@@ -86,7 +98,13 @@ def paired_bootstrap_comparison(
 
     rng = np.random.default_rng(seed)
     bootstrap_means: np.ndarray = np.empty(iterations, dtype=np.float64)
-    selected_block_length = min(samples, block_length or max(1, round(samples ** (1 / 3))))
+    # The cube-root rule uses only the observed paired series; explicit block
+    # lengths are appropriate when supplied from training-only dependence analysis.
+    requested_block_length = max(
+        minimum_block_length,
+        block_length or max(1, round(samples ** (1 / 3))),
+    )
+    selected_block_length = min(samples, requested_block_length)
     for iteration in range(iterations):
         if method == "iid":
             indices = rng.integers(0, samples, size=samples)
@@ -97,15 +115,32 @@ def paired_bootstrap_comparison(
             )[:samples]
         else:
             indices = np.empty(samples, dtype=int)
-            indices[0] = rng.integers(0, samples)
             restart_probability = 1.0 / selected_block_length
-            for position in range(1, samples):
-                indices[position] = (
-                    rng.integers(0, samples)
-                    if rng.random() < restart_probability
-                    else (indices[position - 1] + 1) % samples
-                )
+            position = 0
+            while position < samples:
+                start = rng.integers(0, samples)
+                run_length = min(int(rng.geometric(restart_probability)), samples - position)
+                indices[position : position + run_length] = (
+                    start + np.arange(run_length)
+                ) % samples
+                position += run_length
         bootstrap_means[iteration] = np.mean(improvement[indices])
+
+    variance_correction = 1.0
+    if method == "moving_block" and selected_block_length > 1 and samples > selected_block_length:
+        centered = improvement - mean_improvement
+        block_variance = float(np.dot(centered, centered) / samples)
+        hac_variance = block_variance
+        for lag in range(1, selected_block_length):
+            covariance = float(np.dot(centered[:-lag], centered[lag:]) / samples)
+            hac_variance += 2.0 * covariance
+            block_variance += 2.0 * (1.0 - lag / selected_block_length) * covariance
+        if block_variance > 1e-12 and hac_variance > block_variance:
+            variance_correction = math.sqrt(hac_variance / block_variance)
+            bootstrap_center = float(np.mean(bootstrap_means))
+            bootstrap_means = mean_improvement + variance_correction * (
+                bootstrap_means - bootstrap_center
+            )
 
     alpha = (1.0 - confidence) / 2.0
     lower, upper = np.quantile(bootstrap_means, [alpha, 1.0 - alpha])
@@ -118,9 +153,13 @@ def paired_bootstrap_comparison(
         if paired_std > 1e-12:
             standardized_effect = mean_improvement / paired_std
 
+    effective_samples = samples / selected_block_length if method != "iid" else float(samples)
     if samples < min_samples:
         conclusion = "inconclusive"
         reason = "insufficient_samples"
+    elif effective_samples < min_effective_samples:
+        conclusion = "inconclusive"
+        reason = "insufficient_effective_samples"
     elif lower > 0.0:
         conclusion = "candidate_better"
         reason = "confidence_interval_above_zero"
@@ -145,7 +184,13 @@ def paired_bootstrap_comparison(
         "confidence": confidence,
         "bootstrap_method": method,
         "block_length": selected_block_length,
-        "effective_samples": round(samples / selected_block_length, 6),
+        "block_length_basis": (
+            "explicit_or_overlap_floor" if block_length else "max_overlap_floor_cube_root"
+        ),
+        "block_variance_correction": round(variance_correction, 6),
+        "effective_samples": round(effective_samples, 6),
+        "effective_block_count_proxy": round(effective_samples, 6),
+        "minimum_effective_samples": min_effective_samples,
         "improvement_ci": {
             "lower": round(float(lower), 8),
             "upper": round(float(upper), 8),

@@ -12,6 +12,7 @@ from tests.support.unit_test_stubs import install_timesfm_stub
 install_timesfm_stub()
 
 from btc_timesfm.forecasting.forecast_policy import ForecastPolicy, policy_for  # noqa: E402
+from btc_timesfm.forecasting.policy_parity import audit_forecast_policy_parity  # noqa: E402
 
 
 class ForecastPolicyTests(unittest.TestCase):
@@ -50,6 +51,16 @@ class ForecastPolicyTests(unittest.TestCase):
         self.assertIs(engine.baseline_forecasts, original_baselines)
         with self.assertRaisesRegex(RuntimeError, "already has policy"):
             ForecastPolicy(coherence=False).install(target)
+
+    def test_static_parity_audit_fails_closed_and_names_research_ridge(self) -> None:
+        audit = audit_forecast_policy_parity()
+        self.assertEqual(audit["status"], "blocked")
+        self.assertEqual(audit["production_research_ridge_enabled"], False)
+        for path in ("backtest", "optimizer"):
+            self.assertEqual(audit["paths"][path]["status"], "blocked_policy_drift")
+            self.assertTrue(audit["paths"][path]["research_ridge_enabled"])
+        self.assertEqual(audit["paths"]["shadow"]["status"], "blocked_unattested")
+        self.assertEqual(audit["historical_skill_claim"], "not_made")
 
 
 if __name__ == "__main__":

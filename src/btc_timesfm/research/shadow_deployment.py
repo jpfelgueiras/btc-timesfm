@@ -38,6 +38,7 @@ import numpy as np
 from btc_timesfm.forecasting import adaptive_weighting as aw
 from btc_timesfm.forecasting.statistical_significance import (
     DEFAULT_CONFIDENCE,
+    DEFAULT_MIN_EFFECTIVE_SAMPLES,
     paired_bootstrap_comparison,
 )
 from btc_timesfm.research.champion_challenger import configuration_manifest
@@ -1217,6 +1218,19 @@ def _promotion_gate(
         value = objective.get("conclusion")
         return str(value) if value else None
 
+    def enough_effective_blocks(key: str) -> bool:
+        block = significance.get(key)
+        objective = block.get("objective") if isinstance(block, dict) else None
+        if not isinstance(objective, dict):
+            return False
+        try:
+            return (
+                float(objective.get("effective_block_count_proxy", 0.0))
+                >= DEFAULT_MIN_EFFECTIVE_SAMPLES
+            )
+        except (TypeError, ValueError):
+            return False
+
     vs_champion = conclusion("vs_champion")
     vs_persistence = conclusion("vs_persistence")
 
@@ -1228,6 +1242,8 @@ def _promotion_gate(
         "observation_window_met": bool(
             maturity.get("checks", {}).get("observation_window_met", False)
         ),
+        "enough_effective_blocks_vs_champion": enough_effective_blocks("vs_champion"),
+        "enough_effective_blocks_vs_persistence": enough_effective_blocks("vs_persistence"),
         "not_significantly_worse_than_champion": (
             not policy.reject_significantly_worse_than_champion or vs_champion != "baseline_better"
         ),

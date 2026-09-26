@@ -40,6 +40,7 @@ from btc_timesfm.forecasting.cross_validation import (
 )
 from btc_timesfm.forecasting.experiment_manifest import build_experiment_manifest, seed_everything
 from btc_timesfm.forecasting.forecast_policy import policy_for
+from btc_timesfm.forecasting.policy_parity import audit_forecast_policy_parity
 from btc_timesfm.forecasting.feature_registry import MARKET_FEATURE_NAMES
 from btc_timesfm.forecasting.forecast_engine import (
     MarketData,
@@ -546,6 +547,8 @@ def main() -> None:
         "data_source": data_source,
         "experiment_manifest": experiment_manifest,
         "benchmark_suite": benchmark_metadata(),
+        "forecast_policy_parity_audit": audit_forecast_policy_parity(),
+        "model_variant_label": "research_ridge_enabled_backtest_not_production_parity",
         "adaptive_history_limit": DEFAULT_HISTORY_LIMIT,
         "days_requested": args.days,
         "samples": len(samples),
