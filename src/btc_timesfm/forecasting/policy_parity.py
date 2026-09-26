@@ -23,9 +23,9 @@ def audit_forecast_policy_parity() -> dict[str, Any]:
     for run_type in ("backtest", "optimizer"):
         candidate = policy_for(run_type)
         configuration = candidate.configuration()
-        same_behavior = {
-            key: value for key, value in configuration.items() if key != "name"
-        } == {key: value for key, value in production.items() if key != "name"}
+        same_behavior = {key: value for key, value in configuration.items() if key != "name"} == {
+            key: value for key, value in production.items() if key != "name"
+        }
         ridge_disabled = not candidate.enable_research_ridge
         status = (
             "parity"

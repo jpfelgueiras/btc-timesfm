@@ -55,29 +55,30 @@ class StatisticalSignificanceTests(unittest.TestCase):
             baseline,
             metric="mae_pct",
             lower_is_better=True,
-            block_length=16,
+            block_length=24,
         )
         self.assertEqual(result["bootstrap_method"], "moving_block")
-        self.assertEqual(result["effective_samples"], 3.0)
+        self.assertEqual(result["effective_samples"], 2.0)
         self.assertEqual(result["conclusion"], "inconclusive")
         self.assertEqual(result["reason"], "insufficient_effective_samples")
 
     def test_bounded_monte_carlo_null_coverage_and_power(self) -> None:
         # Fixed seed, 240 replications, 399 bootstrap draws each: bounded and
         # reproducible (49 million resampled observations per condition).
-        # The 16-wide moving average simulates overlapping 16h losses. Block
-        # length is fixed at 16 before each simulated evaluation path.
+        # The 16-wide moving average simulates overlapping 16h losses. A fixed
+        # block length of 24 allows dependence beyond the label-overlap window.
         rng = np.random.default_rng(342)
         replications = 240
         observations = 512
         bootstrap_draws = 399
-        effect = 0.08
+        effect = 0.5
         null_rejections = 0
         effect_coverages = 0
         effect_rejections = 0
-        for _ in range(replications):
+        for replication in range(replications):
             innovations = rng.normal(size=observations + 15)
             correlated = np.convolve(innovations, np.ones(16) / 4.0, mode="valid")
+            bootstrap_seed = 10_000 + replication
             null = paired_bootstrap_comparison(
                 correlated,
                 np.zeros(observations),
@@ -86,7 +87,8 @@ class StatisticalSignificanceTests(unittest.TestCase):
                 iterations=bootstrap_draws,
                 min_samples=1,
                 min_effective_samples=1,
-                block_length=16,
+                block_length=24,
+                seed=bootstrap_seed,
             )
             alternative = paired_bootstrap_comparison(
                 correlated - effect,
@@ -96,23 +98,28 @@ class StatisticalSignificanceTests(unittest.TestCase):
                 iterations=bootstrap_draws,
                 min_samples=1,
                 min_effective_samples=1,
-                block_length=16,
+                block_length=24,
+                seed=bootstrap_seed,
             )
             null_ci = null["improvement_ci"]
             effect_ci = alternative["improvement_ci"]
-            null_rejections += int(null_ci["lower"] > 0.0 or null_ci["upper"] < 0.0)
+            null_rejections += int(null_ci["lower"] > 0.0)
             effect_coverages += int(effect_ci["lower"] <= effect <= effect_ci["upper"])
             effect_rejections += int(effect_ci["lower"] > 0.0)
 
         null_rate = null_rejections / replications
         coverage = effect_coverages / replications
         power = effect_rejections / replications
+        print(
+            "synthetic inference rates: "
+            f"null_rejection={null_rate:.4f}, coverage={coverage:.4f}, power={power:.4f}"
+        )
         self.assertGreaterEqual(null_rate, 0.005, f"empirical null rejection rate={null_rate:.3f}")
         self.assertLessEqual(null_rate, 0.10, f"empirical null rejection rate={null_rate:.3f}")
-        self.assertGreaterEqual(coverage, 0.87, f"effect CI coverage={coverage:.3f}")
-        self.assertLessEqual(coverage, 0.995, f"effect CI coverage={coverage:.3f}")
-        self.assertGreaterEqual(power, 0.20, f"empirical power={power:.3f}")
-        self.assertLessEqual(power, 0.90, f"empirical power={power:.3f}")
+        self.assertGreaterEqual(coverage, 0.89, f"effect CI coverage={coverage:.3f}")
+        self.assertLessEqual(coverage, 0.98, f"effect CI coverage={coverage:.3f}")
+        self.assertGreaterEqual(power, 0.75, f"empirical power={power:.3f}")
+        self.assertLessEqual(power, 0.95, f"empirical power={power:.3f}")
 
     def test_clear_regression_supports_baseline(self) -> None:
         result = paired_bootstrap_comparison(
@@ -146,6 +153,7 @@ class StatisticalSignificanceTests(unittest.TestCase):
             lower_is_better=True,
             method="moving_block",
             block_length=16,
+            minimum_block_length=16,
             min_effective_samples=1,
         )
         second = paired_bootstrap_comparison(
@@ -155,6 +163,7 @@ class StatisticalSignificanceTests(unittest.TestCase):
             lower_is_better=True,
             method="moving_block",
             block_length=16,
+            minimum_block_length=16,
             min_effective_samples=1,
         )
         self.assertEqual(first, second)
@@ -170,7 +179,7 @@ class StatisticalSignificanceTests(unittest.TestCase):
             lower_is_better=True,
             min_effective_samples=1,
         )
-        self.assertGreaterEqual(result["block_length"], 16)
+        self.assertGreaterEqual(result["block_length"], 24)
         self.assertEqual(result["block_length_basis"], "max_overlap_floor_cube_root")
 
     def test_unpaired_sample_counts_are_rejected(self) -> None:

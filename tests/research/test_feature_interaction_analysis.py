@@ -290,7 +290,8 @@ class EvaluationReportsTests(unittest.TestCase):
         self.assertEqual(loaded, report)
         self.assertEqual(report["catalog_version"]["catalog_sha256"], catalog_sha256())
         self.assertEqual(
-            report["interactions"]["funding_x_trend"]["overall"]["recommendation"], "edge_detected"
+            report["interactions"]["funding_x_trend"]["overall"]["recommendation"],
+            "insufficient_evidence",
         )
 
 
@@ -304,6 +305,7 @@ class PromotionTests(unittest.TestCase):
                 improvement_fraction=1.0,
                 promotion_min_samples=32,
                 min_stable_folds=2,
+                effective_block_count=8,
             ),
             "promoted",
         )
@@ -315,6 +317,7 @@ class PromotionTests(unittest.TestCase):
                 improvement_fraction=0.5,
                 promotion_min_samples=32,
                 min_stable_folds=2,
+                effective_block_count=8,
             ),
             "research_only",
         )
@@ -337,6 +340,7 @@ class PromotionTests(unittest.TestCase):
                 improvement_fraction=0.0,
                 promotion_min_samples=32,
                 min_stable_folds=2,
+                effective_block_count=8,
             ),
             "rejected",
         )
@@ -348,8 +352,22 @@ class PromotionTests(unittest.TestCase):
                 improvement_fraction=1.0,
                 promotion_min_samples=32,
                 min_stable_folds=2,
+                effective_block_count=8,
             ),
             "research_only",
+        )
+
+    def test_underpowered_candidate_better_result_is_not_promoted(self) -> None:
+        self.assertEqual(
+            promotion_status_from_evidence(
+                conclusion="candidate_better",
+                samples=50,
+                fold_count=2,
+                improvement_fraction=1.0,
+                promotion_min_samples=32,
+                min_stable_folds=2,
+            ),
+            "insufficient_evidence",
         )
 
     def test_strong_interaction_is_promoted_end_to_end(self) -> None:
@@ -369,9 +387,9 @@ class PromotionTests(unittest.TestCase):
         )
         section = report["interactions"]["funding_x_trend"]
         for horizon, item in section["by_horizon"].items():
-            self.assertEqual(item["promotion_status"], "promoted", horizon)
+            self.assertEqual(item["promotion_status"], "insufficient_evidence", horizon)
             self.assertTrue(item["fold_stats"]["stable_oos"], horizon)
-        self.assertEqual(section["overall"]["promotion"], "promoted")
+        self.assertEqual(section["overall"]["promotion"], "insufficient_evidence")
 
     def test_noisy_interaction_is_not_promoted(self) -> None:
         n = 150

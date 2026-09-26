@@ -5,7 +5,7 @@
 | Path | Pairing / selection | Inference and limits |
 | --- | --- | --- |
 | `research/backtest.py` | Purged chronological folds (16h target maturity); adaptive weights replayed from permitted history. Benchmark winners are selected on the same reported scores. | Descriptive summaries only; not an untouched outer estimate of a selected winner. |
-| `research/optimizer.py` | Frozen origin forecasts; each candidate sees matured outcomes only; horizons are averaged within origin; paired by origin. Catalog currently has 19 configurations. | Moving-block bootstrap with a fixed 16-origin block; at the default 48 origins this is 3 effective blocks, below the eight-block evidence floor and therefore inconclusive. Selection and evidence use the same origins; fold summaries do not nest candidate selection. |
+| `research/optimizer.py` | Frozen origin forecasts; each candidate sees matured outcomes only; horizons are averaged within origin; paired by origin. Catalog currently has 19 configurations. | Moving-block bootstrap with a fixed 24-origin block; at the default 48 origins this is 2 effective blocks, below the eight-block evidence floor and therefore inconclusive. Selection and evidence use the same origins; fold summaries do not nest candidate selection. |
 | `research/multiple_testing.py` / ops promotion | Counts the challenger family and applies Holm by default; pairing checks exact origin lists when building pairwise evidence. | Uses paired bootstrap on reported arrays. Promotion currently falls back to unadjusted evidence if adjusted evidence cannot be built; report shape does not require prediction completeness or demonstrate that every attempted/failed variant is registered. |
 | Ablation and challenger research scripts | Implementations vary; many use paired bootstrap helpers, while others report metrics only. | Shared helper now defaults to moving-block inference. Existing experiment-specific resampling, selection, and trial accounting still require path-by-path validation before evidence is promotable. |
 
@@ -20,17 +20,20 @@ Purging at least the longest outcome maturity protects fold boundaries but does
 not make adjacent validation losses independent.
 
 The shared paired comparison uses moving-block bootstrap by default (stationary
-bootstrap is also available). The block-length proxy is the maximum of 16 origins
-and the cube-root rule, capped by the sample count. The 16-origin floor reflects
-the longest 16-hour overlapping labels at dense hourly origins; it is a guardrail,
-not an estimated dependence length. Explicit lengths must come from training-only
+bootstrap is also available). The block-length proxy is the maximum of 24 origins
+and the cube-root rule, capped by the sample count. The 24-origin floor covers
+the 16-hour overlapping labels plus a dependence buffer at dense hourly origins;
+it is a guardrail, not an estimated dependence length. Explicit lengths must come from training-only
 dependence or label-overlap diagnostics, then be frozen before evaluation. Report
 sensitivity at longer block sizes and report the effective-block-count proxy
 (``n / block_length``), not an independent-sample estimate. Results below 8
 effective blocks are inconclusive even when nominal
 sample count is large. This floor is a guardrail, not a guarantee of adequate
 power; block bootstrap intervals are unstable with few blocks. HAC/Diebold-Mariano
-inference is not currently implemented, so no HAC result is claimed.
+tests are not currently implemented. Moving-block intervals apply an exposed
+finite-block variance correction based on the unweighted versus Bartlett-weighted
+lag covariance estimates through the selected block length; this is a variance
+adjustment, not a full HAC/DM test.
 
 Selection must be nested: select configurations and tune any policy only within
 inner folds of each outer training window, then score the frozen selection once
@@ -45,10 +48,11 @@ family-adjusted evidence.
 
 The unit suite runs a fixed-seed, bounded Monte Carlo (240 replications, 399
 bootstrap draws, 512 origins per replicate) on 16-wide moving-average loss
-differences. It checks empirical two-sided null rejection rate, 95% interval
-coverage at a known effect, and one-sided power against tolerances fixed in the
-test. The simulated block size is fixed at 16 before generation/evaluation and is
-not selected from simulated outer outcomes. This validates only the synthetic
+differences, with block length fixed at 24 and the finite-block variance correction
+enabled. It checks one-sided null rejection, 95% interval coverage at a known
+effect, and one-sided power against tolerances fixed in the test. The simulated
+block size is fixed at 24 before generation/evaluation and is not selected from
+simulated outer outcomes. This validates only the synthetic
 protocol configuration; it does not establish calibration under all dependence
 structures. The
 canonical benchmark corpus is unavailable/blocked in this checkout, so no BTC
