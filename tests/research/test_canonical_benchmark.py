@@ -88,6 +88,74 @@ class CanonicalBenchmarkTests(unittest.TestCase):
             report = audit_csv(self._write_rows(directory, timestamps, mutate=prior_vintage))
         self.assertEqual(report["status"], "ready_for_replay")
 
+    def test_missing_required_field_value_is_blocked_without_exception(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "missing-value.csv"
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(FIELDS)
+                writer.writerow(
+                    (
+                        _iso(WARMUP_START_TS),
+                        "Kraken",
+                        "XBT/USD",
+                        100,
+                        101,
+                        99,
+                        100,
+                        1,
+                        _iso(WARMUP_START_TS),
+                    )
+                )
+            report = audit_csv(path)
+        self.assertEqual(report["status"], "blocked")
+        self.assertGreater(report["invalid_rows"], 0)
+        self.assertTrue(any("empty or missing required values" in error for error in report["errors"]))
+
+    def test_malformed_csv_is_reported_as_blocked(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "malformed.csv"
+            output = Path(directory) / "audit.json"
+            path.write_text(
+                ",".join(FIELDS) + '\n"unterminated,Kraken,XBT/USD,100,101,99,100,1,',
+                encoding="utf-8",
+            )
+            report = audit_csv(path)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "btc_timesfm.research.canonical_benchmark",
+                    "--data",
+                    str(path),
+                    "--output",
+                    str(output),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            cli_report = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(report["status"], "blocked")
+        self.assertTrue(any("CSV parse error" in error for error in report["errors"]))
+        self.assertEqual(cli_report["status"], "blocked")
+        self.assertEqual(json.loads(result.stdout)["status"], "blocked")
+
+    def test_blank_venue_or_pair_is_rejected(self) -> None:
+        timestamps = self._complete_timestamps()
+        for field in ("venue", "pair"):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+
+                def blank_identity(row, index):
+                    if index == 0:
+                        row[field] = " "
+
+                report = audit_csv(
+                    self._write_rows(directory, timestamps, mutate=blank_identity)
+                )
+            self.assertEqual(report["status"], "blocked")
+            self.assertGreater(report["invalid_rows"], 0)
+
     def test_target_and_warmup_are_independently_required(self) -> None:
         timestamps = self._complete_timestamps()
         timestamps.remove(TARGET_START_TS)

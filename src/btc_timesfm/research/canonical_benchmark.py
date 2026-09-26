@@ -52,13 +52,16 @@ def audit_csv(path: Path) -> dict[str, Any]:
     file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
     rows: list[dict[str, str]] = []
     errors: list[str] = []
-    with path.open(encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle)
-        missing = sorted(set(REQUIRED_FIELDS) - set(reader.fieldnames or []))
-        if missing:
-            errors.append(f"missing required columns: {', '.join(missing)}")
-        else:
-            rows = list(reader)
+    try:
+        with path.open(encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle, strict=True)
+            missing = sorted(set(REQUIRED_FIELDS) - set(reader.fieldnames or []))
+            if missing:
+                errors.append(f"missing required columns: {', '.join(missing)}")
+            else:
+                rows = list(reader)
+    except (csv.Error, UnicodeError) as exc:
+        errors.append(f"CSV parse error: {exc}")
 
     timestamps: list[int] = []
     venues: set[str] = set()
@@ -66,6 +69,15 @@ def audit_csv(path: Path) -> dict[str, Any]:
     invalid_rows = 0
     for line, row in enumerate(rows, start=2):
         try:
+            if None in row:
+                raise ValueError("row contains values beyond the declared CSV columns")
+            empty_fields = [
+                name
+                for name in REQUIRED_FIELDS
+                if not isinstance(row.get(name), str) or not row[name].strip()
+            ]
+            if empty_fields:
+                raise ValueError(f"empty or missing required values: {', '.join(empty_fields)}")
             candle_timestamp = _utc_timestamp(row["timestamp"])
             vintage_timestamp = _utc_timestamp(row["vintage"])
             revision = int(row["revision"])
@@ -84,7 +96,7 @@ def audit_csv(path: Path) -> dict[str, Any]:
                 raise ValueError("non-finite or non-positive OHLCV")
             if low > min(opening, close) or high < max(opening, close) or high < low:
                 raise ValueError("impossible OHLC relationship")
-        except (KeyError, TypeError, ValueError) as exc:
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
             invalid_rows += 1
             errors.append(f"line {line}: {exc}")
 
@@ -107,6 +119,10 @@ def audit_csv(path: Path) -> dict[str, Any]:
         errors.append("dataset must contain exactly one venue")
     if len(pairs) != 1:
         errors.append("dataset must contain exactly one pair")
+    if "" in venues:
+        errors.append("venue identity must not be blank")
+    if "" in pairs:
+        errors.append("pair identity must not be blank")
     usd_pair = pair in {"BTC/USD", "XBT/USD", "BTCUSD", "XBTUSD"}
     if pair and not usd_pair:
         errors.append("non-USD pairs are not eligible; BTCUSDT is transfer-only")
