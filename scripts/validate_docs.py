@@ -49,7 +49,9 @@ def check_rendered_links() -> list[str]:
                 if target_path.startswith(prefix):
                     target_path = target_path[len(prefix) :]
                 else:
-                    errors.append(f"{page.relative_to(BUILD)}: {kind} escapes project base URL: {value}")
+                    errors.append(
+                        f"{page.relative_to(BUILD)}: {kind} escapes project base URL: {value}"
+                    )
                     continue
             destination = (page.parent / target_path).resolve() if target_path else page
             if destination.is_dir():
