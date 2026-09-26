@@ -77,6 +77,9 @@ class ServiceConfig:
     rate_limit: int = 60
     rate_window_seconds: int = 60
     stale_after_seconds: int = 10_800
+    audit_max_bytes: int = 10_000_000
+    audit_backups: int = 3
+    audit_max_age_days: int = 30
 
     @classmethod
     def from_env(cls) -> "ServiceConfig":
@@ -95,6 +98,9 @@ class ServiceConfig:
             rate_limit=int(os.getenv("BTC_FORECAST_API_RATE_LIMIT", "60")),
             rate_window_seconds=int(os.getenv("BTC_FORECAST_API_RATE_WINDOW_SECONDS", "60")),
             stale_after_seconds=int(os.getenv("BTC_FORECAST_API_STALE_AFTER_SECONDS", "10800")),
+            audit_max_bytes=int(os.getenv("BTC_FORECAST_API_AUDIT_MAX_BYTES", "10000000")),
+            audit_backups=int(os.getenv("BTC_FORECAST_API_AUDIT_BACKUPS", "3")),
+            audit_max_age_days=int(os.getenv("BTC_FORECAST_API_AUDIT_MAX_AGE_DAYS", "30")),
         )
 
 
@@ -103,23 +109,26 @@ class ServiceMetrics:
     requests_total: int = 0
     responses_by_status: dict[int, int] = field(default_factory=dict)
     history_read_failures: int = 0
-    latency_ms: list[float] = field(default_factory=list)
+    latency_ms: deque[float] = field(default_factory=lambda: deque(maxlen=1_000))
+    lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def record(self, status: int, latency_ms: float) -> None:
-        self.requests_total += 1
-        self.responses_by_status[status] = self.responses_by_status.get(status, 0) + 1
-        self.latency_ms.append(latency_ms)
-        del self.latency_ms[:-1_000]
+        with self.lock:
+            self.requests_total += 1
+            self.responses_by_status[status] = self.responses_by_status.get(status, 0) + 1
+            self.latency_ms.append(latency_ms)
 
     def snapshot(self) -> dict[str, Any]:
-        latency = sorted(self.latency_ms)
-        percentile = latency[max(0, int(len(latency) * 0.95) - 1)] if latency else 0.0
-        return {
-            "requests_total": self.requests_total,
-            "responses_by_status": dict(self.responses_by_status),
-            "history_read_failures": self.history_read_failures,
-            "latency_p95_ms": round(percentile, 3),
-        }
+        with self.lock:
+            latency = sorted(self.latency_ms)
+            percentile = latency[max(0, int(len(latency) * 0.95) - 1)] if latency else 0.0
+            result = {
+                "requests_total": self.requests_total,
+                "responses_by_status": dict(self.responses_by_status),
+                "history_read_failures": self.history_read_failures,
+                "latency_p95_ms": round(percentile, 3),
+            }
+        return result
 
 
 class SlidingWindowLimiter:
@@ -155,21 +164,74 @@ class ForecastService:
         self.clock = clock
         self.limiter = SlidingWindowLimiter(config.rate_limit, config.rate_window_seconds)
         self.metrics = ServiceMetrics()
+        self.audit_lock = threading.Lock()
 
     def __call__(
         self, environ: Mapping[str, Any], start_response: Callable[..., Any]
     ) -> list[bytes]:
         started = time.perf_counter()
+        path = str(environ.get("PATH_INFO", ""))
+        if path == "/livez":
+            return self._plain(start_response, "200 OK", "ok\n", "text/plain; charset=utf-8")
+        if path == "/readyz":
+            status, _, _, _ = self._health_state_response()
+            reason = "OK" if status == 200 else "Service Unavailable"
+            body = "ready\n" if status == 200 else "not ready\n"
+            return self._plain(start_response, f"{status} {reason}", body, "text/plain; charset=utf-8")
+        if path == "/metrics":
+            return self._metrics_response(start_response)
         status, headers, payload, audit = self.handle(environ)
         elapsed = (time.perf_counter() - started) * 1000.0
         self.metrics.record(status, elapsed)
-        self._audit({**audit, "status": status, "latency_ms": round(elapsed, 3)})
+        try:
+            self._audit({**audit, "status": status, "latency_ms": round(elapsed, 3)})
+        except OSError:
+            # Audit persistence is best-effort; it must not turn a completed read into a 500.
+            pass
         headers = [("Content-Type", MEDIA_TYPE), ("Cache-Control", "no-store"), *headers]
         body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
         start_response(
             f"{status} {self._status_text(status)}", [*headers, ("Content-Length", str(len(body)))]
         )
         return [body]
+
+    @staticmethod
+    def _plain(
+        start_response: Callable[..., Any], status: str, body: str, content_type: str
+    ) -> list[bytes]:
+        encoded = body.encode("utf-8")
+        start_response(
+            status,
+            [
+                ("Content-Type", content_type),
+                ("Content-Length", str(len(encoded))),
+                ("Cache-Control", "no-store"),
+            ],
+        )
+        return [encoded]
+
+    def _health_state_response(self) -> tuple[int, list[Any], dict[str, Any], dict[str, Any]]:
+        health = self._health_state()
+        ready = health is not None and health["status"] == "healthy"
+        return (200 if ready else 503), [], {}, {}
+
+    def _metrics_response(self, start_response: Callable[..., Any]) -> list[bytes]:
+        metrics = self.metrics.snapshot()
+        lines = [f"forecast_api_requests_total {metrics['requests_total']}"]
+        for status, count in sorted(metrics["responses_by_status"].items()):
+            lines.append(f'forecast_api_responses_total{{status="{status}"}} {count}')
+        lines.extend(
+            (
+                f"forecast_api_history_read_failures_total {metrics['history_read_failures']}",
+                f"forecast_api_request_latency_p95_ms {metrics['latency_p95_ms']}",
+            )
+        )
+        return self._plain(
+            start_response,
+            "200 OK",
+            "\n".join(lines) + "\n",
+            "text/plain; version=0.0.4; charset=utf-8",
+        )
 
     def handle(
         self, environ: Mapping[str, Any]
@@ -539,7 +601,38 @@ class ForecastService:
             raise RuntimeError("server generated an invalid contract response")
 
     def _audit(self, event: dict[str, Any]) -> None:
+        with self.audit_lock:
+            self._write_audit(event)
+
+    def _write_audit(self, event: dict[str, Any]) -> None:
         self.config.audit_path.parent.mkdir(parents=True, exist_ok=True)
+        max_bytes = self.config.audit_max_bytes
+        if max_bytes < 1 or self.config.audit_backups < 0 or self.config.audit_max_age_days < 1:
+            raise OSError("invalid audit retention configuration")
+        try:
+            retention_seconds = self.config.audit_max_age_days * 86_400
+            now = time.time()
+            for index in range(self.config.audit_backups + 1):
+                candidate = self.config.audit_path if index == 0 else self.config.audit_path.with_name(
+                    f"{self.config.audit_path.name}.{index}"
+                )
+                if candidate.exists() and now - candidate.stat().st_mtime > retention_seconds:
+                    candidate.unlink()
+            if self.config.audit_path.exists() and self.config.audit_path.stat().st_size >= max_bytes:
+                for index in range(self.config.audit_backups, 0, -1):
+                    source = self.config.audit_path.with_name(
+                        self.config.audit_path.name + (f".{index - 1}" if index > 1 else "")
+                    )
+                    destination = self.config.audit_path.with_name(f"{self.config.audit_path.name}.{index}")
+                    if source.exists():
+                        if index == self.config.audit_backups:
+                            source.unlink(missing_ok=True)
+                        else:
+                            source.replace(destination)
+        except OSError:
+            raise
+        if self.config.audit_path.exists() and self.config.audit_path.stat().st_size >= max_bytes:
+            self.config.audit_path.unlink()
         with self.config.audit_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n")
 
