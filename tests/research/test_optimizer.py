@@ -114,15 +114,15 @@ class OptimizerTests(unittest.TestCase):
             "paired_metrics": paired_metrics,
         }
 
-    def test_recommendation_accepts_material_stable_improvement(self) -> None:
+    def test_recommendation_blocks_material_effect_with_too_few_effective_blocks(self) -> None:
         current = self._result("production", 1.0, fold_maes=(1.0, 1.0, 1.0))
         candidate = self._result("candidate", 0.94, fold_maes=(0.94, 0.95, 0.93))
         decision, details = optimizer.recommendation(candidate, current)
-        self.assertEqual(decision, "candidate_worth_review")
-        self.assertTrue(all(details["checks"].values()))
+        self.assertEqual(decision, "keep_current")
+        self.assertFalse(details["checks"]["statistically_supported_mae_improvement"])
         evidence = details["significance"]["candidate_vs_production"]["mae_pct"]
-        self.assertEqual(evidence["conclusion"], "candidate_better")
-        self.assertGreater(evidence["improvement_ci"]["lower"], 0.0)
+        self.assertEqual(evidence["conclusion"], "inconclusive")
+        self.assertEqual(evidence["reason"], "insufficient_effective_samples")
 
     def test_recommendation_rejects_horizon_regression(self) -> None:
         current = self._result("production", 1.0)

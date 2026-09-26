@@ -12,6 +12,7 @@ DEFAULT_BOOTSTRAP_ITERATIONS = 5000
 DEFAULT_CONFIDENCE = 0.95
 DEFAULT_MIN_PAIRED_SAMPLES = 32
 DEFAULT_MIN_EFFECTIVE_SAMPLES = 8
+DEFAULT_MIN_BLOCK_LENGTH = 16
 DEFAULT_SEED = 0
 
 
@@ -37,6 +38,7 @@ def paired_bootstrap_comparison(
     method: Literal["iid", "moving_block", "stationary"] = "moving_block",
     block_length: int | None = None,
     min_effective_samples: int = DEFAULT_MIN_EFFECTIVE_SAMPLES,
+    minimum_block_length: int = DEFAULT_MIN_BLOCK_LENGTH,
 ) -> dict[str, Any]:
     """Compare paired measurements with a deterministic bootstrap confidence interval.
 
@@ -56,6 +58,8 @@ def paired_bootstrap_comparison(
         raise ValueError("min_samples must be positive")
     if min_effective_samples < 1:
         raise ValueError("min_effective_samples must be positive")
+    if minimum_block_length < 1:
+        raise ValueError("minimum_block_length must be positive")
     if method not in ("iid", "moving_block", "stationary"):
         raise ValueError("unsupported bootstrap method")
     if block_length is not None and block_length < 1:
@@ -75,7 +79,9 @@ def paired_bootstrap_comparison(
             "confidence": confidence,
             "bootstrap_method": method,
             "block_length": block_length,
+            "block_length_basis": "not_applicable_empty_sample",
             "effective_samples": 0.0,
+            "effective_block_count_proxy": 0.0,
             "minimum_effective_samples": min_effective_samples,
             "improvement_ci": {"lower": None, "upper": None},
             "probability_candidate_better": None,
@@ -93,7 +99,11 @@ def paired_bootstrap_comparison(
     bootstrap_means: np.ndarray = np.empty(iterations, dtype=np.float64)
     # The cube-root rule uses only the observed paired series; explicit block
     # lengths are appropriate when supplied from training-only dependence analysis.
-    selected_block_length = min(samples, block_length or max(1, round(samples ** (1 / 3))))
+    requested_block_length = max(
+        minimum_block_length,
+        block_length or max(1, round(samples ** (1 / 3))),
+    )
+    selected_block_length = min(samples, requested_block_length)
     for iteration in range(iterations):
         if method == "iid":
             indices = rng.integers(0, samples, size=samples)
@@ -156,7 +166,11 @@ def paired_bootstrap_comparison(
         "confidence": confidence,
         "bootstrap_method": method,
         "block_length": selected_block_length,
+        "block_length_basis": (
+            "explicit_or_overlap_floor" if block_length else "max_overlap_floor_cube_root"
+        ),
         "effective_samples": round(effective_samples, 6),
+        "effective_block_count_proxy": round(effective_samples, 6),
         "minimum_effective_samples": min_effective_samples,
         "improvement_ci": {
             "lower": round(float(lower), 8),

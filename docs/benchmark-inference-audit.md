@@ -20,12 +20,14 @@ Purging at least the longest outcome maturity protects fold boundaries but does
 not make adjacent validation losses independent.
 
 The shared paired comparison uses moving-block bootstrap by default (stationary
-bootstrap is also available). The default block length is the cube-root rule on
-the paired series; this is a conservative fallback, not an estimate from held-out
-labels. Explicit lengths should be selected using training-only dependence or
-label-overlap diagnostics, then frozen before evaluation. Report sensitivity at
-at least 16 origins for the 16-hour horizon, and report the number of effective
-blocks. Results below 8 effective blocks are inconclusive even when nominal
+bootstrap is also available). The block-length proxy is the maximum of 16 origins
+and the cube-root rule, capped by the sample count. The 16-origin floor reflects
+the longest 16-hour overlapping labels at dense hourly origins; it is a guardrail,
+not an estimated dependence length. Explicit lengths must come from training-only
+dependence or label-overlap diagnostics, then be frozen before evaluation. Report
+sensitivity at longer block sizes and report the effective-block-count proxy
+(``n / block_length``), not an independent-sample estimate. Results below 8
+effective blocks are inconclusive even when nominal
 sample count is large. This floor is a guardrail, not a guarantee of adequate
 power; block bootstrap intervals are unstable with few blocks. HAC/Diebold-Mariano
 inference is not currently implemented, so no HAC result is claimed.
@@ -41,9 +43,14 @@ family-adjusted evidence.
 
 ## Monte Carlo and corpus status
 
-The unit suite exercises deterministic autocorrelated/overlapping synthetic null
-losses and the effective-sample inconclusive gate. It does not establish calibrated
-null rejection rates, interval coverage, or power over a Monte Carlo study. The
+The unit suite runs a fixed-seed, bounded Monte Carlo (240 replications, 399
+bootstrap draws, 512 origins per replicate) on 16-wide moving-average loss
+differences. It checks empirical two-sided null rejection rate, 95% interval
+coverage at a known effect, and one-sided power against tolerances fixed in the
+test. The simulated block size is fixed at 16 before generation/evaluation and is
+not selected from simulated outer outcomes. This validates only the synthetic
+protocol configuration; it does not establish calibration under all dependence
+structures. The
 canonical benchmark corpus is unavailable/blocked in this checkout, so no BTC
 accuracy, historical-drift, coverage, or power claim is made. A benchmark run
 without complete, mature point-in-time outcomes should be reported as blocked or
@@ -51,11 +58,16 @@ inconclusive rather than filled with invented values.
 
 ## Policy parity
 
-Production defaults to the production policy; `backtest` and replay paths use
-research variants, and `policy_for("backtest")` enables research ridge while
-production defaults it off. Name and report research ridge separately; do not
-interpret its results as production-parity evidence. Historical optimizer,
-replay, shadow, and production policy versions have drifted (#260/#275). Current
-manifests identify policy configuration, but this audit does not certify full
-historical policy parity. Promotion must remain review-only pending an explicit
-parity comparison and nested outer-holdout evaluation.
+Production defaults to the production policy; `policy_for("backtest")` and
+`policy_for("optimizer")` enable research ridge while production defaults it off.
+The static parity audit is intentionally fail-closed: it reports backtest and
+optimizer as ``blocked_policy_drift``, and shadow as ``blocked_unattested`` because
+its persisted shadow decision policy does not attest forecast construction
+configuration. The audit also identifies backtest's direct weighting override
+and optimizer replay's direct adaptive-weighting call, so declared policy IDs do
+not establish execution identity. Backtest and optimizer JSON reports include
+this audit and explicitly label their research-ridge variant. Historical optimizer, replay,
+shadow, and production policy versions have drifted (#260/#275). Historical
+manifests are not sufficient to establish exact parity here, so no historical
+skill claim is made. Promotion must remain blocked pending explicit parity
+evidence and nested outer-holdout evaluation.
