@@ -202,6 +202,30 @@ class CumulativeIntervalCalibrationTests(unittest.TestCase):
         self.assertEqual(report["status"], "blocked")
         self.assertLess(report["prospective_origin_windows_by_horizon"][4]["span_days"], 30)
 
+    def test_origin_span_must_itself_reach_30_days(self) -> None:
+        predictions, outcomes, audit = self._valid_inputs()
+        start = datetime.fromisoformat(audit["prospective_start"])
+        for row in predictions:
+            origin = datetime.fromisoformat(row["origin_at"])
+            if origin == start:
+                shifted = start + timedelta(hours=1)
+                target = shifted + timedelta(hours=4)
+                row["origin_at"] = shifted.isoformat()
+                row["target_at"] = target.isoformat()
+        for row in outcomes:
+            origin = datetime.fromisoformat(row["origin_at"])
+            if origin == start:
+                shifted = start + timedelta(hours=1)
+                target = shifted + timedelta(hours=4)
+                row["origin_at"] = shifted.isoformat()
+                row["target_at"] = target.isoformat()
+                row["actual_at"] = target.isoformat()
+                row["matured_at"] = (target + timedelta(minutes=1)).isoformat()
+        report = self._gate(predictions, outcomes, audit)
+        window = report["prospective_origin_windows_by_horizon"][4]
+        self.assertEqual(report["status"], "blocked")
+        self.assertEqual(window["span_days"], 30 - 1 / 24)
+
     def test_naive_timestamps_are_rejected(self) -> None:
         with self.assertRaises(ValueError):
             matured_residuals([], origin=datetime(2024, 1, 1), horizon=1)

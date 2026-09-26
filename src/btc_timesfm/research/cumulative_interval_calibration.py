@@ -232,7 +232,8 @@ def build_gate_report(
             or first is None
             or last is None
             or abs(first - prospective_start) > timedelta(hours=1)
-            or last < prospective_start + timedelta(days=30)
+            or span is None
+            or span < timedelta(days=30)
         ):
             reasons.append(
                 f"prospective paired origins for horizon {horizon} do not span the required 30 days"
