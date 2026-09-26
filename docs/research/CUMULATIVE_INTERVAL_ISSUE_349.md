@@ -13,8 +13,15 @@ before its target has matured. Interval scores consume supplied cumulative
 q10/q50/q90 values; independently accumulated TimesFM per-step marginals are
 not interpreted as cumulative quantiles.
 
-The report gate remains blocked because the required empirical evidence is not
-available in this checkout:
+The report gate fails closed unless the canonical audit includes a ready
+manifest SHA-256, exact target coverage, and prospective-period readiness; each
+origin/horizon/target key has exactly one raw cumulative, pre-coherence, and
+final stage with identical source and candidate identities; each such key has
+a unique exact-target matured outcome; and the preregistered support is met.
+The support default is at least 200 exact pairs per required horizon in both
+the evaluation set and prospective period. `dataset_ready=True` by itself is
+not evidence. The gate remains blocked because the required empirical evidence
+is not available in this checkout:
 
 - No immutable raw paired per-origin TimesFM outputs, cumulative residuals,
   calibration inputs/outputs, or complete raw → pre-coherence → final lineage.
@@ -34,3 +41,7 @@ calibration, and point MAE non-regression by horizon. Evaluate before and after
 coherence separately. These helpers do not run inference, fit a calibrator, or
 change published forecasts. Until the raw lineage and corpus exist, this is a
 software gate only and makes no empirical performance claim.
+
+Weighted interval score uses the standard median-plus-central-80% expression
+`(0.5 * MAE + 0.1 * IS80) / 1.5`, equivalent to the sum of q10/q50/q90 pinball
+losses divided by 1.5 under the implemented pinball definition.
