@@ -28,6 +28,31 @@ The benchmark configuration is included in the experiment manifest so a historic
 
 All benchmark inputs are restricted to the market context available at the simulated forecast origin. In particular, `seasonal_naive_24h` uses `t + h - 24` for horizon `h`; because all supported horizons are below 24 hours, it never reads a future candle.
 
+## Canonical BTC/USD corpus gate (issue #339)
+
+The existing replay downloader uses Binance BTCUSDT, which is a transfer cohort and
+must not be described as a BTC/USD result. The canonical benchmark bootstrap audits
+an explicitly supplied, single-venue hourly BTC/USD CSV and never downloads or
+silently substitutes another market. Required columns are `timestamp` (ISO-8601
+with UTC offset), `venue`, `pair`, `open`, `high`, `low`, `close`, and `volume`;
+optional `vintage` and `revision` columns are recorded as provenance availability.
+The audit checks hourly alignment, OHLCV validity, duplicates, gaps, venue/pair
+consistency, SHA-256, coverage, and the 180-day minimum. Passing this gate is not
+forecast evidence: production-parity replay, exact origin pairing, failures, and
+dependence-aware uncertainty remain required. Research ridge remains disabled.
+
+```bash
+PYTHONPATH=src python -m btc_timesfm.research.canonical_benchmark \
+  --data /path/to/immutable_btc_usd_hourly.csv \
+  --output canonical_benchmark_audit.json
+```
+
+Without `--data`, the command emits a machine-readable `blocked` result with zero
+observations. The current checkout contains no canonical corpus; its limited recent
+Kraken/Bitstamp feeds and the BTCUSDT replay downloader do not establish the
+required multi-year same-venue BTC/USD history. Do not interpret the current
+historical BTCUSDT replay or the audit gate as evidence of forecasting skill.
+
 Run the normal walk-forward backtest to produce `backtest_report.json`:
 
 ```bash

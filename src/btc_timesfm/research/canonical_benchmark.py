@@ -1,0 +1,162 @@
+"""Audit immutable hourly BTC/USD benchmark drops without substituting venues.
+
+The audit is deliberately a gate, not a backtest: incomplete or mixed-source data
+cannot produce a forecast-quality claim. CSV inputs require explicit venue/pair
+identity and UTC candle timestamps so coverage and provenance are reproducible.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import hashlib
+import json
+import math
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+REQUIRED_DAYS = 180
+TARGET_START = datetime(2023, 1, 1, tzinfo=timezone.utc)
+TARGET_END = datetime(2026, 9, 1, tzinfo=timezone.utc)
+REQUIRED_FIELDS = ("timestamp", "venue", "pair", "open", "high", "low", "close", "volume")
+
+
+def _utc_timestamp(value: str) -> int:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        raise ValueError("timestamp must include a UTC offset")
+    parsed = parsed.astimezone(timezone.utc)
+    if parsed.minute or parsed.second or parsed.microsecond:
+        raise ValueError("timestamps must align to the UTC hour")
+    return int(parsed.timestamp())
+
+
+def audit_csv(path: Path) -> dict[str, Any]:
+    """Return a deterministic coverage/integrity audit for a single-venue CSV."""
+    file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+    rows: list[dict[str, str]] = []
+    errors: list[str] = []
+    with path.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        missing = sorted(set(REQUIRED_FIELDS) - set(reader.fieldnames or []))
+        if missing:
+            errors.append(f"missing required columns: {', '.join(missing)}")
+        else:
+            rows = list(reader)
+
+    timestamps: list[int] = []
+    venues: set[str] = set()
+    pairs: set[str] = set()
+    for line, row in enumerate(rows, start=2):
+        try:
+            timestamps.append(_utc_timestamp(row["timestamp"]))
+            venues.add(row["venue"].strip())
+            pairs.add(row["pair"].strip().upper())
+            values = [float(row[name]) for name in ("open", "high", "low", "close", "volume")]
+            opening, high, low, close, volume = values
+            if not all(math.isfinite(value) for value in values) or min(
+                opening, high, low, close
+            ) <= 0 or volume < 0:
+                raise ValueError("non-finite or non-positive OHLCV")
+            if low > min(opening, close) or high < max(opening, close) or high < low:
+                raise ValueError("impossible OHLC relationship")
+        except (KeyError, TypeError, ValueError) as exc:
+            errors.append(f"line {line}: {exc}")
+
+    ordered = sorted(timestamps)
+    duplicates = len(ordered) - len(set(ordered))
+    if duplicates:
+        errors.append(f"{duplicates} duplicate hourly timestamps")
+    unique = sorted(set(ordered))
+    gaps = sum(max(0, (right - left) // 3600 - 1) for left, right in zip(unique, unique[1:]))
+    if gaps:
+        errors.append(f"{gaps} missing hourly candles")
+    venue = next(iter(venues)) if len(venues) == 1 else None
+    pair = next(iter(pairs)) if len(pairs) == 1 else None
+    has_vintage = bool(rows and "vintage" in rows[0])
+    has_revision = bool(rows and "revision" in rows[0])
+    if len(venues) != 1:
+        errors.append("dataset must contain exactly one venue")
+    if len(pairs) != 1:
+        errors.append("dataset must contain exactly one pair")
+    usd_pair = pair in {"BTC/USD", "XBT/USD", "BTCUSD", "XBTUSD"}
+    if pair and not usd_pair:
+        errors.append("non-USD pairs are not eligible; BTCUSDT is transfer-only")
+    if rows and not has_vintage:
+        errors.append("missing vintage provenance column")
+    if rows and not has_revision:
+        errors.append("missing revision provenance column")
+
+    first = datetime.fromtimestamp(unique[0], timezone.utc) if unique else None
+    last = datetime.fromtimestamp(unique[-1], timezone.utc) if unique else None
+    span_hours = (unique[-1] - unique[0]) // 3600 + 1 if unique else 0
+    covered_target = sum(TARGET_START.timestamp() <= value < TARGET_END.timestamp() for value in unique)
+    eligible = not errors and usd_pair and span_hours >= REQUIRED_DAYS * 24
+    if span_hours < REQUIRED_DAYS * 24:
+        errors.append(f"only {span_hours} contiguous-span hours; {REQUIRED_DAYS * 24} required")
+    if not unique:
+        errors.append("no readable hourly observations")
+    return {
+        "status": "ready_for_replay" if eligible else "blocked",
+        "eligible_for_skill_comparison": False,
+        "reason": "Dataset passes coverage gate; production-parity replay and validation are still required."
+        if eligible
+        else "No eligible immutable same-venue BTC/USD corpus passes the minimum coverage and integrity gate.",
+        "source_file": str(path),
+        "source_sha256": file_hash,
+        "venue": venue,
+        "pair": pair,
+        "row_count": len(rows),
+        "unique_hourly_count": len(unique),
+        "first_utc": first.isoformat() if first else None,
+        "last_utc": last.isoformat() if last else None,
+        "span_hours": span_hours,
+        "target_period": {"start_inclusive": TARGET_START.isoformat(), "end_exclusive": TARGET_END.isoformat()},
+        "target_period_observations": covered_target,
+        "warmup_days": round(span_hours / 24, 3),
+        "gaps": gaps,
+        "duplicates": duplicates,
+        "vintage_column_present": has_vintage,
+        "revision_column_present": has_revision,
+        "errors": errors,
+        "policy": "forecast_policy.PRODUCTION_POLICY; research ridge disabled",
+        "research_models_enabled": False,
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--data", type=Path, help="single-venue hourly BTC/USD CSV")
+    parser.add_argument("--output", type=Path, default=Path("canonical_benchmark_audit.json"))
+    args = parser.parse_args()
+    report = audit_csv(args.data) if args.data else {
+        "status": "blocked",
+        "eligible_for_skill_comparison": False,
+        "reason": "No canonical dataset supplied; Kraken OHLC is a limited recent window and Binance BTCUSDT is not BTC/USD.",
+        "source_file": None,
+        "source_sha256": None,
+        "venue": None,
+        "pair": None,
+        "row_count": 0,
+        "unique_hourly_count": 0,
+        "first_utc": None,
+        "last_utc": None,
+        "span_hours": 0,
+        "target_period": {"start_inclusive": TARGET_START.isoformat(), "end_exclusive": TARGET_END.isoformat()},
+        "target_period_observations": 0,
+        "warmup_days": 0,
+        "gaps": None,
+        "duplicates": None,
+        "vintage_column_present": False,
+        "revision_column_present": False,
+        "errors": ["eligible >=180-day same-venue BTC/USD corpus unavailable"],
+        "policy": "forecast_policy.PRODUCTION_POLICY; research ridge disabled",
+        "research_models_enabled": False,
+    }
+    args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(json.dumps(report, indent=2, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()
