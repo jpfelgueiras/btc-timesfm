@@ -13,7 +13,10 @@ returns require 337 closes), but those lengths therefore have different
 physical lookbacks. They are policy comparisons, not same-physical-lookback
 contrasts. A controlled step-count contrast is blocked until a verified
 common-frequency setup maps multiple context lengths to the same physical
-lookback. The production checkpoint remains
+lookback. That setup must bind each context to a supported frequency, include
+the verified hours-per-step for each frequency, and establish
+`lookback_hours == context_steps * hours_per_step` for each context. The
+production checkpoint remains
 `google/timesfm-3.0-pytorch` revision
 `43046b85ec22d584a13f8098c2ed39c889e129c2`, CPU, batch size 1, 16-step
 prediction, quantiles enabled, and symmetric averaging disabled. Only the

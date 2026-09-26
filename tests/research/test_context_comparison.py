@@ -126,14 +126,49 @@ class ContextComparisonTests(unittest.TestCase):
                 "revision": "43046b85ec22d584a13f8098c2ed39c889e129c2",
                 "api": "TimesFM3Evaluator.predict_batch",
                 "artifact_sha256": "c" * 64,
+                "supported_contexts": [168, 336, 512],
+                "supported_frequencies": ["hourly", "2-hourly"],
+                "context_frequencies": {
+                    "168": "2-hourly",
+                    "336": "hourly",
+                    "512": "2-hourly",
+                },
+                "frequency_intervals_hours": {"hourly": 1, "2-hourly": 2},
+                "context_lookbacks_hours": {"168": 336, "336": 336, "512": 1024},
+            }
+        )
+        self.assertEqual(verified["controlled_step_count_comparison"]["status"], "eligible")
+        self.assertEqual(verified["controlled_step_count_comparison"]["contexts"], [168, 336])
+        forged = comparison_designs(
+            {
+                "status": "verified",
+                "model_id": "google/timesfm-3.0-pytorch",
+                "revision": "43046b85ec22d584a13f8098c2ed39c889e129c2",
+                "api": "TimesFM3Evaluator.predict_batch",
+                "artifact_sha256": "c" * 64,
                 "supported_contexts": [168, 336],
                 "supported_frequencies": ["hourly", "2-hourly"],
                 "context_lookbacks_hours": {"168": 336, "336": 336},
             }
         )
-        self.assertEqual(verified["controlled_step_count_comparison"]["status"], "eligible")
-        forged = comparison_designs({"verified": True, "supported_contexts": [168, 336]})
         self.assertEqual(forged["controlled_step_count_comparison"]["status"], "blocked")
+        mismatched_frequency = comparison_designs(
+            {
+                "status": "verified",
+                "model_id": "google/timesfm-3.0-pytorch",
+                "revision": "43046b85ec22d584a13f8098c2ed39c889e129c2",
+                "api": "TimesFM3Evaluator.predict_batch",
+                "artifact_sha256": "c" * 64,
+                "supported_contexts": [168, 336],
+                "supported_frequencies": ["hourly", "2-hourly"],
+                "context_frequencies": {"168": "2-hourly", "336": "hourly"},
+                "frequency_intervals_hours": {"hourly": 1, "2-hourly": 2},
+                "context_lookbacks_hours": {"168": 168, "336": 336},
+            }
+        )
+        self.assertEqual(
+            mismatched_frequency["controlled_step_count_comparison"]["status"], "blocked"
+        )
 
 
 if __name__ == "__main__":

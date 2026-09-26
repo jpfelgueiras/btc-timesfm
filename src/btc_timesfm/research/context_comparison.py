@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -191,19 +192,49 @@ def comparison_designs(
     )
     contexts = set(runtime_contract.get("supported_contexts", ())) if verified else set()
     frequencies = set(runtime_contract.get("supported_frequencies", ())) if verified else set()
-    lookbacks = runtime_contract.get("context_lookbacks_hours", {}) if verified else {}
-    step_contexts = [n for n in CONTEXT_LENGTHS if n in contexts]
-    common_values = {lookbacks.get(str(n)) for n in step_contexts}
-    step_ready = (
+    context_frequencies = runtime_contract.get("context_frequencies", {}) if verified else {}
+    frequency_intervals = runtime_contract.get("frequency_intervals_hours", {}) if verified else {}
+    declared_lookbacks = runtime_contract.get("context_lookbacks_hours", {}) if verified else {}
+    step_contexts: list[int] = []
+    lookbacks: dict[int, float] = {}
+    if (
         verified
-        and bool(frequencies)
-        and len(step_contexts) >= 2
-        and len(common_values) == 1
-        and None not in common_values
+        and isinstance(context_frequencies, dict)
+        and isinstance(frequency_intervals, dict)
+        and isinstance(declared_lookbacks, dict)
+    ):
+        for context in CONTEXT_LENGTHS:
+            if context not in contexts:
+                continue
+            frequency = context_frequencies.get(str(context))
+            interval = (
+                frequency_intervals.get(frequency)
+                if isinstance(frequency, str) and frequency in frequencies
+                else None
+            )
+            declared_lookback = declared_lookbacks.get(str(context))
+            if (
+                isinstance(interval, (int, float))
+                and not isinstance(interval, bool)
+                and math.isfinite(interval)
+                and interval > 0
+                and declared_lookback == context * interval
+            ):
+                step_contexts.append(context)
+                lookbacks[context] = float(declared_lookback)
+    matching_groups: dict[float, list[int]] = {}
+    for context, lookback in lookbacks.items():
+        matching_groups.setdefault(lookback, []).append(context)
+    common, matching_contexts = next(
+        (
+            (lookback, group)
+            for lookback, group in sorted(matching_groups.items())
+            if len(group) >= 2
+        ),
+        (None, []),
     )
-    if not step_ready:
-        step_contexts = []
-    common = next(iter(common_values)) if step_ready else None
+    step_ready = len(matching_contexts) >= 2
+    step_contexts = matching_contexts if step_ready else []
     return {
         "policy_context_comparison": {
             "status": "defined-policy-comparison",
