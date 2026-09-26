@@ -6,7 +6,8 @@ on:
     - cron: "43 6 * * 1"
 
 permissions:
-  contents: write
+  contents: read
+  issues: write
 
 concurrency:
   group: btc-timesfm-forecast
@@ -55,6 +56,16 @@ jobs:
             --archive .drill/independent-backup.sqlite.gz \
             --report .drill/disaster_recovery_report.json
 
+      - name: Record successful independent restore
+        if: steps.drill.outcome == 'success'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.HISTORY_BACKUP_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.HISTORY_BACKUP_AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ vars.HISTORY_BACKUP_AWS_REGION }}
+        run: |
+          PYTHONPATH=src python -m btc_timesfm.history.independent_backup record-restore \
+            --uri "$HISTORY_INDEPENDENT_BACKUP_URI" > .drill/restore_receipt.json
+
       - name: Add drill report to job summary
         if: always() && hashFiles('.drill/disaster_recovery_report.json') != ''
         run: |
@@ -64,13 +75,14 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload drill report
-        if: always() && hashFiles('.drill/disaster_recovery_report.json') != ''
+        if: always() && (hashFiles('.drill/disaster_recovery_report.json') != '' || hashFiles('.drill/independent_restore.json') != '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: forecast-history-disaster-recovery
           path: |
             .drill/disaster_recovery_report.json
             .drill/independent_restore.json
+            .drill/restore_receipt.json
           retention-days: 90
 
       - name: Create failure issue
@@ -78,7 +90,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue create --repo "$GITHUB_REPOSITORY" \
-            --title "Forecast history disaster-recovery drill failed" \
-            --body "The scheduled recovery drill failed in run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Follow [$RUNBOOK_PATH]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/$RUNBOOK_PATH)."
+          title="Forecast history disaster-recovery drill failed"
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$title in:title" --json number --jq '.[0].number // empty')"
+          if [ -z "$existing" ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "$title" \
+              --body "The independent recovery drill failed in run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Follow [$RUNBOOK_PATH]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/$RUNBOOK_PATH)."
+          fi
           exit 1

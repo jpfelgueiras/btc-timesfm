@@ -24,8 +24,15 @@ A versioned backup is created from the previously restored, verified canonical d
 
 The Release remains canonical. Before replacing its assets, each normal publish
 also copies the verified prior canonical archive to the configured S3-compatible
-object URI in `HISTORY_INDEPENDENT_BACKUP_URI` and downloads it again for
-checksum and SQLite/schema verification. Configure repository variable
+object URI in `HISTORY_INDEPENDENT_BACKUP_URI`. Archive objects are immutable
+content-addressed objects under `<URI>.generations/<sha256>.sqlite.gz`; the
+companion `<URI>.manifest.json` pointer is switched only after the candidate
+object has been downloaded and verified. Thus a failed candidate upload leaves
+the previously referenced independent copy intact. The manifest contains the
+archive SHA-256/size, verification timestamp,
+schema version, row counts, and latest forecast origin. The workflow downloads
+the archive and manifest again and verifies their agreement before canonical
+Release replacement. Configure repository variable
 `HISTORY_INDEPENDENT_BACKUP_URI` (for example
 `s3://<private-bucket>/btc-timesfm/forecast-history/latest.sqlite.gz`),
 `HISTORY_BACKUP_AWS_REGION`, and repository secrets
@@ -36,18 +43,21 @@ encryption at rest, object versioning, and a lifecycle policy retaining at least
 30 days of versions. The workflow's AWS CLI uses environment credentials; it
 does not print command diagnostics or credentials.
 
-The scheduled production cadence is every two hours. The recovery objective is
-**RPO 3 hours** and **RTO 1 hour**. A copy/verification failure opens a GitHub
+The scheduled production cadence is every two hours. A separate 30-minute
+monitor downloads and verifies the full pair, reports age/bytes/checksum/schema
+and last successful restore, and fails/opens a deduplicated incident when the
+copy is older than two hours. The recovery objective is **RPO 3 hours** and
+**RTO 1 hour**. A copy/verification failure opens a GitHub
 incident issue and stops canonical Release replacement and pruning. Missing
 destination configuration is also an explicit failure, not an implied backup.
-On the first-ever publish there is no prior canonical archive to copy; the
-independent copy begins after the next successful forecast publish.
+On the first-ever publish there is no prior canonical archive, so the new
+candidate is copied and verified independently before the first Release is
+created. Missing URI or credentials stop even that initial canonical publish.
 
 The forecast workflow summary reports verification time, bytes, SHA-256, and
-SQLite/schema verification. The weekly drill reports the latest independent
-restore and alerts through a failure issue if it cannot restore and verify.
-Operators should treat a last successful independent copy older than the 3-hour
-RPO as an incident. Repository has no destination configured by default; set
+SQLite/schema verification. The weekly drill compares scratch row counts/latest
+origin with the independently stored manifest and records a restore receipt
+only after the full drill passes. Repository has no destination configured by default; set
 the variable and secrets above before relying on independent recovery.
 
 Defaults are intentionally conservative and can be changed in `.github/workflows/forecast.yml`:
@@ -71,8 +81,9 @@ For an existing history Release, the forecast workflow follows this order:
 5. gzip the previous database as a versioned generation
 6. upload the versioned generation without clobbering an existing generation
 7. re-download the exact uploaded generation and verify its SQLite integrity, foreign keys and schema version
-8. replace the canonical, CSV and `previous` alias assets
-9. compute a retention plan and delete only versioned generations outside the count/byte limits
+8. upload the verified prior canonical archive and its manifest to independent S3, then re-download and verify the pair
+9. replace the canonical, CSV and `previous` alias assets
+10. compute a retention plan and delete only versioned generations outside the count/byte limits
 
 If any step before canonical replacement fails, the existing canonical Release remains untouched. Old backups are never pruned before the new generation has been verified.
 

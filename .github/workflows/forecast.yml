@@ -321,6 +321,18 @@ jobs:
               fi
             done < .state/delete_backup_asset_ids.txt
           else
+            if [ -z "$HISTORY_INDEPENDENT_BACKUP_URI" ]; then
+              echo "Independent history backup is not configured (HISTORY_INDEPENDENT_BACKUP_URI)." >&2
+              echo "The initial canonical Release has not been created." >&2
+              exit 1
+            fi
+            # There is no prior canonical generation on first publish. Protect
+            # the candidate itself before creating the first canonical Release.
+            PYTHONPATH=src python -m btc_timesfm.history.independent_backup upload \
+              --archive .state/forecast_history.sqlite.gz \
+              --uri "$HISTORY_INDEPENDENT_BACKUP_URI" \
+              --report .state/independent_backup_verification.json
+
             gh release create "$HISTORY_RELEASE_TAG" "${assets[@]}" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
