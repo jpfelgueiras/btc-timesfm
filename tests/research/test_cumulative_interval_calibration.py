@@ -240,6 +240,16 @@ class CumulativeIntervalCalibrationTests(unittest.TestCase):
         self.assertEqual(report["status"], "blocked")
         self.assertEqual(window["span_days"], 30 - 1 / 24)
 
+    def test_fractional_prediction_and_outcome_horizons_are_rejected(self) -> None:
+        predictions, outcomes, audit = self._valid_inputs()
+        fractional_predictions = [dict(row) for row in predictions]
+        fractional_predictions[0]["horizon"] = 4.9
+        self.assertEqual(self._gate(fractional_predictions, outcomes, audit)["status"], "blocked")
+
+        fractional_outcomes = [dict(row) for row in outcomes]
+        fractional_outcomes[0]["horizon"] = 4.9
+        self.assertEqual(self._gate(predictions, fractional_outcomes, audit)["status"], "blocked")
+
     def test_naive_timestamps_are_rejected(self) -> None:
         with self.assertRaises(ValueError):
             matured_residuals([], origin=datetime(2024, 1, 1), horizon=1)

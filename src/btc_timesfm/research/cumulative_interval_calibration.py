@@ -5,6 +5,7 @@ Per-step marginal quantiles are never treated as cumulative quantiles.
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, timedelta
 import re
 from typing import Any
@@ -15,6 +16,18 @@ def _time(value: str | datetime) -> datetime:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError("timestamps must be timezone-aware")
     return parsed
+
+
+def _horizon(value: Any) -> int:
+    if isinstance(value, bool):
+        raise ValueError("horizon must be an exact positive integer")
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("horizon must be an exact positive integer") from exc
+    if not math.isfinite(numeric) or numeric <= 0 or not numeric.is_integer():
+        raise ValueError("horizon must be an exact positive integer")
+    return int(numeric)
 
 
 def matured_residuals(
@@ -125,7 +138,7 @@ def build_gate_report(
     for row in raw_predictions:
         try:
             origin_at = _time(row["origin_at"])
-            horizon = int(row["horizon"])
+            horizon = _horizon(row["horizon"])
             target_at = _time(row["target_at"])
             if horizon <= 0 or target_at != origin_at + timedelta(hours=horizon):
                 raise ValueError("prediction target does not match its horizon")
@@ -171,7 +184,7 @@ def build_gate_report(
     for outcome in matured_outcomes:
         try:
             origin_at = _time(outcome["origin_at"])
-            horizon = int(outcome["horizon"])
+            horizon = _horizon(outcome["horizon"])
             target_at = _time(outcome["target_at"])
             if horizon <= 0 or target_at != origin_at + timedelta(hours=horizon):
                 raise ValueError("outcome target does not match its horizon")
