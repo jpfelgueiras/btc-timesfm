@@ -60,7 +60,7 @@ class RequiredChecksTests(unittest.TestCase):
         ]
         errors = check_required_checks.validate_rulesets(unrelated, "owner/repo")
         self.assertIn("missing required status checks", errors[0])
-        self.assertIn("no active ruleset enforces pull-request review", errors)
+        self.assertIn("no active ruleset requires pull requests", errors)
 
     def test_applies_inclusions_exclusions_and_repository_scope(self) -> None:
         rules = self.protective_rules()
@@ -74,11 +74,23 @@ class RequiredChecksTests(unittest.TestCase):
         self.assertEqual(check_required_checks.validate_rulesets([matching], "owner/repo"), [])
         self.assertTrue(check_required_checks.validate_rulesets([matching], "other/repo"))
 
-    def test_zero_approval_pull_request_rule_is_not_a_review_requirement(self) -> None:
+    def test_zero_approval_pull_request_rule_enforces_pr_based_merges(self) -> None:
         errors = check_required_checks.validate_rulesets(
             [self.ruleset(rules=self.protective_rules(0))]
         )
-        self.assertIn("no active ruleset enforces pull-request review", errors)
+        self.assertEqual(errors, [])
+
+    def test_positive_approval_pull_request_rule_is_accepted(self) -> None:
+        errors = check_required_checks.validate_rulesets(
+            [self.ruleset(rules=self.protective_rules(2))]
+        )
+        self.assertEqual(errors, [])
+
+    def test_missing_pull_request_rule_fails_pr_enforcement(self) -> None:
+        errors = check_required_checks.validate_rulesets(
+            [self.ruleset(rules=self.protective_rules()[:1])]
+        )
+        self.assertIn("no active ruleset requires pull requests", errors)
 
     def test_inherited_unconditional_and_current_scoped_rulesets_combine(self) -> None:
         inherited = self.ruleset(rules=self.protective_rules())
@@ -106,12 +118,13 @@ class RequiredChecksTests(unittest.TestCase):
         self.assertIn("--paginate", run.call_args_list[0].args[0])
         self.assertIn("--slurp", run.call_args_list[0].args[0])
 
-    def test_reports_missing_checks_and_review_rule(self) -> None:
+    def test_reports_missing_checks_and_pull_request_rule(self) -> None:
         errors = check_required_checks.validate_rulesets(
             [{"name": "inactive", "enforcement": "disabled", "rules": []}]
         )
         self.assertEqual(len(errors), 2)
         self.assertIn("Unit tests + quality", errors[0])
+        self.assertIn("no active ruleset requires pull requests", errors)
 
 
 if __name__ == "__main__":

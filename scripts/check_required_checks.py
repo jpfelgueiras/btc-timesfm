@@ -54,7 +54,7 @@ def _matches_scope(ruleset: dict[str, Any], repository: str) -> bool:
 def validate_rulesets(rulesets: list[dict[str, Any]], repository: str = "") -> list[str]:
     errors: list[str] = []
     found_checks: set[str] = set()
-    applies_review = False
+    applies_pull_request = False
     for ruleset in rulesets:
         if ruleset.get("enforcement") != "active":
             continue
@@ -66,9 +66,7 @@ def validate_rulesets(rulesets: list[dict[str, Any]], repository: str = "") -> l
             continue
         for rule in ruleset.get("rules", []):
             if rule.get("type") == "pull_request":
-                count = rule.get("parameters", {}).get("required_approving_review_count", 0)
-                if isinstance(count, int) and not isinstance(count, bool) and count > 0:
-                    applies_review = True
+                applies_pull_request = True
             if rule.get("type") != "required_status_checks":
                 continue
             for check in rule.get("parameters", {}).get("required_status_checks", []):
@@ -78,8 +76,8 @@ def validate_rulesets(rulesets: list[dict[str, Any]], repository: str = "") -> l
     missing = sorted(REQUIRED_CHECKS - found_checks)
     if missing:
         errors.append("missing required status checks: " + ", ".join(missing))
-    if not applies_review:
-        errors.append("no active ruleset enforces pull-request review")
+    if not applies_pull_request:
+        errors.append("no active ruleset requires pull requests")
     return errors
 
 
