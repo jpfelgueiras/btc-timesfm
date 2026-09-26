@@ -319,7 +319,7 @@ class VerticalForecastPathTests(unittest.TestCase):
                     (self.root / "observability.json").read_text(encoding="utf-8")
                 )
                 stage = next(
-                    item for item in report["stages"] if item["stage"] == "market_data_fetch"
+                    item for item in report["stages"] if item["name"] == "market_data_fetch"
                 )
                 self.assertEqual(stage["status"], "failed")
                 self.assertEqual(stage["error_type"], "NoHealthyMarketDataProvider")
@@ -348,7 +348,7 @@ class VerticalForecastPathTests(unittest.TestCase):
                 if self.database.exists():
                     self.assertEqual(ForecastHistoryStore(self.database).stats()["origins"], 0)
                 report = json.loads((self.root / "observability.json").read_text(encoding="utf-8"))
-                stage = next(item for item in report["stages"] if item["stage"] == failed_stage)
+                stage = next(item for item in report["stages"] if item["name"] == failed_stage)
                 self.assertEqual(stage["status"], "failed")
                 self.assertEqual(stage["error_type"], failure_class)
 
