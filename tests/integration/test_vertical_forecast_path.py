@@ -62,9 +62,7 @@ class VerticalForecastPathTests(unittest.TestCase):
 
     def _candles(self) -> MarketData:
         timestamps = list(range(self.origin - 511 * 3600, self.origin + 1, 3600))
-        close = np.asarray(
-            [60_000.0 + i * 0.5 for i in range(len(timestamps))], dtype=np.float64
-        )
+        close = np.asarray([60_000.0 + i * 0.5 for i in range(len(timestamps))], dtype=np.float64)
         return MarketData(
             timestamps=timestamps,
             opens=close - 1,
@@ -131,13 +129,9 @@ class VerticalForecastPathTests(unittest.TestCase):
 
         patches = [
             (
-                patch.object(
-                    btc_forecast, "fetch_redundant_hourly", side_effect=fetch_error
-                )
+                patch.object(btc_forecast, "fetch_redundant_hourly", side_effect=fetch_error)
                 if fetch_error is not None
-                else patch.object(
-                    btc_forecast, "fetch_redundant_hourly", return_value=selection
-                )
+                else patch.object(btc_forecast, "fetch_redundant_hourly", return_value=selection)
             ),
             patch.object(btc_forecast, "load_timesfm", return_value=object()),
             patch.object(
@@ -315,9 +309,7 @@ class VerticalForecastPathTests(unittest.TestCase):
                     )
                 self.assertFalse(self.database.exists())
                 self.assertFalse(self.output.exists())
-                report = json.loads(
-                    (self.root / "observability.json").read_text(encoding="utf-8")
-                )
+                report = json.loads((self.root / "observability.json").read_text(encoding="utf-8"))
                 stage = next(
                     item for item in report["stages"] if item["name"] == "market_data_fetch"
                 )
