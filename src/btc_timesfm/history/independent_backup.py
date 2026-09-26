@@ -30,8 +30,13 @@ def _sha256(path: Path) -> str:
 
 
 def _aws(*args: str) -> None:
+    command = ["aws"]
+    endpoint = os.environ.get("HISTORY_BACKUP_AWS_ENDPOINT_URL")
+    if endpoint:
+        command.extend(["--endpoint-url", endpoint])
+    command.extend(["s3", *args])
     try:
-        subprocess.run(["aws", "s3", *args], check=True, capture_output=True, text=True)
+        subprocess.run(command, check=True, capture_output=True, text=True)
     except (OSError, subprocess.CalledProcessError) as exc:
         # AWS diagnostics can include account, endpoint, or credential details.
         raise RuntimeError("independent S3 backup operation failed") from exc

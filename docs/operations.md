@@ -73,26 +73,17 @@ machine-managed persistent state; do not edit its assets manually.
 
 ## Independent backup setup status
 
-The independent S3-compatible backup implementation is merged, but configuration
-is an outstanding production prerequisite tracked by [issue #355](https://github.com/jpfelgueiras/btc-timesfm/issues/355).
-Repository metadata was inspected by variable/secret **names only**: no Actions
-variables are configured, and the listed secrets are X credentials only. In
-particular, these required names are currently absent:
+The independent S3-compatible backup uses Backblaze B2. The destination URI,
+region, and credential secrets have been provisioned. Add the following
+repository variable after this change is deployed:
 
-- variable `HISTORY_INDEPENDENT_BACKUP_URI`;
-- variable `HISTORY_BACKUP_AWS_REGION`;
-- secrets `HISTORY_BACKUP_AWS_ACCESS_KEY_ID` and
-  `HISTORY_BACKUP_AWS_SECRET_ACCESS_KEY`.
+- variable `HISTORY_BACKUP_AWS_ENDPOINT_URL` (for this bucket,
+  `https://s3.us-east-005.backblazeb2.com`);
 
-Until the operator provisions these values, the monitor and weekly drill fail
-their explicit configuration check, while the production forecast fails during
-history publication and opens an issue. On an existing Release, it may already
-have uploaded and verified a Release rollback generation, but it does not replace
-the canonical Release assets or prune generations after that failure. A first
-publish likewise does not create the canonical Release. Do not treat the Release
-copy alone as satisfying the independent-copy recovery objective. Configure and
-verify the destination, credentials, region, access, and bucket retention using
-the setup in [history backup](HISTORY_BACKUP.md) before relying on the S3 copy.
+After setting the endpoint variable and deploying this code, confirm a successful
+live upload and restore using the monitor and manual/scheduled recovery drill
+before relying on the independent copy. Verify destination, credentials, region,
+endpoint, access, and bucket retention using [history backup](HISTORY_BACKUP.md).
 Recovery and incident response procedures are in
 [disaster recovery](DISASTER_RECOVERY.md); do not duplicate those procedures
 here.
