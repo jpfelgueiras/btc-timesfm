@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import shutil
 import tempfile
 import unittest
@@ -15,10 +16,40 @@ from btc_timesfm.history.independent_backup import (
     check_backup,
     restore_from_s3,
     upload_and_verify,
+    _aws,
 )
 
 
 class IndependentBackupTests(unittest.TestCase):
+    def test_aws_passes_configured_endpoint(self) -> None:
+        with (
+            patch.dict(os.environ, {"HISTORY_BACKUP_AWS_ENDPOINT_URL": "https://s3.example.com"}),
+            patch("btc_timesfm.history.independent_backup.subprocess.run") as run,
+        ):
+            _aws("cp", "source", "destination")
+
+        self.assertEqual(
+            run.call_args.args[0],
+            [
+                "aws",
+                "--endpoint-url",
+                "https://s3.example.com",
+                "s3",
+                "cp",
+                "source",
+                "destination",
+            ],
+        )
+
+    def test_aws_without_endpoint_preserves_existing_argv(self) -> None:
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("btc_timesfm.history.independent_backup.subprocess.run") as run,
+        ):
+            _aws("cp", "source", "destination")
+
+        self.assertEqual(run.call_args.args[0], ["aws", "s3", "cp", "source", "destination"])
+
     def test_upload_copies_back_and_verifies_checksum_and_schema(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

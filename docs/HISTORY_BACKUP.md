@@ -35,8 +35,13 @@ the archive and manifest again and verifies their agreement before canonical
 Release replacement. Configure repository variable
 `HISTORY_INDEPENDENT_BACKUP_URI` (for example
 `s3://<private-bucket>/btc-timesfm/forecast-history/latest.sqlite.gz`),
-`HISTORY_BACKUP_AWS_REGION`, and repository secrets
+`HISTORY_BACKUP_AWS_REGION`, optional `HISTORY_BACKUP_AWS_ENDPOINT_URL`, and repository secrets
 `HISTORY_BACKUP_AWS_ACCESS_KEY_ID` / `HISTORY_BACKUP_AWS_SECRET_ACCESS_KEY`.
+For Backblaze B2, configure the endpoint variable as
+`https://s3.us-east-005.backblazeb2.com` (use the endpoint for the bucket's
+region). When this variable is unset, the AWS CLI's standard endpoint selection
+applies. These settings are passed to the production publish, monitor, and
+recovery drill; endpoint and credential values are not written to reports/logs.
 The AWS identity needs write/read access only to this object prefix. The bucket
 must be in an independently administered account/provider with private access,
 encryption at rest, object versioning, and a lifecycle policy retaining at least

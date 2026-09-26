@@ -74,19 +74,20 @@ and the matching CLI `--help` for the precise parser-supported inputs.
 | `HISTORY_BACKUP_KEEP` | Versioned rollback generations; `7` | Positive count | Production storage |
 | `HISTORY_BACKUP_MAX_BYTES` | Per compressed archive cap; `52428800` (50 MiB) | Positive byte count | Production storage |
 | `HISTORY_BACKUP_MAX_TOTAL_BYTES` | Versioned-generation total cap; `262144000` (250 MiB) | Positive byte count | Production storage |
-| `HISTORY_INDEPENDENT_BACKUP_URI` | S3-compatible destination; unset in this environment | Repository variable required for the production publish and independent monitor/drill; URI must be valid and independently administered | Backup setup outstanding |
-| `HISTORY_BACKUP_AWS_REGION` | AWS CLI region; unset in this environment | Repository variable required for independent S3 operations | Backup setup outstanding |
-| `HISTORY_BACKUP_AWS_ACCESS_KEY_ID`, `HISTORY_BACKUP_AWS_SECRET_ACCESS_KEY` | Independent backup AWS authentication | Repository secrets required for S3 read/write/restore | Backup setup outstanding |
+| `HISTORY_INDEPENDENT_BACKUP_URI` | S3-compatible destination | Repository variable required for the production publish and independent monitor/drill; URI must be valid and independently administered | Backup destination |
+| `HISTORY_BACKUP_AWS_REGION` | AWS CLI region | Repository variable required for independent S3 operations | Backup destination |
+| `HISTORY_BACKUP_AWS_ENDPOINT_URL` | Optional S3-compatible service endpoint; Backblaze B2 uses `https://s3.us-east-005.backblazeb2.com` | Repository variable; when unset, AWS CLI default endpoint behavior is preserved | Backup destination |
+| `HISTORY_BACKUP_AWS_ACCESS_KEY_ID`, `HISTORY_BACKUP_AWS_SECRET_ACCESS_KEY` | Independent backup AWS authentication | Repository secrets required for S3 read/write/restore | Backup credentials |
 | `X_COOKIES_JSON` | X publishing authentication | Repository secret required only when publishing to X | Optional publication |
 | `PIPELINE_HEALTH_WEBHOOK_URL` | Health alert notification | Optional repository secret | Optional notification |
 | `GH_TOKEN` | GitHub CLI API access | Workflow-scoped `github.token` with workflow permissions; not a manually configured secret | Actions integration |
 
-**Independent S3 backup is not configured here.** The destination URI, region,
-and AWS credentials are currently absent in this environment. Scheduled backup
-monitor/drill checks therefore cannot be considered fulfilled. Configure the
-repository variable and secrets above before relying on the independent copy.
-The production publish intentionally fails closed rather than replacing the
-canonical Release when this setup is missing. Secret names are listed for setup;
+Configure the endpoint as a repository variable for providers such as Backblaze
+B2. The destination URI, region, endpoint, and AWS credentials must all match
+the configured bucket/provider before scheduled backup monitor/drill checks can
+be considered fulfilled. The production publish intentionally fails closed
+rather than replacing the canonical Release when required configuration is
+missing. Secret names are listed for setup;
 secret values are never displayed here.
 
 ## Real command-line entrypoints

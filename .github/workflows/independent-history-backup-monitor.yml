@@ -15,6 +15,7 @@ concurrency:
 
 env:
   HISTORY_INDEPENDENT_BACKUP_URI: ${{ vars.HISTORY_INDEPENDENT_BACKUP_URI }}
+  HISTORY_BACKUP_AWS_ENDPOINT_URL: ${{ vars.HISTORY_BACKUP_AWS_ENDPOINT_URL }}
 
 jobs:
   verify-independent-backup:
