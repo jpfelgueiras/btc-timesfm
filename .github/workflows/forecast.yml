@@ -105,10 +105,12 @@ jobs:
               --dir .state
             gzip -df .state/forecast_history.sqlite.gz
             cp .state/forecast_history.sqlite .state/forecast_history.previous.sqlite
-            gh release download "$HISTORY_RELEASE_TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --pattern 'x_post_registry.json' \
-              --dir .state
+            if [ ! -f .state/x_post_registry.json ]; then
+              gh release download "$HISTORY_RELEASE_TAG" \
+                --repo "$GITHUB_REPOSITORY" \
+                --pattern 'x_post_registry.json' \
+                --dir .state
+            fi
             gh release download "$HISTORY_RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --pattern 'pipeline_health.json' \
