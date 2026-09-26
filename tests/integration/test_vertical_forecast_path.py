@@ -75,7 +75,7 @@ class VerticalForecastPathTests(unittest.TestCase):
         )
 
     def _engine_result(
-        self, data: MarketData, *args: object, **kwargs: object
+        self, _model: object, data: MarketData, *args: object, **kwargs: object
     ) -> dict[str, object]:
         close = float(data.closes[-1])
         predictions = {
