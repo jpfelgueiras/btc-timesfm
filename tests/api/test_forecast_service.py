@@ -54,7 +54,15 @@ class TestForecastService(unittest.TestCase):
         ForecastHistoryStore(self.database).ingest_snapshot(snapshot())
         self.health = root / "health.json"
         self.health.write_text(
-            json.dumps({"stages": {"history": {"health": "healthy", "circuit_state": "closed"}}}),
+            json.dumps(
+                {
+                    "overall_health": "healthy",
+                    "stages": {
+                        name: {"health": "healthy", "circuit_state": "closed"}
+                        for name in ("market_data", "forecast", "history", "x_post")
+                    },
+                }
+            ),
             encoding="utf-8",
         )
         self.audit = root / "audit.jsonl"
@@ -137,6 +145,90 @@ class TestForecastService(unittest.TestCase):
         events = [json.loads(line) for line in self.audit.read_text(encoding="utf-8").splitlines()]
         self.assertEqual(events[-1]["forecast_ids"], [body["data"][0]["forecast_id"]])
         self.assertNotIn("secret", self.audit.read_text(encoding="utf-8"))
+
+    def test_audit_rotation_bounds_retained_bytes_and_persistence_failure_is_fail_open(
+        self,
+    ) -> None:
+        service = ForecastService(
+            ServiceConfig(
+                self.database,
+                frozenset({"secret"}),
+                self.health,
+                self.audit,
+                audit_max_bytes=150,
+                audit_backups=2,
+            ),
+            clock=lambda: NOW,
+        )
+        for _ in range(5):
+            self._request_service(service, "/v1/health")
+        service._write_audit({"payload": "sensitive oversized event " + "x" * 1000})
+        retained = [
+            self.audit,
+            self.audit.with_name("audit.jsonl.1"),
+            self.audit.with_name("audit.jsonl.2"),
+        ]
+        self.assertLessEqual(
+            sum(path.stat().st_size for path in retained if path.exists()), 3 * 150
+        )
+        self.assertNotIn(
+            "sensitive oversized event",
+            "".join(path.read_text(encoding="utf-8") for path in retained if path.exists()),
+        )
+        with patch.object(service, "_audit", side_effect=OSError("disk unavailable")):
+            status, _, _ = self._request_service(service, "/v1/health")
+        self.assertEqual(status, 200)
+
+    def test_probe_routes_and_scrapeable_metrics(self) -> None:
+        def probe(path: str) -> tuple[int, str]:
+            captured: dict[str, Any] = {}
+            body = b"".join(
+                self.service(
+                    {"REQUEST_METHOD": "GET", "PATH_INFO": path},
+                    lambda status_line, headers: captured.update(
+                        status=status_line, headers=headers
+                    ),
+                )
+            ).decode()
+            return int(captured["status"].split()[0]), body
+
+        status, _ = probe("/livez")
+        self.assertEqual(status, 200)
+        status, _ = probe("/readyz")
+        self.assertEqual(status, 200)
+        self.request("/v1/health")
+        captured: dict[str, Any] = {}
+        body = b"".join(
+            self.service(
+                {"REQUEST_METHOD": "GET", "PATH_INFO": "/metrics"},
+                lambda status_line, headers: captured.update(status=status_line, headers=headers),
+            )
+        ).decode()
+        self.assertIn("forecast_api_requests_total 1", body)
+        self.assertIn('forecast_api_responses_total{status="200"} 1', body)
+        self.health.write_text(
+            json.dumps(
+                {
+                    "overall_health": "open",
+                    "stages": {
+                        name: {"health": "healthy", "circuit_state": "closed"}
+                        for name in ("market_data", "forecast", "history", "x_post")
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        status, _ = probe("/readyz")
+        self.assertEqual(status, 503)
+
+        for malformed in (
+            {"stages": {}},
+            {"overall_health": "healthy", "stages": {}},
+            {"overall_health": "invalid", "stages": {"history": {}}},
+        ):
+            self.health.write_text(json.dumps(malformed), encoding="utf-8")
+            status, _ = probe("/readyz")
+            self.assertEqual(status, 503)
 
     def test_historical_filters_pagination_and_data_consistency(self) -> None:
         status, _, body = self.request(
@@ -273,7 +365,18 @@ class TestForecastService(unittest.TestCase):
 
     def test_unavailable_and_stale_health_are_explicit(self) -> None:
         self.health.write_text(
-            json.dumps({"stages": {"history": {"health": "open", "circuit_state": "open"}}}),
+            json.dumps(
+                {
+                    "overall_health": "open",
+                    "stages": {
+                        **{
+                            name: {"health": "healthy", "circuit_state": "closed"}
+                            for name in ("market_data", "forecast", "history", "x_post")
+                        },
+                        "history": {"health": "open", "circuit_state": "open"},
+                    },
+                }
+            ),
             encoding="utf-8",
         )
         status, _, body = self.request("/v1/forecasts/latest")
@@ -296,7 +399,15 @@ class TestForecastService(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["data"]["status"], "unavailable")
         self.health.write_text(
-            json.dumps({"stages": {"history": {"health": "healthy", "circuit_state": "closed"}}}),
+            json.dumps(
+                {
+                    "overall_health": "healthy",
+                    "stages": {
+                        name: {"health": "healthy", "circuit_state": "closed"}
+                        for name in ("market_data", "forecast", "history", "x_post")
+                    },
+                }
+            ),
             encoding="utf-8",
         )
         stale_service = ForecastService(
