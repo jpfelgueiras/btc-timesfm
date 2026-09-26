@@ -32,3 +32,26 @@ episodes only; they cannot influence decisions at the origin.
 
 Keep low-powered segments explicitly inconclusive and freeze any winning policy
 before D3. This branch changes no production weights, detector, or fallback.
+
+## Roadmap v8 issue #348 implementation status
+
+`btc_timesfm.research.regime_recency_policy` provides a four-entry,
+research-only candidate catalog, independent labeling from each origin's
+feature snapshot, and elapsed-time weighted scalar pooling with an explicit
+effective-sample-size fallback. The label helper requires strictly increasing
+timestamps but permits irregular gaps; it does not interpolate missing origins.
+Pooling admits only observations whose availability timestamp is at or before
+the decision cutoff. Outcome timestamps and values are never used to label the
+origin regime.
+
+The report gate remains **blocked** until an eligible immutable corpus, frozen
+post-#345 base policy, matured paired outcomes, and nested purged walk-forward
+evaluation are all supplied. Passing those prerequisites changes the status
+only to **inconclusive**: no policy results are synthesized or inferred. Required
+evaluation includes per-horizon loss/skill against unconditioned and
+persistence, worst powered regime, temporal-block stability, ESS, weight
+turnover/churn, recovery lag, and adjusted paired uncertainty. A candidate would
+need at least 3% loss reduction with a positive adjusted interval, no more than
+5% regression in any powered regime, and stable temporal blocks. Synthetic
+chronology tests validate mechanics only and are not skill evidence. No
+production policy is changed or wired to these helpers.
