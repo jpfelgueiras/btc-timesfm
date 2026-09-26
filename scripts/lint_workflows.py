@@ -44,6 +44,28 @@ def validate(path: Path) -> list[str]:
         for field in REQUIRED_WORKFLOW_FIELDS
         if field not in text
     ]
+    if path.name == "tests.yml":
+        required_quality_gate_fields = (
+            "name: CI quality gates",
+            "name: Unit tests + quality",
+            "name: Enforce quality gates",
+            "UNIT: ${{ steps.unit.outcome }}",
+            "COVERAGE: ${{ steps.coverage.outcome }}",
+            "LINT: ${{ steps.lint.outcome }}",
+            "FORMAT: ${{ steps.format.outcome }}",
+            "WORKFLOWS: ${{ steps.workflows.outcome }}",
+            "ACTION_PINS: ${{ steps.action-pins.outcome }}",
+            "TYPECHECK: ${{ steps.typecheck.outcome }}",
+            'exit "$failed"',
+        )
+        errors.extend(
+            f"{path}: missing quality-gate enforcement contract {field}"
+            for field in required_quality_gate_fields
+            if field not in text
+        )
+        for compatibility_name in ("Unit tests", "unit-tests"):
+            if f"name: {compatibility_name}" not in text:
+                errors.append(f"{path}: missing compatibility check {compatibility_name}")
     for name, block in job_blocks(lines):
         body = "".join(block)
         if "uses: ./.github/actions/python-setup" in body:
