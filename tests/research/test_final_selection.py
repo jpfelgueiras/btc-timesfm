@@ -9,8 +9,8 @@ from btc_timesfm.research.final_selection import validate_contract
 def valid_contract() -> dict:
     origins = [
         {
-            "origin": f"2025-01-01T{i:02d}:00:00+00:00",
-            "target": f"2025-01-01T{i + horizon:02d}:00:00+00:00",
+            "origin": _plus_hours(1, i, 0),
+            "target": _plus_hours(1, i, horizon),
             "horizon": horizon,
             "raw": {"prediction": 0.0, "interval": [-1, 1]},
             "final": {"prediction": 0.0, "interval": [-1, 1]},
@@ -20,10 +20,21 @@ def valid_contract() -> dict:
         for horizon in (2, 4, 8, 16)
         for i in range(4)
     ]
+    prospective_rows = [
+        {
+            "origin": _plus_hours(1 + i // 24, i % 24, 1),
+            "target": _plus_hours(1 + i // 24, i % 24, horizon + 1),
+            "horizon": horizon,
+            "actual_at": _plus_hours(1 + i // 24, i % 24, horizon + 1),
+            "matured_at": _plus_hours(1 + i // 24, i % 24, horizon + 1),
+        }
+        for horizon in (2, 4, 8, 16)
+        for i in range(200)
+    ]
     return {
         "freeze": {
-            "frozen_at": "2025-03-01T00:00:00+00:00",
-            "cutoff_at": "2025-02-28T00:00:00+00:00",
+            "frozen_at": "2025-02-28T00:00:00+00:00",
+            "cutoff_at": "2025-02-27T00:00:00+00:00",
             "stopping_rule": "fixed 30-day window",
             "corpus_sha256": "abc",
             "family_id": "all-tried-v1",
@@ -32,6 +43,10 @@ def valid_contract() -> dict:
             "data_id": "dataset-v1",
             "model_id": "model-v1",
             "policy_id": "policy-v1",
+            "selection_pairs": [
+                {"origin": row["origin"], "target": row["target"], "horizon": row["horizon"]}
+                for row in origins
+            ],
         },
         "candidates": [
             {
@@ -43,6 +58,7 @@ def valid_contract() -> dict:
                 "model_id": "model-v1",
                 "policy_id": "policy-v1",
                 "pairs": origins,
+                "acceptance": _acceptance(),
             },
             {
                 "candidate_id": "challenger-b",
@@ -53,6 +69,7 @@ def valid_contract() -> dict:
                 "model_id": "model-v1",
                 "policy_id": "policy-v1",
                 "pairs": copy.deepcopy(origins),
+                "acceptance": _acceptance(),
             },
             {"candidate_id": "failed-attempt", "status": "failed"},
         ],
@@ -67,11 +84,33 @@ def valid_contract() -> dict:
         "prospective": {
             "start_at": "2025-03-01T00:00:00+00:00",
             "end_at": "2025-04-01T00:00:00+00:00",
-            "exact_mature_pairs_by_horizon": {"2": 200, "4": 200, "8": 200, "16": 200},
+            "evaluation_cutoff": "2025-04-01T00:00:00+00:00",
+            "pairs": {
+                "challenger-a": prospective_rows,
+                "challenger-b": copy.deepcopy(prospective_rows),
+            },
             "fixed_cutoff": True,
             "stopping_rule": "fixed 30-day window",
             "final_holdout_disjoint": True,
         },
+    }
+
+
+def _plus_hours(day: int, hour: int, delta: int) -> str:
+    from datetime import datetime, timedelta, timezone
+
+    value = datetime(2025, 3, day, hour, tzinfo=timezone.utc) + timedelta(hours=delta)
+    return value.isoformat()
+
+
+def _acceptance() -> dict:
+    return {
+        "preregistered": True,
+        "adjusted_improvement_pct": 3.1,
+        "adjusted_ci_lower_pct": 0.1,
+        "positive_skill_vs": {"persistence": 0.03, "strongest_naive": 0.02},
+        "powered_regression_pct": [4.9, 2.0],
+        "directional_loss_pp": 1.9,
     }
 
 
@@ -115,10 +154,16 @@ class FinalSelectionTests(unittest.TestCase):
     def test_prospective_duration_and_pair_floor_block(self) -> None:
         contract = valid_contract()
         contract["prospective"]["end_at"] = "2025-03-20T00:00:00+00:00"
-        contract["prospective"]["exact_mature_pairs_by_horizon"]["8"] = 199
+        contract["prospective"]["pairs"]["challenger-a"] = [
+            row
+            for row in contract["prospective"]["pairs"]["challenger-a"]
+            if not (row["horizon"] == 8 and row["origin"] == "2025-03-01T01:00:00+00:00")
+        ]
         report = validate_contract(contract)
         self.assertTrue(any("30 calendar days" in item for item in report["reasons"]))
-        self.assertTrue(any("200 exact mature pairs at 8h" in item for item in report["reasons"]))
+        self.assertTrue(
+            any("fewer than 200 exact mature pairs at 8h" in item for item in report["reasons"])
+        )
 
     def test_holdout_overlap_blocks(self) -> None:
         contract = valid_contract()
@@ -138,6 +183,68 @@ class FinalSelectionTests(unittest.TestCase):
         contract["candidates"][0]["vintage_id"] = "other-vintage"
         report = validate_contract(contract)
         self.assertTrue(any("identity mismatch" in item for item in report["reasons"]))
+
+    def test_non_integer_horizon_and_count_values_block_without_crashing(self) -> None:
+        contract = valid_contract()
+        contract["candidates"][0]["pairs"][0]["horizon"] = 2.9
+        contract["selection"]["candidate_family_count"] = "3"
+        contract["prospective"]["pairs"]["challenger-a"][0]["horizon"] = "2"
+        report = validate_contract(contract)
+        self.assertEqual(report["status"], "blocked")
+        self.assertTrue(any("exact positive integer" in item for item in report["reasons"]))
+        self.assertTrue(any("family count" in item for item in report["reasons"]))
+
+    def test_frozen_selection_pair_set_is_required_and_exact(self) -> None:
+        contract = valid_contract()
+        del contract["freeze"]["selection_pairs"]
+        report = validate_contract(contract)
+        self.assertTrue(
+            any("nonempty frozen selection_pairs" in item for item in report["reasons"])
+        )
+
+    def test_prospective_actual_target_maturity_and_start_are_proven(self) -> None:
+        contract = valid_contract()
+        contract["prospective"]["start_at"] = contract["freeze"]["frozen_at"]
+        row = contract["prospective"]["pairs"]["challenger-a"][0]
+        row["origin"] = contract["prospective"]["start_at"]
+        row["target"] = "2025-03-02T00:00:00+00:00"
+        row["actual_at"] = "2025-03-03T00:00:00+00:00"
+        row["matured_at"] = "2025-04-02T00:00:00+00:00"
+        report = validate_contract(contract)
+        self.assertTrue(any("start after the freeze" in item for item in report["reasons"]))
+        self.assertTrue(
+            any("actual_at must exactly equal target" in item for item in report["reasons"])
+        )
+        self.assertTrue(
+            any("target must equal origin plus horizon" in item for item in report["reasons"])
+        )
+        self.assertTrue(any("origin is not after D3 start" in item for item in report["reasons"]))
+        self.assertTrue(any("after evaluation cutoff" in item for item in report["reasons"]))
+
+    def test_prospective_counts_are_derived_from_records(self) -> None:
+        contract = valid_contract()
+        contract["prospective"]["pairs"]["challenger-a"] = contract["prospective"]["pairs"][
+            "challenger-a"
+        ][:-1]
+        report = validate_contract(contract)
+        self.assertTrue(
+            any("fewer than 200 exact mature pairs at 16h" in item for item in report["reasons"])
+        )
+
+    def test_acceptance_thresholds_fail_closed(self) -> None:
+        contract = valid_contract()
+        evidence = contract["candidates"][0]["acceptance"]
+        evidence["adjusted_improvement_pct"] = 2.99
+        evidence["adjusted_ci_lower_pct"] = 0
+        evidence["positive_skill_vs"]["persistence"] = 0
+        evidence["powered_regression_pct"] = [5.01]
+        evidence["directional_loss_pp"] = 2.01
+        report = validate_contract(contract)
+        self.assertTrue(any("at least 3%" in item for item in report["reasons"]))
+        self.assertTrue(any("lower bound must exceed 0" in item for item in report["reasons"]))
+        self.assertTrue(any("positive skill" in item for item in report["reasons"]))
+        self.assertTrue(any("exceeds 5%" in item for item in report["reasons"]))
+        self.assertTrue(any("2 percentage points" in item for item in report["reasons"]))
 
 
 if __name__ == "__main__":

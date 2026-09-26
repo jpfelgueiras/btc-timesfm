@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping
@@ -16,6 +17,23 @@ from typing import Any, Mapping
 HORIZONS = (2, 4, 8, 16)
 IDENTITY_FIELDS = ("source_id", "vintage_id", "data_id", "model_id", "policy_id")
 REQUIRED_METHOD = "moving_block"
+
+
+def _positive_int(value: object) -> int | None:
+    """Accept only an exact positive JSON integer (excluding bool and coercions)."""
+    if type(value) is not int or value <= 0:
+        return None
+    return value
+
+
+def _number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        result = float(value)
+    except OverflowError:
+        return None
+    return result if math.isfinite(result) else None
 
 
 def _time(value: object, label: str, reasons: list[str]) -> datetime | None:
@@ -71,6 +89,22 @@ def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
     eligible: list[Mapping[str, Any]] = []
     attempted = 0
     common_origins: tuple[tuple[str, str, int], ...] | None = None
+    frozen_pairs = freeze.get("selection_pairs")
+    frozen_keys: list[tuple[str, str, int]] = []
+    if not isinstance(frozen_pairs, list) or not frozen_pairs:
+        reasons.append("freeze manifest requires a nonempty frozen selection_pairs set")
+    else:
+        for row in frozen_pairs:
+            if not isinstance(row, Mapping):
+                reasons.append("frozen selection_pairs contains an invalid row")
+                continue
+            horizon = _positive_int(row.get("horizon"))
+            if horizon is None:
+                reasons.append("frozen selection pair horizon must be an exact positive integer")
+                continue
+            frozen_keys.append((str(row.get("origin", "")), str(row.get("target", "")), horizon))
+        if len(frozen_keys) != len(set(frozen_keys)):
+            reasons.append("frozen selection_pairs contains duplicate origin/target/horizon keys")
     for index, candidate in enumerate(candidates):
         if not isinstance(candidate, Mapping):
             reasons.append(f"candidate[{index}] is not a manifest")
@@ -98,11 +132,13 @@ def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
             if not isinstance(row, Mapping):
                 reasons.append(f"candidate {candidate_id} contains invalid pair row")
                 continue
-            key = (
-                str(row.get("origin", "")),
-                str(row.get("target", "")),
-                int(row.get("horizon", 0) or 0),
-            )
+            horizon = _positive_int(row.get("horizon"))
+            if horizon is None:
+                reasons.append(
+                    f"candidate {candidate_id} horizon must be an exact positive integer"
+                )
+                continue
+            key = (str(row.get("origin", "")), str(row.get("target", "")), horizon)
             keys.append(key)
             if not row.get("raw") or not row.get("final") or "failure" not in row:
                 reasons.append(f"candidate {candidate_id} dropped raw/final forecast tracking")
@@ -113,16 +149,7 @@ def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
                 reasons.append(f"candidate {candidate_id} selection label is after cutoff")
         if len(keys) != len(set(keys)):
             reasons.append(f"candidate {candidate_id} has duplicate origin/target/horizon pairs")
-        frozen_pairs = freeze.get("selection_pairs")
-        if isinstance(frozen_pairs, list) and sorted(keys) != sorted(
-            (
-                str(row.get("origin", "")),
-                str(row.get("target", "")),
-                int(row.get("horizon", 0) or 0),
-            )
-            for row in frozen_pairs
-            if isinstance(row, Mapping)
-        ):
+        if frozen_keys and sorted(keys) != sorted(frozen_keys):
             reasons.append(
                 f"candidate {candidate_id} does not match frozen selection origin/target set"
             )
@@ -142,7 +169,10 @@ def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
 
     if not eligible:
         reasons.append("no eligible complete challenger is registered")
-    if selection.get("candidate_family_count") != attempted:
+    family_count = _positive_int(selection.get("candidate_family_count"))
+    if family_count is None:
+        reasons.append("candidate_family_count must be an exact positive integer")
+    if family_count != attempted:
         reasons.append(
             "multiple-test family count must include every attempted candidate, including failures"
         )
@@ -162,7 +192,10 @@ def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
 
     prospect_start = _time(prospective.get("start_at"), "prospective.start_at", reasons)
     prospect_end = _time(prospective.get("end_at"), "prospective.end_at", reasons)
-    if frozen_at and prospect_start and prospect_start < frozen_at:
+    evaluation_cutoff = _time(
+        prospective.get("evaluation_cutoff"), "prospective.evaluation_cutoff", reasons
+    )
+    if frozen_at and prospect_start and prospect_start <= frozen_at:
         reasons.append("prospective D3 must start after the freeze")
     if (
         prospect_start
@@ -170,18 +203,84 @@ def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
         and (prospect_end - prospect_start).total_seconds() < 30 * 86400
     ):
         reasons.append("prospective D3 must span at least 30 calendar days")
-    counts = prospective.get("exact_mature_pairs_by_horizon")
-    if not isinstance(counts, Mapping):
-        reasons.append("prospective exact mature-pair counts missing")
-    else:
-        for horizon in HORIZONS:
-            if int(counts.get(str(horizon), counts.get(horizon, 0)) or 0) < 200:
+    if prospect_start and prospect_end and prospect_end <= prospect_start:
+        reasons.append("prospective end_at must be after start_at")
+    if evaluation_cutoff and prospect_end and evaluation_cutoff > prospect_end:
+        reasons.append("prospective evaluation_cutoff must not be after end_at")
+    prospective_pairs = prospective.get("pairs")
+    if not isinstance(prospective_pairs, Mapping):
+        reasons.append("prospective exact pair records by candidate are missing")
+        prospective_pairs = {}
+    for candidate in eligible:
+        candidate_id = str(candidate.get("candidate_id"))
+        rows = prospective_pairs.get(candidate_id)
+        if not isinstance(rows, list):
+            reasons.append(f"candidate {candidate_id} prospective exact pair records missing")
+            continue
+        counts = dict.fromkeys(HORIZONS, 0)
+        seen: set[tuple[str, str, int]] = set()
+        for row in rows:
+            if not isinstance(row, Mapping):
+                reasons.append(f"candidate {candidate_id} prospective pair is invalid")
+                continue
+            horizon = _positive_int(row.get("horizon"))
+            if horizon is None:
                 reasons.append(
-                    f"prospective D3 requires at least 200 exact mature pairs at {horizon}h"
+                    f"candidate {candidate_id} prospective horizon must be an exact positive integer"
                 )
-    if prospective.get("fixed_cutoff") is not True or prospective.get(
-        "stopping_rule"
-    ) != freeze.get("stopping_rule"):
+                continue
+            if horizon not in HORIZONS:
+                reasons.append(
+                    f"candidate {candidate_id} prospective horizon {horizon} is unsupported"
+                )
+                continue
+            origin = _time(row.get("origin"), "prospective pair origin", reasons)
+            target = _time(row.get("target"), "prospective pair target", reasons)
+            actual_at = _time(row.get("actual_at"), "prospective pair actual_at", reasons)
+            matured_at = _time(row.get("matured_at"), "prospective pair matured_at", reasons)
+            if origin and target:
+                key = (origin.isoformat(), target.isoformat(), horizon)
+                if key in seen:
+                    reasons.append(
+                        f"candidate {candidate_id} has duplicate prospective exact pairs"
+                    )
+                seen.add(key)
+                if (target - origin).total_seconds() != horizon * 3600:
+                    reasons.append(
+                        f"candidate {candidate_id} target must equal origin plus horizon"
+                    )
+                if prospect_start and origin <= prospect_start:
+                    reasons.append(
+                        f"candidate {candidate_id} prospective origin is not after D3 start"
+                    )
+                if prospect_end and target > prospect_end:
+                    reasons.append(f"candidate {candidate_id} prospective target is after D3 end")
+                if actual_at and actual_at != target:
+                    reasons.append(f"candidate {candidate_id} actual_at must exactly equal target")
+            if matured_at and target and matured_at < target:
+                reasons.append(f"candidate {candidate_id} outcome matured before its target")
+            if matured_at and evaluation_cutoff and matured_at > evaluation_cutoff:
+                reasons.append(f"candidate {candidate_id} outcome matured after evaluation cutoff")
+            if (
+                origin
+                and target
+                and actual_at == target
+                and matured_at
+                and evaluation_cutoff
+                and matured_at <= evaluation_cutoff
+            ):
+                counts[horizon] += 1
+        for horizon, count in counts.items():
+            if count < 200:
+                reasons.append(
+                    f"candidate {candidate_id} prospective D3 has fewer than 200 exact mature pairs at {horizon}h"
+                )
+        _validate_acceptance(candidate, candidate_id, reasons)
+    if (
+        prospective.get("fixed_cutoff") is not True
+        or not evaluation_cutoff
+        or prospective.get("stopping_rule") != freeze.get("stopping_rule")
+    ):
         reasons.append("prospective confirmation must use the frozen cutoff and stopping rule")
     if prospective.get("final_holdout_disjoint") is not True:
         reasons.append("prospective D3 must be disjoint from selection and final holdout")
@@ -195,6 +294,41 @@ def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
         "human_recommendation_only": True,
         "automatic_promotion": False,
     }
+
+
+def _validate_acceptance(
+    candidate: Mapping[str, Any], candidate_id: str, reasons: list[str]
+) -> None:
+    evidence = candidate.get("acceptance")
+    if not isinstance(evidence, Mapping) or evidence.get("preregistered") is not True:
+        reasons.append(f"candidate {candidate_id} acceptance criteria must be preregistered")
+        return
+    improvement = _number(evidence.get("adjusted_improvement_pct"))
+    ci_lower = _number(evidence.get("adjusted_ci_lower_pct"))
+    if improvement is None or improvement < 3:
+        reasons.append(f"candidate {candidate_id} adjusted primary improvement must be at least 3%")
+    if ci_lower is None or ci_lower <= 0:
+        reasons.append(
+            f"candidate {candidate_id} adjusted confidence interval lower bound must exceed 0"
+        )
+    skills = evidence.get("positive_skill_vs")
+    if not isinstance(skills, Mapping) or any(
+        _number(skills.get(name)) is None or _number(skills.get(name)) <= 0
+        for name in ("persistence", "strongest_naive")
+    ):
+        reasons.append(
+            f"candidate {candidate_id} must show positive skill vs persistence and strongest naive"
+        )
+    regressions = evidence.get("powered_regression_pct")
+    if not isinstance(regressions, list) or not regressions:
+        reasons.append(f"candidate {candidate_id} powered horizon/segment regressions missing")
+    elif any(_number(value) is None or _number(value) > 5 for value in regressions):
+        reasons.append(f"candidate {candidate_id} powered regression exceeds 5% or is invalid")
+    directional_loss = _number(evidence.get("directional_loss_pp"))
+    if directional_loss is None or directional_loss > 2:
+        reasons.append(
+            f"candidate {candidate_id} directional loss must not exceed 2 percentage points"
+        )
 
 
 def main() -> None:
