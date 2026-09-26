@@ -351,6 +351,19 @@ class ForecastService:
             return None
         if not isinstance(raw, dict) or not isinstance(raw.get("stages"), dict):
             return None
+        required_stages = {"market_data", "forecast", "history", "x_post"}
+        if (
+            raw.get("overall_health") not in {"healthy", "degraded", "open"}
+            or not required_stages.issubset(raw["stages"])
+        ):
+            return None
+        if any(
+            not isinstance(item, dict)
+            or item.get("health") not in {"healthy", "degraded", "open"}
+            or item.get("circuit_state") not in {"closed", "half_open", "open"}
+            for item in raw["stages"].values()
+        ):
+            return None
         stages = {
             str(name): {
                 "health": str(item.get("health", "unknown")),
@@ -609,6 +622,10 @@ class ForecastService:
         max_bytes = self.config.audit_max_bytes
         if max_bytes < 1 or self.config.audit_backups < 0 or self.config.audit_max_age_days < 1:
             raise OSError("invalid audit retention configuration")
+        line = json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n"
+        if len(line.encode("utf-8")) > max_bytes:
+            # Never persist an event that would violate the per-file retention cap.
+            return
         try:
             retention_seconds = self.config.audit_max_age_days * 86_400
             now = time.time()
@@ -634,7 +651,7 @@ class ForecastService:
         if self.config.audit_path.exists() and self.config.audit_path.stat().st_size >= max_bytes:
             self.config.audit_path.unlink()
         with self.config.audit_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n")
+            handle.write(line)
 
     @staticmethod
     def _status_text(status: int) -> str:
