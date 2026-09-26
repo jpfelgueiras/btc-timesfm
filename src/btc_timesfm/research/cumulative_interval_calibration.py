@@ -124,10 +124,15 @@ def build_gate_report(
     invalid_lineage = False
     for row in raw_predictions:
         try:
+            origin_at = _time(row["origin_at"])
+            horizon = int(row["horizon"])
+            target_at = _time(row["target_at"])
+            if horizon <= 0 or target_at != origin_at + timedelta(hours=horizon):
+                raise ValueError("prediction target does not match its horizon")
             key = (
-                _time(row["origin_at"]).isoformat(),
-                int(row["horizon"]),
-                _time(row["target_at"]).isoformat(),
+                origin_at.isoformat(),
+                horizon,
+                target_at.isoformat(),
             )
             stage = row["stage"]
             if (
@@ -165,10 +170,15 @@ def build_gate_report(
     invalid_outcomes = False
     for outcome in matured_outcomes:
         try:
+            origin_at = _time(outcome["origin_at"])
+            horizon = int(outcome["horizon"])
+            target_at = _time(outcome["target_at"])
+            if horizon <= 0 or target_at != origin_at + timedelta(hours=horizon):
+                raise ValueError("outcome target does not match its horizon")
             key = (
-                _time(outcome["origin_at"]).isoformat(),
-                int(outcome["horizon"]),
-                _time(outcome["target_at"]).isoformat(),
+                origin_at.isoformat(),
+                horizon,
+                target_at.isoformat(),
             )
             if outcome.get("actual") is None or key in outcomes:
                 invalid_outcomes = True

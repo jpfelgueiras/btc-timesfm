@@ -138,6 +138,20 @@ class CumulativeIntervalCalibrationTests(unittest.TestCase):
                     self._gate(prediction_rows, outcome_rows, audit)["status"], "blocked"
                 )
 
+    def test_prediction_and_outcome_targets_must_match_declared_horizon(self) -> None:
+        predictions, outcomes, audit = self._valid_inputs()
+        invalid_prediction = [dict(row) for row in predictions]
+        invalid_prediction[0]["target_at"] = (
+            datetime.fromisoformat(invalid_prediction[0]["origin_at"]) + timedelta(hours=5)
+        ).isoformat()
+        invalid_outcome = [dict(row) for row in outcomes]
+        invalid_outcome[0]["target_at"] = (
+            datetime.fromisoformat(invalid_outcome[0]["origin_at"]) + timedelta(hours=3)
+        ).isoformat()
+
+        self.assertEqual(self._gate(invalid_prediction, outcomes, audit)["status"], "blocked")
+        self.assertEqual(self._gate(predictions, invalid_outcome, audit)["status"], "blocked")
+
     def test_bare_ready_flags_and_insufficient_prospective_support_block(self) -> None:
         predictions, outcomes, _ = self._valid_inputs()
         report = build_gate_report(
