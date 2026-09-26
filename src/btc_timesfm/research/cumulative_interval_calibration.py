@@ -5,7 +5,7 @@ Per-step marginal quantiles are never treated as cumulative quantiles.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
 from typing import Any
 
@@ -105,6 +105,17 @@ def build_gate_report(
         reasons.append(
             "#339 canonical audit manifest, exact target coverage, or prospective period is absent"
         )
+    try:
+        frozen_at = _time(audit["frozen_at"])
+        prospective_start = _time(audit["prospective_start"])
+        evaluated_at = _time(audit["evaluated_at"])
+        if prospective_start < frozen_at:
+            raise ValueError("prospective start precedes freeze")
+        if evaluated_at < prospective_start + timedelta(days=30):
+            raise ValueError("prospective observation period is shorter than 30 days")
+    except (KeyError, TypeError, ValueError):
+        frozen_at = prospective_start = evaluated_at = None
+        reasons.append("canonical temporal manifest is missing, invalid, or shorter than 30 days")
     if not target_pipeline_ready:
         reasons.append("#343 target pipeline gate is not ready")
 
@@ -162,10 +173,23 @@ def build_gate_report(
             if outcome.get("actual") is None or key in outcomes:
                 invalid_outcomes = True
             else:
+                target_at = _time(outcome["target_at"])
+                actual_at = _time(outcome["actual_at"])
+                matured_at = _time(outcome["matured_at"])
+                if (
+                    actual_at != target_at
+                    or matured_at < target_at
+                    or evaluated_at is None
+                    or matured_at > evaluated_at
+                ):
+                    invalid_outcomes = True
+                    continue
                 outcomes[key] = outcome
         except (KeyError, TypeError, ValueError):
             invalid_outcomes = True
     paired = complete.keys() & outcomes.keys()
+    if outcomes.keys() - complete.keys():
+        invalid_outcomes = True
     if invalid_outcomes or not paired:
         reasons.append("unique exact-target matured outcomes are not paired to complete lineage")
 
@@ -173,10 +197,19 @@ def build_gate_report(
     prospective_counts: dict[int, int] = {}
     for key in paired:
         horizon = key[1]
-        if outcomes[key].get("period") == "evaluation":
+        origin_at = _time(key[0])
+        if frozen_at is not None and origin_at < frozen_at:
             counts[horizon] = counts.get(horizon, 0) + 1
-        if outcomes[key].get("period") == "prospective":
+        elif (
+            prospective_start is not None
+            and evaluated_at is not None
+            and prospective_start <= origin_at < evaluated_at
+        ):
             prospective_counts[horizon] = prospective_counts.get(horizon, 0) + 1
+        else:
+            invalid_outcomes = True
+    if invalid_outcomes:
+        reasons.append("outcomes contain invalid joins, maturity timestamps, or out-of-window origins")
     required_horizons = set(audit.get("required_horizons", (2, 4, 8, 16)))
     if any(
         counts.get(horizon, 0) < 200 or prospective_counts.get(horizon, 0) < 200

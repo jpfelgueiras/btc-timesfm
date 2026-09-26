@@ -57,8 +57,15 @@ class CumulativeIntervalCalibrationTests(unittest.TestCase):
     def _valid_inputs() -> tuple[list[dict], list[dict], dict]:
         predictions = []
         outcomes = []
+        frozen = datetime(2024, 2, 1, tzinfo=timezone.utc)
+        prospective_start = datetime(2024, 3, 1, tzinfo=timezone.utc)
+        evaluated = datetime(2024, 3, 31, tzinfo=timezone.utc)
         for index in range(400):
-            origin = datetime(2024, 1, 1, tzinfo=timezone.utc) + timedelta(hours=index)
+            origin = (
+                datetime(2024, 1, 1, tzinfo=timezone.utc) + timedelta(hours=index * 3)
+                if index < 200
+                else prospective_start + timedelta(hours=(index - 200) * 3)
+            )
             target = origin + timedelta(hours=4)
             for stage in ("raw_cumulative", "pre_coherence", "final"):
                 predictions.append(
@@ -77,7 +84,9 @@ class CumulativeIntervalCalibrationTests(unittest.TestCase):
                     "target_at": target.isoformat(),
                     "horizon": 4,
                     "actual": 1.2,
-                    "period": "evaluation" if index < 200 else "prospective",
+                    "period": "prospective" if index < 200 else "evaluation",
+                    "actual_at": target.isoformat(),
+                    "matured_at": (target + timedelta(minutes=1)).isoformat(),
                 }
             )
         audit = {
@@ -86,6 +95,9 @@ class CumulativeIntervalCalibrationTests(unittest.TestCase):
             "exact_target_coverage": True,
             "prospective_period_ready": True,
             "required_horizons": [4],
+            "frozen_at": frozen.isoformat(),
+            "prospective_start": prospective_start.isoformat(),
+            "evaluated_at": evaluated.isoformat(),
         }
         return predictions, outcomes, audit
 
@@ -149,6 +161,22 @@ class CumulativeIntervalCalibrationTests(unittest.TestCase):
             )["status"],
             "blocked",
         )
+
+    def test_period_labels_cannot_bypass_temporal_evidence(self) -> None:
+        predictions, outcomes, audit = self._valid_inputs()
+        for outcome in outcomes:
+            outcome["period"] = "prospective"
+        report = self._gate(predictions, outcomes, audit)
+        self.assertEqual(report["status"], "ready_for_evaluation")
+        future = [{**row, "matured_at": "2024-04-01T00:00:00+00:00"} for row in outcomes]
+        self.assertEqual(self._gate(predictions, future, audit)["status"], "blocked")
+        false_actual = [{**row, "actual_at": row["target_at"]} for row in outcomes]
+        false_actual[0]["actual_at"] = "2024-01-01T00:00:00+00:00"
+        self.assertEqual(self._gate(predictions, false_actual, audit)["status"], "blocked")
+        too_early = {**audit, "evaluated_at": "2024-03-30T00:00:00+00:00"}
+        self.assertEqual(self._gate(predictions, outcomes, too_early)["status"], "blocked")
+        naive = {**audit, "frozen_at": "2024-02-01T00:00:00"}
+        self.assertEqual(self._gate(predictions, outcomes, naive)["status"], "blocked")
 
     def test_naive_timestamps_are_rejected(self) -> None:
         with self.assertRaises(ValueError):
