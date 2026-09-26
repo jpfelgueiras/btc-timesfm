@@ -1,6 +1,23 @@
 # Documentation truth audit and GitHub Pages information architecture
 
-**Audit baseline:** `issue-356-docs-audit`, 2026-09-26. This is a source-to-doc map and planning record, not a rewrite of the listed guides. Verify mutable facts against the linked source files before publishing new user-facing pages.
+**Audit baseline:** `issue-356-docs-audit`, 2026-09-26. This is a historical source-to-doc map and planning record, not a rewrite of the listed guides. Its inventory and implementation-state descriptions record the pre-#357–#367 state and must not be read as current architecture. Verify mutable facts against the linked source files before publishing new user-facing pages.
+
+## Completion status
+
+The portal/content work (#357–#366) is merged; this issue (#367) completes the
+README and quality-validation work. MkDocs Material now builds
+the canonical portal from `docs/` at the project Pages root; the forecast
+dashboard remains at `/forecasts/`. The root README is a short directory to the
+canonical setup guide, portal, dashboard, and repository policies. The Pages
+workflow builds strictly; pull requests additionally run
+`python scripts/validate_docs.py` after the strict build to verify rendered
+internal links, anchors, assets, and referenced source files. See
+[Getting started](getting-started.md) for the locked local preview/build commands.
+
+The tables below retain their original audit findings and proposed dispositions
+as a historical record. They are not a statement that those discrepancies or
+planned architecture are still outstanding; verify current documentation
+against source and tests when changing the owned behavior.
 
 ## Findings and decisions
 

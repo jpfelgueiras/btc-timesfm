@@ -1,7 +1,7 @@
 # Developer guide
 
 This guide adds practical orientation for contributors. The repository's
-[contribution process](../CONTRIBUTING.md) and [agent/repository rules](../AGENTS.md)
+[contribution process](https://github.com/jpfelgueiras/btc-timesfm/blob/main/CONTRIBUTING.md) and [agent/repository rules](https://github.com/jpfelgueiras/btc-timesfm/blob/main/AGENTS.md)
 are canonical for setup requirements, validation commands, and general safeguards.
 Supported Python versions are 3.11, 3.12, and 3.13; dependencies are pinned in
 `uv.lock` and managed with the supported `uv` version (0.12.x).
@@ -21,7 +21,7 @@ uv sync --locked --no-default-groups --group test
 Set `PYTHONPATH=src` for direct package commands from a checkout. Run one module
 with `PYTHONPATH=src python -m unittest tests.forecasting.test_forecast_engine`;
 run the full suite and repository checks with the commands in
-[CONTRIBUTING.md](../CONTRIBUTING.md). In particular, CI runs unittest tests,
+[CONTRIBUTING.md](https://github.com/jpfelgueiras/btc-timesfm/blob/main/CONTRIBUTING.md). In particular, CI runs unittest tests,
 coverage (75% across configured critical modules), Ruff lint and format checks,
 workflow and action-pin linters, and mypy on its selected critical modules.
 Security dependency auditing is defined in the security workflow with
@@ -154,7 +154,7 @@ forecast has been produced.
 - Add regression tests with boundary timestamps and deliberately future-dated
   inputs to demonstrate that look-ahead values are excluded.
 
-See [AGENTS.md](../AGENTS.md) for the durable-history, unsupported-schema,
+See [AGENTS.md](https://github.com/jpfelgueiras/btc-timesfm/blob/main/AGENTS.md) for the durable-history, unsupported-schema,
 optional-source, and production-safeguard rules.
 
 ## API and static dashboard contracts
@@ -172,8 +172,8 @@ cover behavior that cannot be verified from generated HTML alone.
 
 ## Documentation changes
 
-Keep setup and contribution policy in [CONTRIBUTING.md](../CONTRIBUTING.md),
-repository-wide coding/safety constraints in [AGENTS.md](../AGENTS.md), and
+Keep setup and contribution policy in [CONTRIBUTING.md](https://github.com/jpfelgueiras/btc-timesfm/blob/main/CONTRIBUTING.md),
+repository-wide coding/safety constraints in [AGENTS.md](https://github.com/jpfelgueiras/btc-timesfm/blob/main/AGENTS.md), and
 domain-specific implementation guidance here. Update the source docs and links
 when behavior or a contract changes, then run `mkdocs build --strict` to catch
 broken references and warnings.

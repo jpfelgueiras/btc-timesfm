@@ -58,7 +58,8 @@ uv run mkdocs serve
 
 The strict build writes the documentation site to `build/`; `mkdocs serve`
 serves a live docs preview, usually at <http://127.0.0.1:8000/>. The separate
-static forecast dashboard is published at [`/forecasts/`](/forecasts/).
+static forecast dashboard is published at the
+[forecast dashboard](https://jpfelgueiras.github.io/btc-timesfm/forecasts/).
 Dashboard generation needs a local history database and is not part of the
 documentation build. Once one exists, it can be generated with:
 
