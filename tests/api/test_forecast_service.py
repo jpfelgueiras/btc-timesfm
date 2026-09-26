@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import io
 import json
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 from btc_timesfm.api.forecast_contract import (
     validate_error_response,
@@ -152,6 +154,91 @@ class TestForecastService(unittest.TestCase):
         self.assertEqual(forecast["lineage"]["source"]["price_usd"], 61760.0)
         self.assertIsNone(body["pagination"]["next_cursor"])
         self.assertEqual(body["pagination"]["limit"], 1)
+
+    def test_keyset_pages_traverse_ties_once_in_stable_order(self) -> None:
+        store = ForecastHistoryStore(self.database)
+        for hour in range(9, 12):
+            origin = f"2026-09-16T{hour:02d}:00:00Z"
+            item = snapshot()
+            item["latest_close_at"] = origin
+            item["generated_at"] = origin
+            item["predictions"] = {"1h": {"price_usd": 62000}, "2h": {"price_usd": 63000}}
+            item["model_predictions"] = {
+                "alpha": {"1h": {"price_usd": 62000}},
+                "zeta": {"1h": {"price_usd": 62000}},
+            }
+            store.ingest_snapshot(item)
+        service = ForecastService(
+            ServiceConfig(self.database, frozenset({"secret"}), self.health, self.audit),
+            clock=lambda: NOW,
+        )
+        traversed: list[tuple[str, int, str]] = []
+        cursor = None
+        while True:
+            query = "limit=2" + (f"&cursor={cursor}" if cursor else "")
+            status, _, body = self._request_service(service, "/v1/forecasts", query=query)
+            self.assertEqual(status, 200)
+            self.assertLessEqual(len(body["data"]), 2)
+            traversed.extend(
+                (row["origin_at"], row["horizon_hours"], row["model"]["name"])
+                for row in body["data"]
+            )
+            cursor = body["pagination"]["next_cursor"]
+            if cursor is None:
+                break
+        self.assertEqual(len(traversed), 13)
+        self.assertEqual(len(set(traversed)), len(traversed))
+        self.assertEqual(
+            traversed,
+            sorted(traversed, key=lambda row: (-int(row[0][11:13]), row[1], row[2])),
+        )
+
+    def test_forged_cursor_key_is_rejected(self) -> None:
+        service = ForecastService(
+            ServiceConfig(self.database, frozenset({"secret"}), self.health, self.audit),
+            clock=lambda: NOW,
+        )
+        forged = service._cursor(
+            {
+                "origin_at": "2026-09-16T12:00:00+00:00",
+                "horizon_hours": 999,
+                "model": {"name": "not-a-model"},
+            },
+            {},
+        )
+        status, _, body = self._request_service(service, "/v1/forecasts", query=f"cursor={forged}")
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"]["code"], "invalid_request")
+
+    def test_empty_filtered_page_uses_same_connection_for_freshness_origin(self) -> None:
+        service = ForecastService(
+            ServiceConfig(self.database, frozenset({"secret"}), self.health, self.audit),
+            clock=lambda: NOW,
+        )
+        with patch.object(service, "_history_origin", wraps=service._history_origin) as origin:
+            status, _, body = self._request_service(
+                service, "/v1/forecasts", query="model=missing-model"
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"], [])
+        self.assertEqual(body["freshness"]["observed_at"], "2026-09-16T12:00:00+00:00")
+        self.assertEqual(
+            origin.call_count, 1
+        )  # health check only; page query uses its own snapshot.
+
+    def test_malformed_base64_cursor_returns_invalid_request(self) -> None:
+        status, _, body = self.request("/v1/forecasts", query="cursor=A")
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"]["code"], "invalid_request")
+
+    def test_api_order_index_is_used_by_sqlite(self) -> None:
+        with sqlite3.connect(self.database) as connection:
+            plan = connection.execute(
+                "EXPLAIN QUERY PLAN SELECT origin_at, horizon_hours, model_name "
+                "FROM forecast_predictions ORDER BY origin_at DESC, horizon_hours ASC, "
+                "model_name ASC LIMIT 3"
+            ).fetchall()
+        self.assertTrue(any("idx_predictions_api_order" in str(row) for row in plan), plan)
 
     def test_endpoint_error_contracts_are_stable(self) -> None:
         cases = [

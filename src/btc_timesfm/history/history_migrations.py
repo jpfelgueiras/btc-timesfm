@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 
 @dataclass(frozen=True)
@@ -176,12 +176,20 @@ def _migration_5_add_multi_horizon_coherence(connection: sqlite3.Connection) -> 
         )
 
 
+def _migration_6_add_api_order_index(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """CREATE INDEX IF NOT EXISTS idx_predictions_api_order
+           ON forecast_predictions(origin_at DESC, horizon_hours ASC, model_name ASC)"""
+    )
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial_history_schema", _migration_1_initial_history_schema),
     Migration(2, "add_migration_audit", _migration_2_add_migration_audit),
     Migration(3, "add_experiment_manifests", _migration_3_add_experiment_manifests),
     Migration(4, "add_drift_events", _migration_4_add_drift_events),
     Migration(5, "add_multi_horizon_coherence", _migration_5_add_multi_horizon_coherence),
+    Migration(6, "add_api_order_index", _migration_6_add_api_order_index),
 )
 
 
