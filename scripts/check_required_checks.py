@@ -64,12 +64,14 @@ def main() -> int:
     parser.add_argument("--repo", help="GitHub OWNER/REPOSITORY (defaults to gh repository view)")
     args = parser.parse_args()
     try:
-        repository = args.repo or subprocess.run(
-            ["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
+        repository = args.repo or (
+            subprocess.run(
+                ["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+        )
         errors = validate_rulesets(fetch_rulesets(repository))
     except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, KeyError) as error:
         print(f"unable to verify GitHub rulesets: {error}", file=sys.stderr)
