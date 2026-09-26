@@ -20,7 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from typing import Any, Literal, Mapping, Sequence
 
 from btc_timesfm.forecasting.statistical_significance import (
     DEFAULT_BOOTSTRAP_ITERATIONS,
@@ -262,6 +262,8 @@ def adjusted_bootstrap_comparison(
     seed: int = DEFAULT_SEED,
     min_samples: int = DEFAULT_MIN_PAIRED_SAMPLES,
     family: str = DEFAULT_FAMILY,
+    method: Literal["iid", "moving_block", "stationary"] = "moving_block",
+    block_length: int | None = None,
 ) -> dict[str, Any]:
     """Compare paired measurements at a family-adjusted evidence threshold.
 
@@ -284,6 +286,8 @@ def adjusted_bootstrap_comparison(
         iterations=iterations,
         min_samples=min_samples,
         seed=seed,
+        method=method,
+        block_length=block_length,
     )
     if count <= 1:
         adjusted = dict(raw)
@@ -297,11 +301,15 @@ def adjusted_bootstrap_comparison(
             iterations=iterations,
             min_samples=min_samples,
             seed=seed,
+            method=method,
+            block_length=block_length,
         )
     p_value = p_value_from_bootstrap(raw)
     return {
         "schema_version": 1,
         "comparison_type": "paired_bootstrap",
+        "bootstrap_method": method,
+        "block_length": raw.get("block_length"),
         "metric": metric,
         "policy_version": POLICY_VERSION,
         "policy_id": policy_identity(active),

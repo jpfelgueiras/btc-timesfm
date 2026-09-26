@@ -43,6 +43,41 @@ class StatisticalSignificanceTests(unittest.TestCase):
         self.assertEqual(result["reason"], "insufficient_samples")
         self.assertEqual(result["samples"], 12)
 
+    def test_dependence_default_blocks_and_gates_on_effective_samples(self) -> None:
+        baseline = [1.0 + (index % 3) * 0.01 for index in range(48)]
+        candidate = [value - 0.02 for value in baseline]
+        result = paired_bootstrap_comparison(
+            candidate,
+            baseline,
+            metric="mae_pct",
+            lower_is_better=True,
+            block_length=16,
+        )
+        self.assertEqual(result["bootstrap_method"], "moving_block")
+        self.assertEqual(result["effective_samples"], 3.0)
+        self.assertEqual(result["conclusion"], "inconclusive")
+        self.assertEqual(result["reason"], "insufficient_effective_samples")
+
+    def test_overlapping_autocorrelated_null_is_reproducible(self) -> None:
+        # A single synthetic null path is enough to exercise the dependence-aware
+        # code path deterministically; it does not claim empirical BTC performance.
+        import numpy as np
+
+        rng = np.random.default_rng(342)
+        innovations = rng.normal(size=256)
+        losses = np.convolve(innovations, np.ones(16) / 4.0, mode="same")
+        result = paired_bootstrap_comparison(
+            losses,
+            losses.copy(),
+            metric="paired_null",
+            lower_is_better=True,
+            method="stationary",
+            block_length=16,
+        )
+        self.assertEqual(result["mean_improvement"], 0.0)
+        self.assertEqual(result["conclusion"], "inconclusive")
+        self.assertEqual(result["effective_samples"], 16.0)
+
     def test_clear_regression_supports_baseline(self) -> None:
         result = paired_bootstrap_comparison(
             [1.2] * 40,
