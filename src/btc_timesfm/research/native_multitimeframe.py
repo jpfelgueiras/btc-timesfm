@@ -94,17 +94,22 @@ def score_exact_targets(
 ) -> dict[str, Any]:
     """Score forecast pairs only where both models share target and origin, and truth exists."""
     common = set(hourly) & set(native) & set(actual)
-    if hourly_origins is not None or native_origins is not None:
-        if hourly_origins is None or native_origins is None:
-            common.clear()
-        else:
-            common = {
-                target
-                for target in common
-                if target in hourly_origins
-                and target in native_origins
-                and hourly_origins[target] == native_origins[target]
-            }
+    if hourly_origins is None or native_origins is None:
+        common.clear()
+    else:
+        common = {
+            target
+            for target in common
+            if target in hourly_origins
+            and target in native_origins
+            and hourly_origins[target] == native_origins[target]
+            and isinstance(target, int)
+            and isinstance(hourly_origins[target], int)
+            and target > hourly_origins[target] >= 0
+            and hourly_origins[target] % FIFTEEN_MINUTES == 0
+            and target % FIFTEEN_MINUTES == 0
+            and (target - hourly_origins[target]) % FIFTEEN_MINUTES == 0
+        }
     pairs = [
         (float(hourly[target]), float(native[target]), float(actual[target]))
         for target in sorted(common)
@@ -137,6 +142,8 @@ def score_exact_targets(
         if hourly_ss > 0 and native_ss > 0:
             correlation = covariance / math.sqrt(hourly_ss * native_ss)
     return {
+        "origin_validated": hourly_origins is not None and native_origins is not None,
+        "origin_validated_pairs": len(pairs),
         "matched_targets": len(pairs),
         "eligible_hourly_count": len(pairs),
         "eligible_native_count": len(pairs),
@@ -183,8 +190,10 @@ def build_report(
 
     valid_scoring = bool(
         scoring
+        and scoring.get("origin_validated") is True
         and isinstance(scoring.get("matched_targets"), int)
         and scoring["matched_targets"] >= 2
+        and scoring.get("origin_validated_pairs") == scoring.get("matched_targets")
         and scoring.get("eligible_hourly_count") == scoring.get("matched_targets")
         and scoring.get("eligible_native_count") == scoring.get("matched_targets")
         and has_losses(scoring.get("hourly_losses"))
