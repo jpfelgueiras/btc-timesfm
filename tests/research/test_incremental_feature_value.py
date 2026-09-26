@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 
+from btc_timesfm.forecasting.feature_registry import MARKET_FEATURE_NAMES
 from btc_timesfm.research.incremental_feature_value import (
     CANDIDATE_GROUPS,
     audit_feature_rows,
@@ -84,6 +85,26 @@ class IncrementalFeatureValueTests(unittest.TestCase):
         self.assertEqual(report["external_data_status"], "blocked_no_point_in_time_external_corpus")
         self.assertEqual(report["covariate_api"]["status"], "blocked_unsupported_unverified")
         self.assertIsNone(report["performance_claim"])
+        self.assertEqual(report["execution_parity"]["status"], "not_measured")
+        self.assertIn("helper-level fallback", report["execution_parity"]["reason"])
+
+    def test_external_group_includes_registered_open_interest_changes_and_common_cohort(
+        self,
+    ) -> None:
+        feature_names = [*MARKET_FEATURE_NAMES, *CANDIDATE_GROUPS["external_eth_derivatives"]]
+        row = {
+            "origin_at": "2025-01-01T01:00:00Z",
+            "features": {name: 1.0 for name in feature_names},
+            "feature_capture_times": {name: "2025-01-01T00:00:00Z" for name in feature_names},
+            "feature_vintages": {name: "2025-01-01T00:00:00Z" for name in feature_names},
+        }
+        report = audit_feature_rows([row])
+        group = report["groups"]["external_eth_derivatives"]
+        self.assertIn("derivatives_oi_change_1h_pct", group["registered_features"])
+        self.assertIn("derivatives_oi_change_24h_pct", group["registered_features"])
+        self.assertEqual(group["baseline_common_origin_indices"], [0])
+        self.assertEqual(group["candidate_common_origin_indices"], [0])
+        self.assertEqual(group["candidate_baseline_common_origin_indices"], [0])
 
     def test_missing_optional_input_returns_exact_baseline_object(self) -> None:
         baseline = {"point": 4, "interval": (1, 7)}

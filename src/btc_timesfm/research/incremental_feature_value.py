@@ -11,7 +11,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
-from btc_timesfm.forecasting.feature_registry import FEATURE_REGISTRY
+from btc_timesfm.forecasting.feature_registry import FEATURE_REGISTRY, MARKET_FEATURE_NAMES
 
 CANDIDATE_GROUPS = {
     "volume_transform": frozenset({"volume_zscore_7d"}),
@@ -24,7 +24,14 @@ CANDIDATE_GROUPS = {
     "external_eth_derivatives": frozenset(
         name
         for name in FEATURE_REGISTRY
-        if name.startswith(("cross_eth_", "derivatives_funding", "derivatives_open_interest"))
+        if name.startswith(
+            (
+                "cross_eth_",
+                "derivatives_funding",
+                "derivatives_open_interest",
+                "derivatives_oi_change_",
+            )
+        )
     ),
 }
 
@@ -71,15 +78,26 @@ def audit_feature_rows(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             name: sum(name in available for available in availability) for name in sorted(names)
         }
         common = sum(names <= available for available in availability)
+        baseline_indices = [
+            index
+            for index, available in enumerate(availability)
+            if set(MARKET_FEATURE_NAMES) <= available
+        ]
+        candidate_indices = [
+            index for index, available in enumerate(availability) if names <= available
+        ]
+        common_indices = sorted(set(baseline_indices) & set(candidate_indices))
         groups[group] = {
             "registered_features": sorted(names),
             "available_by_feature": counts,
             "missing_by_feature": {name: all_origins - count for name, count in counts.items()},
             "all_origin_count": all_origins,
             "common_available_origin_count": common,
-            "common_available_origin_indices": [
-                index for index, available in enumerate(availability) if names <= available
-            ],
+            "common_available_origin_indices": candidate_indices,
+            "baseline_common_origin_indices": baseline_indices,
+            "candidate_common_origin_indices": candidate_indices,
+            "candidate_baseline_common_origin_count": len(common_indices),
+            "candidate_baseline_common_origin_indices": common_indices,
             "status": "inventory_only" if all_origins else "blocked_no_rows",
         }
     return {
@@ -96,6 +114,10 @@ def audit_feature_rows(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         },
         "groups": groups,
         "external_data_status": "blocked_no_point_in_time_external_corpus",
+        "execution_parity": {
+            "status": "not_measured",
+            "reason": "origin-level forecasts are unavailable; helper-level fallback is not parity evidence",
+        },
         "performance_claim": None,
         "covariate_api": {"status": "blocked_unsupported_unverified"},
     }
