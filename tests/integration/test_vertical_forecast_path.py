@@ -82,9 +82,9 @@ class VerticalForecastPathTests(unittest.TestCase):
             f"{hour}h": {
                 "price_usd": close + hour,
                 "change_pct": hour / close * 100.0,
-                "q10_usd": close + hour - 10,
+                "q10_usd": close - 2 * hour,
                 "q50_usd": close + hour,
-                "q90_usd": close + hour + 10,
+                "q90_usd": close + 3 * hour,
                 "model_agreement": 0.75,
             }
             for hour in (2, 4, 8, 16)
