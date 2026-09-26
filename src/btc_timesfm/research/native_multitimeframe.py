@@ -179,6 +179,7 @@ def build_report(
         blockers.append("immutable same-venue 15m BTC/USD corpus unavailable")
     if not runtime_frequency_supported or not verified_runtime:
         blockers.append("TimesFM runtime frequency contract for 15m is unavailable")
+
     def has_losses(value: Any) -> bool:
         return isinstance(value, Mapping) and all(
             key in value
@@ -200,7 +201,9 @@ def build_report(
         and has_losses(scoring.get("native_losses"))
     )
     if not valid_scoring:
-        blockers.append("at least two exact matched forecast pairs with scoring output are required")
+        blockers.append(
+            "at least two exact matched forecast pairs with scoring output are required"
+        )
     return {
         "schema_version": 1,
         "status": "ready_for_scoring" if not blockers else "blocked",

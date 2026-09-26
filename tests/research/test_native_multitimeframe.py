@@ -103,8 +103,13 @@ class NativeMultiTimeframeTests(unittest.TestCase):
             build_report(
                 corpus_available=True,
                 runtime_frequency_supported=True,
-                scoring={"matched_targets": 10, "eligible_hourly_count": 10,
-                         "eligible_native_count": 10, "hourly_losses": {}, "native_losses": {}},
+                scoring={
+                    "matched_targets": 10,
+                    "eligible_hourly_count": 10,
+                    "eligible_native_count": 10,
+                    "hourly_losses": {},
+                    "native_losses": {},
+                },
             )["status"],
             "blocked",
         )
