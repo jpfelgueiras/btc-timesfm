@@ -1,0 +1,71 @@
+{
+  "attempts": [],
+  "blockers": [
+    {
+      "code": "parity_diagnosis_unavailable",
+      "detail": "Issue #399 production-parity diagnosis is not ready; #397 has no admissible corpus and #398 has no accumulated eligible mature evidence."
+    },
+    {
+      "code": "candidate_family_not_preregistered",
+      "detail": "Freeze, hash, and archive the bounded candidate-family preregistration and protocol before scoring; this readiness command accepts no candidate registry or completed evaluation evidence."
+    }
+  ],
+  "candidate_winner": null,
+  "candidates_preregistered": false,
+  "candidates_scored": false,
+  "d3_shadow_prerequisites": [
+    "Selection passes all frozen criteria with complete attempt/failure accounting and no reused final holdout.",
+    "Freeze selected configuration, policy identity, start/end, cutoff, and stopping rule before D3 begins.",
+    "Run disjoint prospective shadow confirmation for at least 30 days with at least 200 exact mature pairs per horizon and no unreported failures.",
+    "Human review of immutable evidence; production is unchanged."
+  ],
+  "evidence": {
+    "parity_report": {
+      "path": "docs/research/ISSUE_399_PRODUCTION_PARITY_BLOCKED.json",
+      "sha256": "5347816da8e99ff5ec9635684b291f5c9b403f502fac75cd5d281ee23b184211"
+    }
+  },
+  "human_review_only": true,
+  "issue": 400,
+  "metrics": null,
+  "production_changes": false,
+  "protocol_sha256": "4b2bd3e31ecdb6bf9cf291a01526bbbf6595eb9c06a665be34660f8e83f94873",
+  "protocol_to_freeze_before_scoring": {
+    "baselines": [
+      "frozen_champion",
+      "persistence",
+      "strongest_naive"
+    ],
+    "candidate_family": "Hash an immutable preregistration manifest that enumerates every candidate, its configuration/identity, the bounded family, and all planned comparisons before scoring; record every attempted, failed, blocked, and excluded candidate.",
+    "folds": "Nested earlier purged walk-forward folds; all candidates, frozen champion, persistence, and strongest naive baseline use the exact same origin/target/horizon keys.",
+    "horizons_hours": [
+      2,
+      4,
+      8,
+      16
+    ],
+    "hypotheses": "Freeze directional, bounded candidate-versus-champion hypotheses before scoring.",
+    "minimum_effect": "Preregister a primary improvement floor of at least 3%.",
+    "multiplicity": "Predeclare a whole-family adjustment (Holm, Bonferroni, Sidak, or BY as appropriate) across every attempted candidate, comparison, horizon, and reported stratum; retain failed attempts in family accounting.",
+    "outcomes": [
+      "MAE",
+      "signed_bias",
+      "direction_accuracy",
+      "failures"
+    ],
+    "prospective_confirmation": "After selection freeze, confirm only the selected candidate on disjoint prospective D3 shadow evidence; minimum 30 calendar days and 200 exact mature pairs at each supported horizon (2h, 4h, 8h, 16h). Apply the frozen per-horizon regression and directional-loss safeguards as well as primary, adjusted-interval, and baseline-skill criteria; track every attempt and failure.",
+    "review": "Selection is recommendation-only and requires human review; no automatic winner, promotion, or production forecast/configuration changes.",
+    "stopping_rule": "Fixed cutoff and stopping rule declared before evaluation; no optional stopping.",
+    "thresholds": "Freeze primary metric, adjusted confidence lower bound greater than zero, positive skill versus persistence and strongest naive baseline, per-horizon/segment powered regression no greater than 5%, and directional-loss increase no greater than 2 percentage points before scoring.",
+    "uncertainty": "Paired dependence-aware moving-block uncertainty using the existing final-selection contract."
+  },
+  "schema_version": 1,
+  "selection_prerequisites": [
+    "Admissible versioned point-in-time corpus and passing production-parity diagnosis (#397/#399).",
+    "Accumulated eligible, exact-key, mature production-parity evidence with all attempts and failures (#398/#399).",
+    "Immutable preregistration and hashes for hypotheses, bounded candidate family, outcomes, horizons, folds, minimum effects, stopping rule, and thresholds.",
+    "Exact shared walk-forward keys, existing final-selection gates, dependence-aware paired moving-block uncertainty, and family-wide multiplicity adjustment."
+  ],
+  "skill_inference": false,
+  "status": "blocked"
+}
