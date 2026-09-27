@@ -218,16 +218,18 @@ class ShadowDeploymentTests(unittest.TestCase):
             )
         self.store.mature_outcomes(_actuals_for(count))
 
-    def test_v5_restore_migrates_to_v6_and_retries_maturity_once_at_exact_utc_targets(self) -> None:
+    def test_v5_restore_migrates_to_current_and_retries_maturity_once_at_exact_utc_targets(
+        self,
+    ) -> None:
         legacy_db = Path(self.tmp.name) / "legacy-v5.sqlite"
-        migrate_database(legacy_db, migrations=MIGRATIONS[:-1], target_version=5)
+        migrate_database(legacy_db, migrations=MIGRATIONS[:5], target_version=5)
         archive = Path(self.tmp.name) / "legacy-v5.sqlite.gz"
         with legacy_db.open("rb") as source, gzip.open(archive, "wb") as target:
             target.write(source.read())
 
         restored_db = Path(self.tmp.name) / "restored-shadow.sqlite"
         restored = restore_shadow_archive(archive, restored_db)
-        self.assertEqual(restored["verification"]["schema_version"], 6)
+        self.assertEqual(restored["verification"]["schema_version"], 7)
         restored_store = ShadowStore(restored_db)
         production = _production_snapshot(0, price=100.0)
         actuals = _actuals_for(1)
@@ -575,6 +577,35 @@ class ShadowDeploymentTests(unittest.TestCase):
             {item["reason"] for item in duplicate_report["provenance_blockers"]},
         )
 
+    def test_frozen_cohort_exports_point_prediction_and_actual_source_identity(self) -> None:
+        origin = _origin_timestamp(0)
+        origin_at = _iso(origin)
+        champion, provenance = self._record_frozen_forecast(origin_at)
+        provenance["experiment_manifest"]["data"].update(
+            {"source": "test-exchange", "pair": "BTC/USD", "ohlcv_sha256": "a" * 64}
+        )
+        with sqlite3.connect(self.db_path) as connection:
+            connection.execute(
+                "UPDATE shadow_forecasts SET provenance_json = ?",
+                (json.dumps(provenance),),
+            )
+        as_of = origin + 16 * 3600
+        self.store.mature_outcomes(_actuals_for(1), now=_iso(as_of))
+        report = self.store.frozen_cohort_report(
+            origin_cutoff_at=origin_at, evaluation_as_of=_iso(as_of)
+        )
+        self.assertTrue(report["ready"])
+        pair = next(row for row in report["pairs"] if row["horizon"] == "2h")
+        self.assertEqual(
+            pair["production_final_prediction"], _production_predictions(100.0, 1.0)["2h"]
+        )
+        self.assertIsNotNone(pair["actual_value"])
+        self.assertEqual(len(pair["actual_source_identity"]), 64)
+        self.assertEqual(pair["market_source"], "test-exchange")
+        self.assertEqual(pair["market_pair"], "BTC/USD")
+        self.assertEqual(pair["source_window_sha256"], "a" * 64)
+        self.assertIsNone(_frozen_cohort_blocker(report))
+
     def test_frozen_missing_horizon_failure_denominator_and_lineage_mismatch(self) -> None:
         origin = _origin_timestamp(0)
         origin_at = _iso(origin)
@@ -872,7 +903,7 @@ class ShadowDeploymentTests(unittest.TestCase):
 
     def test_migration_backup_and_rollback_preserve_committed_wal_data(self) -> None:
         db_path = Path(self.tmp.name) / "wal-shadow.sqlite"
-        migrate_database(db_path, migrations=MIGRATIONS[:-1], target_version=5)
+        migrate_database(db_path, migrations=MIGRATIONS[:-2], target_version=5)
         connection = sqlite3.connect(db_path)
         try:
             connection.execute("PRAGMA journal_mode = WAL")
@@ -886,9 +917,9 @@ class ShadowDeploymentTests(unittest.TestCase):
         def fail_migration(_connection) -> None:
             raise RuntimeError("intentional migration failure")
 
-        migrations = MIGRATIONS[:-1] + (Migration(6, "intentional_failure", fail_migration),)
+        migrations = MIGRATIONS[:-1] + (Migration(7, "intentional_failure", fail_migration),)
         with self.assertRaisesRegex(RuntimeError, "fail"):
-            migrate_database(db_path, migrations=migrations, target_version=6)
+            migrate_database(db_path, migrations=migrations, target_version=7)
         with sqlite3.connect(db_path) as connection:
             self.assertEqual(
                 connection.execute(
@@ -921,7 +952,7 @@ class ShadowDeploymentTests(unittest.TestCase):
         self.assertIn("failed pairs", summary)
         self.assertIn("Matured outcomes in store", summary)
         self.assertIn("all configurations and horizons", summary)
-        self.assertEqual(status["store_schema_version"], 6)
+        self.assertEqual(status["store_schema_version"], 7)
 
     # --- maturation idempotency ---------------------------------------------
 

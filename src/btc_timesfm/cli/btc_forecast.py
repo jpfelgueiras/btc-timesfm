@@ -685,7 +685,13 @@ def main() -> None:
     try:
         shadow_store = ShadowStore(SHADOW_DB_PATH)
         mature_shadow_outcomes(shadow_store, actuals)
-        run_shadow(shadow_store, output, actuals, generated_at=output["generated_at"])
+        run_shadow(
+            shadow_store,
+            output,
+            actuals,
+            generated_at=output["generated_at"],
+            market_data=data,
+        )
         shadow_status = build_shadow_status(shadow_store, generated_at=output["generated_at"])
         SHADOW_REPORT_PATH.write_text(json.dumps(shadow_status, indent=2, sort_keys=True) + "\n")
         SHADOW_SUMMARY_PATH.write_text(render_summary(shadow_status), encoding="utf-8")

@@ -101,6 +101,21 @@
   "metrics": null,
   "metrics_interpretable_as_canonical": false,
   "next_action": "Resolve blockers, preserve immutable evidence and hashes, then rerun this audit before executing replay.",
+  "prospective_replay_readiness": {
+    "blockers": [
+      "latest_frozen_cohort_has_zero_confirmatory_versioned_origins",
+      "latest_frozen_cohort_has_zero_eligible_pairs",
+      "training_only_strongest_simple_baseline_selection_not_available",
+      "frozen_cohort_actual_source_identity_and_complete_attempts_required_for_replay",
+      "frozen_protocol_effective_sample_and_block_minima_not_met"
+    ],
+    "confirmatory_origins": 0,
+    "eligible_exact_pairs": 0,
+    "evidence_class": "prospective_only_noncanonical",
+    "metrics": null,
+    "registered_baseline_capture": "implemented_waiting_for_new_eligible_origins",
+    "status": "blocked"
+  },
   "replay_manifest_required": [
     "corpus_sha256",
     "ledger_sha256",

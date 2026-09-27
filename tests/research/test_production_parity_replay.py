@@ -41,7 +41,7 @@ def corpus_audit(**updates: Any) -> dict[str, Any]:
 
 def shadow_status(**evidence_updates: Any) -> dict[str, Any]:
     evidence: dict[str, Any] = {
-        "schema_version": 6,
+        "schema_version": 7,
         "forecast_schema_version": 1,
         "confirmatory_forecasts": 2,
         "expected_pairs": 8,
@@ -265,6 +265,13 @@ class ProductionParityReplayTests(unittest.TestCase):
         self.assertEqual(snapshot["confirmatory_forecasts"], 0)
         self.assertEqual(snapshot["timestamp_eligible_legacy_excluded"], 48)
         self.assertIsNone(snapshot["metrics"])
+        prospective = report["prospective_replay_readiness"]
+        self.assertEqual(prospective["eligible_exact_pairs"], 0)
+        self.assertIsNone(prospective["metrics"])
+        self.assertEqual(
+            prospective["registered_baseline_capture"],
+            "implemented_waiting_for_new_eligible_origins",
+        )
 
     def test_hash_matches_exact_bytes_parsed_even_if_file_changes_after_read(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

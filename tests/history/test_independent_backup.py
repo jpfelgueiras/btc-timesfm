@@ -12,6 +12,7 @@ from unittest.mock import patch
 from btc_timesfm.history.history_backup import create_archive
 from btc_timesfm.history.history_migrations import CURRENT_SCHEMA_VERSION
 from btc_timesfm.history.history_store import ForecastHistoryStore
+from btc_timesfm.research.shadow_deployment import CURRENT_SCHEMA_VERSION as SHADOW_SCHEMA_VERSION
 from btc_timesfm.research.shadow_deployment import ShadowStore
 from btc_timesfm.history.independent_backup import (
     BackupAgeError,
@@ -47,7 +48,9 @@ class IndependentBackupTests(unittest.TestCase):
 
             self.assertTrue(report["verified"])
             self.assertEqual(report["database_type"], "shadow_deployment")
-            self.assertEqual(report["database_verification"]["schema_version"], 6)
+            self.assertEqual(
+                report["database_verification"]["schema_version"], SHADOW_SCHEMA_VERSION
+            )
             self.assertEqual(restored["manifest"]["database_type"], "shadow_deployment")
             self.assertTrue(restored["database_verification"]["ok"])
             self.assertEqual(
@@ -57,6 +60,7 @@ class IndependentBackupTests(unittest.TestCase):
                     "shadow_forecasts": 0,
                     "shadow_outcomes": 0,
                     "shadow_failures": 0,
+                    "parity_baseline_attempts": 0,
                 },
             )
 

@@ -38,6 +38,7 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, TextIO
 
 import numpy as np
 
+from btc_timesfm.forecasting.forecast_engine import MarketData
 from btc_timesfm.forecasting import adaptive_weighting as aw
 from btc_timesfm.forecasting.statistical_significance import (
     DEFAULT_CONFIDENCE,
@@ -45,9 +46,10 @@ from btc_timesfm.forecasting.statistical_significance import (
     paired_bootstrap_comparison,
 )
 from btc_timesfm.research.champion_challenger import configuration_manifest
+from btc_timesfm.research.parity_baselines import BENCHMARK_NAMES, build_baseline_attempts
 
 
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 7
 SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 SHADOW_REPORT_VERSION = 1
 SHADOW_POLICY_VERSION = 1
@@ -366,6 +368,41 @@ def _migration_6_failure_attempt_key(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migration_7_parity_baseline_attempts(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS parity_baseline_attempts (
+            attempt_id TEXT PRIMARY KEY,
+            configuration_id TEXT NOT NULL,
+            origin_at TEXT NOT NULL,
+            target_at TEXT NOT NULL,
+            horizon TEXT NOT NULL CHECK (horizon IN ('2h', '4h', '8h', '16h')),
+            benchmark_id TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('scored', 'failed')),
+            raw_prediction_json TEXT,
+            final_prediction_json TEXT,
+            market_pair TEXT NOT NULL,
+            market_source TEXT NOT NULL,
+            data_lineage_id TEXT NOT NULL,
+            source_window_sha256 TEXT NOT NULL,
+            policy_id TEXT NOT NULL,
+            production_policy_sha256 TEXT NOT NULL,
+            code_sha TEXT NOT NULL,
+            model_identity_json TEXT NOT NULL,
+            failure_type TEXT,
+            failure_message TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (configuration_id)
+                REFERENCES configurations(configuration_id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_parity_baselines_exact_pair "
+        "ON parity_baseline_attempts(configuration_id, origin_at, target_at, horizon)"
+    )
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial_shadow_store", _migration_1_initial_shadow_store),
     Migration(2, "monitoring_audit", _migration_2_monitoring_audit),
@@ -373,6 +410,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(4, "failure_attempt_coverage", _migration_4_failure_attempts),
     Migration(5, "distinct_legacy_failure_attempts", _migration_5_distinct_legacy_attempts),
     Migration(6, "failure_attempt_primary_key", _migration_6_failure_attempt_key),
+    Migration(7, "parity_baseline_attempts", _migration_7_parity_baseline_attempts),
 )
 
 
@@ -512,6 +550,8 @@ def validate_database(
         "shadow_outcomes",
         "shadow_failures",
     }
+    if expected_version >= 7:
+        required_tables.add("parity_baseline_attempts")
     missing = sorted(required_tables - tables)
     if missing:
         raise RuntimeError(f"Shadow store is missing required tables: {', '.join(missing)}")
@@ -821,6 +861,165 @@ class ShadowStore:
             ).fetchone()
         return self._decode_forecast(row), created_flag
 
+    def record_parity_baseline_attempts(
+        self, attempts: Iterable[Mapping[str, Any]], *, created_at: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Append write-once registered baseline attempts; retries use distinct attempt IDs."""
+        now = created_at or _utc_now_iso()
+        stored: list[dict[str, Any]] = []
+        with self._connect() as connection:
+            for attempt in attempts:
+                fields = (
+                    "attempt_id",
+                    "configuration_id",
+                    "origin_at",
+                    "target_at",
+                    "horizon",
+                    "benchmark_id",
+                    "status",
+                    "market_pair",
+                    "market_source",
+                    "data_lineage_id",
+                    "source_window_sha256",
+                    "policy_id",
+                    "production_policy_sha256",
+                    "code_sha",
+                )
+                if any(
+                    not isinstance(attempt.get(field), str) or not attempt[field]
+                    for field in fields
+                ):
+                    raise ValueError("baseline attempt identity and provenance fields are required")
+                if attempt["status"] not in {"scored", "failed"}:
+                    raise ValueError("baseline attempt status must be scored or failed")
+                if (
+                    attempt["benchmark_id"] not in BENCHMARK_NAMES
+                    or attempt["horizon"] not in HORIZONS
+                ):
+                    raise ValueError("baseline attempt has an unregistered model or horizon")
+                origin = _parse_utc(str(attempt["origin_at"]))
+                target = _parse_utc(str(attempt["target_at"]))
+                if target != origin + timedelta(hours=int(str(attempt["horizon"])[:-1])):
+                    raise ValueError(
+                        "baseline attempt target must exactly match origin and horizon"
+                    )
+                window_hash = str(attempt["source_window_sha256"])
+                if len(window_hash) != 64 or any(
+                    char not in "0123456789abcdef" for char in window_hash
+                ):
+                    raise ValueError("source_window_sha256 must be a lowercase SHA-256 digest")
+                policy_hash = str(attempt["production_policy_sha256"])
+                if len(policy_hash) != 64 or any(
+                    char not in "0123456789abcdef" for char in policy_hash
+                ):
+                    raise ValueError("production_policy_sha256 must be a lowercase SHA-256 digest")
+                registered = connection.execute(
+                    "SELECT 1 FROM configurations WHERE configuration_id = ?",
+                    (attempt["configuration_id"],),
+                ).fetchone()
+                if registered is None:
+                    raise KeyError(f"unknown configuration_id: {attempt['configuration_id']}")
+                raw = attempt.get("raw_prediction")
+                final = attempt.get("final_prediction")
+                identity = attempt.get("model_identity")
+                if not isinstance(identity, Mapping):
+                    raise ValueError("baseline attempt model_identity must be an object")
+                if any(
+                    not isinstance(identity.get(key), str) or not identity[key]
+                    for key in ("id", "revision", "package", "package_version")
+                ):
+                    raise ValueError("baseline attempt model_identity is incomplete")
+                if attempt["status"] == "scored" and not isinstance(final, Mapping):
+                    raise ValueError("scored baseline attempts require final_prediction")
+                values = (
+                    str(attempt["attempt_id"]),
+                    str(attempt["configuration_id"]),
+                    str(attempt["origin_at"]),
+                    str(attempt["target_at"]),
+                    str(attempt["horizon"]),
+                    str(attempt["benchmark_id"]),
+                    str(attempt["status"]),
+                    _canonical_json(raw) if raw is not None else None,
+                    _canonical_json(final) if final is not None else None,
+                    str(attempt["market_pair"]),
+                    str(attempt["market_source"]),
+                    str(attempt["data_lineage_id"]),
+                    str(attempt["source_window_sha256"]),
+                    str(attempt["policy_id"]),
+                    str(attempt["production_policy_sha256"]),
+                    str(attempt["code_sha"]),
+                    _canonical_json(dict(identity)),
+                    attempt.get("failure_type"),
+                    attempt.get("failure_message"),
+                    now,
+                )
+                connection.execute(
+                    """INSERT OR IGNORE INTO parity_baseline_attempts(
+                        attempt_id, configuration_id, origin_at, target_at, horizon,
+                        benchmark_id, status, raw_prediction_json, final_prediction_json,
+                        market_pair, market_source, data_lineage_id, source_window_sha256, policy_id,
+                        production_policy_sha256,
+                        code_sha, model_identity_json, failure_type, failure_message, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    values,
+                )
+                row = connection.execute(
+                    "SELECT * FROM parity_baseline_attempts WHERE attempt_id = ?",
+                    (attempt["attempt_id"],),
+                ).fetchone()
+                expected = tuple(
+                    row[key]
+                    for key in (
+                        "attempt_id",
+                        "configuration_id",
+                        "origin_at",
+                        "target_at",
+                        "horizon",
+                        "benchmark_id",
+                        "status",
+                        "raw_prediction_json",
+                        "final_prediction_json",
+                        "market_pair",
+                        "market_source",
+                        "data_lineage_id",
+                        "source_window_sha256",
+                        "policy_id",
+                        "production_policy_sha256",
+                        "code_sha",
+                        "model_identity_json",
+                        "failure_type",
+                        "failure_message",
+                    )
+                )
+                if expected != values[:-1]:
+                    raise ValueError("baseline attempt ID already exists with different content")
+                record = dict(row)
+                for column, key in (
+                    ("raw_prediction_json", "raw_prediction"),
+                    ("final_prediction_json", "final_prediction"),
+                    ("model_identity_json", "model_identity"),
+                ):
+                    record[key] = _loads_optional(record.pop(column))
+                stored.append(record)
+        return stored
+
+    def load_parity_baseline_attempts(self) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM parity_baseline_attempts ORDER BY origin_at, benchmark_id, horizon, created_at"
+            ).fetchall()
+        result = []
+        for item in rows:
+            record = dict(item)
+            for column, key in (
+                ("raw_prediction_json", "raw_prediction"),
+                ("final_prediction_json", "final_prediction"),
+                ("model_identity_json", "model_identity"),
+            ):
+                record[key] = _loads_optional(record.pop(column))
+            result.append(record)
+        return result
+
     def evidence_report(self) -> dict[str, Any]:
         """Summarize prospective coverage; legacy rows without provenance are excluded."""
         forecasts = self.load_forecasts()
@@ -935,6 +1134,15 @@ class ShadowStore:
                 expected += 1
                 failed_pairs += 1
                 missing_by_horizon[horizon] += 1
+        baseline_rows = self.load_parity_baseline_attempts()
+        baseline_coverage = {
+            name: {"attempted": 0, "scored": 0, "failed": 0} for name in BENCHMARK_NAMES
+        }
+        for row in baseline_rows:
+            name = str(row["benchmark_id"])
+            if name in baseline_coverage:
+                baseline_coverage[name]["attempted"] += 1
+                baseline_coverage[name][str(row["status"])] += 1
         return {
             "schema_version": CURRENT_SCHEMA_VERSION,
             "forecast_schema_version": 1,
@@ -948,6 +1156,8 @@ class ShadowStore:
             "failures": failures,
             "failed_attempt_pairs": failed_pairs,
             "forecast_versions": versions,
+            "parity_baseline_attempts": len(baseline_rows),
+            "parity_baseline_coverage_by_model": baseline_coverage,
         }
 
     def frozen_cohort_report(
@@ -1278,6 +1488,31 @@ class ShadowStore:
                     bucket["matured"] += 1
                 else:
                     bucket["missing"] += 1
+                forecast_manifest = (forecast.get("provenance") or {}).get(
+                    "experiment_manifest", {}
+                )
+                data_identity = (
+                    forecast_manifest.get("data", {}) if isinstance(forecast_manifest, dict) else {}
+                )
+                actual_value = (
+                    float(outcome["actual_price_usd"])
+                    if eligible_as_of and outcome is not None
+                    else None
+                )
+                actual_source_identity = (
+                    _sha256_text(
+                        _canonical_json(
+                            {
+                                "source": data_identity.get("source"),
+                                "pair": data_identity.get("pair"),
+                                "target_at": target.isoformat(),
+                                "actual_price_usd": actual_value,
+                            }
+                        )
+                    )
+                    if actual_value is not None
+                    else None
+                )
                 rows.append(
                     {
                         "configuration_id": identity[0],
@@ -1287,6 +1522,19 @@ class ShadowStore:
                         "policy_id": identity[1],
                         "data_lineage_id": identity[2],
                         "forecast_sha256": identity[3],
+                        "code_sha": str((forecast_manifest.get("code") or {}).get("git_sha") or ""),
+                        "market_source": data_identity.get("source"),
+                        "market_pair": data_identity.get("pair"),
+                        "source_window_sha256": data_identity.get("ohlcv_sha256"),
+                        "production_policy_sha256": _sha256_text(
+                            _canonical_json(
+                                (forecast_manifest.get("configuration") or {}).get("policy", {})
+                            )
+                        ),
+                        "production_raw_prediction": (forecast.get("model_predictions") or {}),
+                        "production_final_prediction": prediction,
+                        "actual_value": actual_value,
+                        "actual_source_identity": actual_source_identity,
                         "model_identity": {
                             key: model[key]
                             for key in ("id", "revision", "package", "package_version")
@@ -2226,6 +2474,7 @@ def run_shadow(
     *,
     configs: Iterable[Mapping[str, Any]] | None = None,
     generated_at: str | None = None,
+    market_data: MarketData | None = None,
 ) -> dict[str, Any]:
     """Persist champion and approved challenger shadow forecasts idempotently.
 
@@ -2283,6 +2532,42 @@ def run_shadow(
         },
         created_at=generated_at,
     )
+
+    baseline_counts = {"attempted": 0, "scored": 0, "failed": 0}
+    if market_data is not None:
+        model_identity = manifest.get("model")
+        code_identity = manifest.get("code")
+        configuration_identity = manifest.get("configuration")
+        if (
+            not isinstance(model_identity, dict)
+            or not isinstance(code_identity, dict)
+            or not isinstance(configuration_identity, dict)
+            or not isinstance(configuration_identity.get("policy"), dict)
+        ):
+            raise ValueError(
+                "production manifest is missing model/code identity for baseline capture"
+            )
+        baseline_attempts = build_baseline_attempts(
+            market_data,
+            origin_at=origin_at,
+            configuration_id=champion_configuration_id,
+            data_lineage_id=data_lineage_id,
+            market_source=str((manifest.get("data") or {}).get("source") or ""),
+            market_pair=str((manifest.get("data") or {}).get("pair") or ""),
+            policy_id=shadow_policy_identity(ShadowPolicy()),
+            production_policy_sha256=_sha256_text(
+                _canonical_json(configuration_identity["policy"])
+            ),
+            code_sha=str(code_identity.get("git_sha") or ""),
+            model_identity=model_identity,
+            capture_id=f"{manifest.get('run_id') or origin_at}:{uuid.uuid4().hex}",
+        )
+        store.record_parity_baseline_attempts(baseline_attempts, created_at=generated_at)
+        baseline_counts = {
+            "attempted": len(baseline_attempts),
+            "scored": sum(row["status"] == "scored" for row in baseline_attempts),
+            "failed": sum(row["status"] == "failed" for row in baseline_attempts),
+        }
 
     challenger_results: list[dict[str, Any]] = []
     if configs is not None:
@@ -2378,6 +2663,7 @@ def run_shadow(
         "schema_version": SHADOW_REPORT_VERSION,
         "store_schema_version": CURRENT_SCHEMA_VERSION,
         "forecast_schema_version": 1,
+        "parity_baseline_coverage": baseline_counts,
         "generated_at": generated_at or _utc_now_iso(),
         "origin_at": origin_at,
         "shadow_champion": {
@@ -2559,6 +2845,8 @@ def main() -> None:
     subparsers.add_parser("init-first-run")
     subparsers.add_parser("verify")
     subparsers.add_parser("stats")
+    export_baselines = subparsers.add_parser("export-baselines")
+    export_baselines.add_argument("--out", type=Path, required=True)
     restore = subparsers.add_parser("restore")
     restore.add_argument("--archive", type=Path, required=True)
 
@@ -2612,6 +2900,14 @@ def main() -> None:
         _write_json(store.verify())
     elif args.command == "stats":
         _write_json(store.stats())
+    elif args.command == "export-baselines":
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "attempts": store.load_parity_baseline_attempts(),
+        }
+        args.out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        _write_json({"path": str(args.out), "attempts": len(payload["attempts"])})
     elif args.command == "approve":
         parameters = _read_json(args.parameters) if args.parameters else {}
         if not isinstance(parameters, dict):
