@@ -131,6 +131,123 @@ class PerformanceDashboardTests(unittest.TestCase):
         self.assertEqual(ensemble["interval_samples"], 2)
         self.assertIsNone(ensemble["confidence_warning"])
 
+    def test_volatility_audit_is_descriptive_and_independent_of_future_outcomes(self) -> None:
+        origin = "2026-09-05T18:00:00+00:00"
+        sample = row(
+            origin_at=origin,
+            model="ensemble",
+            horizon=2,
+            regime="range",
+            mae=1.0,
+            bias=0.0,
+            direction=1,
+            coverage=1,
+        )
+        sample["market_features_json"] = '{"volatility_24h_pct": 1.5}'
+        first = build_report([sample], now=NOW)["volatility_bucket_audit"]
+        changed_outcome = dict(sample, actual_target_price_usd=999999.0, absolute_error_pct=99.0)
+        second = build_report([changed_outcome], now=NOW)["volatility_bucket_audit"]
+
+        self.assertEqual(first, second)
+        self.assertEqual(first["valid_count"], 1)
+        self.assertEqual(first["fixed_labels"]["counts"], {"low": 0, "medium": 1, "high": 0})
+        self.assertEqual(first["conclusion"], "diagnostic_only_inconclusive")
+        self.assertEqual(first["forecast_weighting"], "not permitted")
+
+    def test_volatility_audit_reports_unavailable_feature_explicitly(self) -> None:
+        missing = row(
+            origin_at="2026-09-05T18:00:00+00:00",
+            model="ensemble",
+            horizon=2,
+            regime="range",
+            mae=1.0,
+            bias=0.0,
+            direction=1,
+            coverage=1,
+        )
+        missing["configuration_id"] = "not-feature-provenance"
+        audit = build_report([missing], now=NOW)["volatility_bucket_audit"]
+        self.assertEqual(audit["status"], "unavailable")
+        self.assertEqual(audit["fixed_labels"]["counts"], "unavailable")
+        unknown = audit["feature_classes"]["unknown"]
+        self.assertEqual(unknown["status"], "unknown")
+        self.assertEqual(unknown["missing_feature_count"], 1)
+
+    def test_volatility_audit_has_per_horizon_coverage_and_exact_pair_support(self) -> None:
+        origin = "2026-09-05T18:00:00+00:00"
+        ensemble = row(
+            origin_at=origin,
+            model="ensemble",
+            horizon=2,
+            regime="range",
+            mae=1.0,
+            bias=0.0,
+            direction=1,
+            coverage=1,
+        )
+        ensemble.update(
+            market_features_json='{"volatility_24h_pct": 2.5}',
+            target_at="2026-09-05T20:00:00+00:00",
+        )
+        persistence = dict(ensemble, model_name="persistence", absolute_error_pct=2.0)
+        second_ensemble = dict(
+            ensemble,
+            target_at="2026-09-05T21:00:00+00:00",
+            absolute_error_pct=1.5,
+        )
+        second_persistence = dict(
+            persistence,
+            target_at="2026-09-05T21:00:00+00:00",
+            absolute_error_pct=2.5,
+        )
+        report = build_report([ensemble, persistence, second_ensemble, second_persistence], now=NOW)
+        audit = report["volatility_bucket_audit"]["by_horizon"]["2h"]
+
+        self.assertEqual(audit["origin_count"], 1)
+        self.assertEqual(audit["valid_count"], 1)
+        self.assertEqual(audit["missing_or_invalid_count"], 0)
+        self.assertEqual(audit["fixed_labels"]["counts"], {"low": 0, "medium": 0, "high": 1})
+        self.assertEqual(audit["all_origin_date_coverage"]["distinct_dates"], 1)
+        self.assertEqual(audit["valid_feature_date_coverage"]["distinct_dates"], 1)
+        support = audit["exact_origin_horizon_pair_support"]
+        self.assertEqual(support["pair_count"], 2)
+        self.assertEqual(support["by_volatility_bucket"]["high"], 2)
+        self.assertFalse(support["inferential_comparison_performed"])
+        markdown = render_markdown(report)
+        self.assertIn("Per-horizon support", markdown)
+        self.assertIn("exact paired support=", markdown)
+        self.assertIn("diagnostic only", markdown)
+        html = render_html(report)
+        self.assertIn("All-origin date coverage:", html)
+        self.assertIn("Valid-feature date coverage:", html)
+
+    def test_future_origin_feature_mutation_does_not_change_past_bucket(self) -> None:
+        earlier = row(
+            origin_at="2026-09-04T18:00:00+00:00",
+            model="ensemble",
+            horizon=2,
+            regime="range",
+            mae=1.0,
+            bias=0.0,
+            direction=1,
+            coverage=1,
+        )
+        later = dict(earlier, origin_at="2026-09-05T18:00:00+00:00")
+        earlier["market_features_json"] = '{"volatility_24h_pct": 0.5}'
+        later["market_features_json"] = '{"volatility_24h_pct": 1.5}'
+        before = build_report([earlier, later], now=NOW)["volatility_bucket_audit"]["by_horizon"][
+            "2h"
+        ]
+        later["market_features_json"] = '{"volatility_24h_pct": 99.0}'
+        after = build_report([earlier, later], now=NOW)["volatility_bucket_audit"]["by_horizon"][
+            "2h"
+        ]
+
+        self.assertEqual(before["fixed_labels"]["counts"]["low"], 1)
+        self.assertEqual(after["fixed_labels"]["counts"]["low"], 1)
+        self.assertEqual(before["fixed_labels"]["counts"]["medium"], 1)
+        self.assertEqual(after["fixed_labels"]["counts"]["high"], 1)
+
     def test_paired_rolling_skill_scores_are_computed_against_baselines(self) -> None:
         rows = [
             row(
