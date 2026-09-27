@@ -1,0 +1,79 @@
+{
+  "issue": 412,
+  "schema_version": 1,
+  "status": "blocked",
+  "disposition": "no_scoring_no_hypothesis",
+  "as_of": "2026-09-27T11:00:00Z",
+  "diagnosis_gate": {
+    "issue_411_report_status": "blocked",
+    "protocol_gate": "passed",
+    "corpus_gate": "blocked",
+    "eligible_mature_production_policy_evidence_gate": "blocked",
+    "adequately_powered_concrete_context_horizon_failure_identified": false,
+    "confirmatory_forecasts": 0,
+    "expected_pairs": 0,
+    "matured_pairs": 0,
+    "timestamp_eligible_forecasts": 48,
+    "timestamp_eligible_legacy_excluded": 48,
+    "latest_provenance_complete_origin_at": "2026-09-27T11:00:00Z",
+    "latest_origin_mature_for_cohort": false,
+    "diagnosis": null
+  },
+  "evaluation": {
+    "contexts_scored": 0,
+    "target_policies_scored": 0,
+    "candidates_preregistered": 0,
+    "folds_run": 0,
+    "holdout_accessed": false,
+    "metrics": {
+      "primary_loss": null,
+      "per_horizon": null,
+      "direction": null,
+      "interval": null,
+      "failures": null,
+      "sample_counts": null,
+      "uncertainty": null,
+      "adjusted_comparisons": null
+    },
+    "winner": null,
+    "recommendation": null
+  },
+  "production_changes": false,
+  "reopening_gates": [
+    "A later immutable #411 readiness/evaluation artifact identifies a specific context/horizon failure from eligible, mature, exact-key evidence.",
+    "That diagnosis meets #410 minimum evidence requirements: at least 200 paired origins per horizon and 8 effective independent blocks per comparison; sparse or unavailable cells remain blocked/inconclusive.",
+    "Before any candidate score access, preregister the diagnosis-linked bounded candidate family, model/checkpoint identity, outcomes, comparisons, fixed folds, exclusions/failures, stopping rule, practical effect and complete multiplicity family.",
+    "Use nested earlier purged walk-forward folds and exact shared UTC origin/target/horizon/input-vintage keys; reserve and lock an untouched chronological final holdout disjoint from candidate selection and all prior evaluations."
+  ],
+  "next_action": "Do not score or propose context/target candidates now. First resolve #411 evidence blockers, rerun its frozen readiness protocol, and require an adequately powered measured diagnosis; only then preregister the bounded #412 design and disjoint holdout before scoring.",
+  "production_policy_changed": false,
+  "evidence": {
+    "issue_411_readiness_report": {
+      "path": "docs/research/ISSUE_411_PARITY_BASELINES_BLOCKED.json",
+      "sha256": "c1b3471495c0c32bcb8a5a90ae7fe5a4e20a6bdcb5d4d617e8d83e8be18202a7"
+    },
+    "frozen_protocol": {
+      "path": "docs/research/ISSUE_410_SCORING_PROTOCOL.json",
+      "file_sha256": "1b8c6705d53882a66c0ab1277cf2a63c845d00c2c7d0cc978c0c75d8121efd18",
+      "protocol_sha256": "4da936d505df9a15cbd073ee85ee0e4ed2db483e6058f6b81ce163f4724bb4f0",
+      "protocol_version": "v11-prospective-1.0.1"
+    },
+    "canonical_corpus_audit": {
+      "path": "docs/research/ISSUE_397_CANONICAL_BENCHMARK_AUDIT.json",
+      "sha256": "e2bf0c671a5a4327c6852d02614a7d2e403ed12f8fe7c4362336c5e87d44a0c7",
+      "status": "blocked",
+      "observed_target_hours": 0,
+      "expected_target_hours": 32136,
+      "observed_warmup_hours": 0,
+      "expected_warmup_hours": 4320
+    },
+    "issue_411_last_verified_prospective_snapshot": {
+      "snapshot_at": "2026-09-27T11:00:00Z",
+      "evaluation_as_of": "2026-09-27T11:00:00Z",
+      "origin_cutoff_at": "2026-09-26T19:00:00Z",
+      "code_sha256": "79a95fc3debd4134ab68cfc55795007a340f15a6eff2ef7212a875a9846c28fc",
+      "database_sha256": "b102f14db535264ecc2474a3b338c929abea4c39616f233a5701611c9300f57f",
+      "cohort_sha256": "462287eb433a27c16e4f25360d9ee40e5dda2fabdced13e5390859a055f7bbb8"
+    }
+  }
+}
