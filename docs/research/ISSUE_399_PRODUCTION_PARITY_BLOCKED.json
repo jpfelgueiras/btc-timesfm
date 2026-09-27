@@ -1,0 +1,73 @@
+{
+  "blockers": [
+    {
+      "code": "canonical_corpus_ineligible",
+      "detail": "Require ready_for_replay plus exact 32,136 target and 4,320 warm-up coverage, zero gaps/duplicates/errors, named USD venue/pair, source hash, and vintage/revision provenance (issue #397)."
+    },
+    {
+      "code": "prospective_ledger_evidence_missing",
+      "detail": "Export the #398 prospective shadow ledger with exact origins, horizons, policy/configuration identity, failures, and matured actuals; then rerun with --ledger."
+    }
+  ],
+  "canonical_skill_claim": false,
+  "evidence": {
+    "corpus_audit": {
+      "path": "docs/research/ISSUE_397_CANONICAL_BENCHMARK_AUDIT.json",
+      "sha256": "e2bf0c671a5a4327c6852d02614a7d2e403ed12f8fe7c4362336c5e87d44a0c7"
+    },
+    "prospective_ledger": {
+      "champion_configuration_id": null,
+      "confirmatory_forecasts": null,
+      "matured_pairs": null,
+      "path": null,
+      "policy_id": null,
+      "sha256": null
+    }
+  },
+  "gates": {
+    "corpus": "blocked",
+    "eligible_mature_production_policy_evidence": "blocked"
+  },
+  "inference_requirements": {
+    "dependence_aware_uncertainty": "moving-block paired resampling over exact shared keys",
+    "multiplicity": "predeclared family-wise adjustment across all comparisons and strata"
+  },
+  "issue": 399,
+  "metric_status": "not_computed_blocked",
+  "metrics": null,
+  "metrics_interpretable_as_canonical": false,
+  "next_action": "Resolve blockers, preserve immutable evidence and hashes, then rerun this audit before executing replay.",
+  "replay_manifest_required": [
+    "corpus_sha256",
+    "ledger_sha256",
+    "policy_id",
+    "configuration",
+    "code_revision",
+    "command",
+    "evaluation_cutoff"
+  ],
+  "required_comparisons": [
+    "production_policy",
+    "persistence",
+    "seasonal_naive",
+    "strongest_simple_baseline"
+  ],
+  "required_metrics": [
+    "mae",
+    "bias",
+    "direction_accuracy",
+    "samples",
+    "failures"
+  ],
+  "required_shared_key": [
+    "origin_at",
+    "target_at",
+    "horizon"
+  ],
+  "schema_version": 1,
+  "status": "blocked",
+  "stratification": [
+    "horizon",
+    "regime"
+  ]
+}
