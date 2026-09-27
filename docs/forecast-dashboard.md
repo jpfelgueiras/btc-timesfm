@@ -92,6 +92,34 @@ there are no matching or matured records yet.
 
 ## What the dashboard cannot tell you
 
+### Volatility bucket audit
+
+The generated performance report includes a descriptive audit of the existing
+volatility attribution labels. `volatility_24h_pct` is the standard deviation
+of the preceding 24 hourly log-return observations, multiplied by 100 and
+reported in percent (not a decimal fraction). The fixed labels mean: **low**
+below 1.0%, **medium** at least 1.0% and below 2.5%, and **high** at least
+2.5%. The report gives unique-origin counts, missing/invalid feature counts,
+quantiles, and first/last date plus distinct-date coverage, both for all origins
+and separately for origins with valid volatility features. These summaries are
+also broken out by forecast horizon. Exact-origin/horizon/target paired support
+for matured ensemble and persistence rows is shown as counts only; when it
+cannot be established it is marked unavailable. Feature version is taken from
+explicit feature-set provenance and otherwise marked unknown; a configuration
+identifier is not treated as feature provenance.
+Feature-provenance counts include valid and missing-feature origins separately;
+rows without explicit provenance contribute to an `unknown` class.
+
+These summaries validate the feature distribution and existing labels; they
+are descriptive only. Candidate cutpoints must be preregistered and estimated
+using training data only, then checked for stability in later periods. Evaluation
+outcomes must never select cutpoints. Bucket comparisons must match forecast
+horizons and pair exact origins as required by #420. Inferential conclusions
+also depend on #410 and #411; without those prerequisites, adequate support,
+power, and later-period stability, findings remain inconclusive and thresholds
+must not affect forecast weighting. A short, mixed-version history snapshot
+does not support accuracy claims.
+
 The dashboard is **not a current BTC quote**, a live feed, or an API/backend
 health monitor. A recent forecast badge only says that the recorded origin is
 recent relative to page generation. The dashboard cannot establish that prices
