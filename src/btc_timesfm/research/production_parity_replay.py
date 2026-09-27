@@ -58,10 +58,17 @@ def _frozen_cohort_blocker(cohort: Mapping[str, Any] | None) -> str | None:
         return "Frozen cohort must report exact per-horizon pair counts."
     pairs = cohort.get("pairs")
     failures = cohort.get("failures")
+    provenance_blockers = cohort.get("provenance_blockers")
+    blocked_reasons = cohort.get("blocked_reasons")
     failure_only_pairs = cohort.get("failure_only_pairs")
     failed_pair_identities = cohort.get("failed_pair_identities")
     identities = cohort.get("lineage_identities")
-    if not isinstance(pairs, list) or not pairs or not isinstance(failures, list):
+    if (
+        not isinstance(pairs, list)
+        or not isinstance(failures, list)
+        or not isinstance(provenance_blockers, list)
+        or not isinstance(blocked_reasons, list)
+    ):
         return "Frozen cohort must include non-empty exact pairs and a failure list."
     if (
         not isinstance(failure_only_pairs, list)
@@ -263,8 +270,20 @@ def _frozen_cohort_blocker(cohort: Mapping[str, Any] | None) -> str | None:
             return "Frozen cohort lineage identity list does not reconcile to its pairs."
     except (KeyError, TypeError, ValueError, OverflowError):
         return "Frozen cohort pair or failure identities are malformed."
-    if not expected or matured != expected or failures or cohort.get("ready") is not True:
-        return "Frozen cohort is incomplete or contains in-cohort failures."
+    computed_ready = bool(
+        expected
+        and matured == expected
+        and not failures
+        and not provenance_blockers
+        and not blocked_reasons
+    )
+    if type(cohort.get("ready")) is not bool or cohort.get("ready") is not computed_ready:
+        return "Frozen cohort readiness flag does not match its blockers and pair counts."
+    if (
+        cohort.get("status") != ("ready" if computed_ready else "blocked")
+        or cohort.get("metrics_computed") is not False
+    ):
+        return "Frozen cohort status or metrics-computed declaration is invalid."
     for key in ("database_sha256", "code_sha256", "cohort_sha256"):
         digest = cohort.get(key)
         if (
@@ -297,6 +316,8 @@ def _frozen_cohort_blocker(cohort: Mapping[str, Any] | None) -> str | None:
         "cohort": contract,
         "rows": pairs,
         "failures": failures,
+        "provenance_blockers": provenance_blockers,
+        "blocked_reasons": blocked_reasons,
         "failed_pairs_by_horizon": failed_counts,
         "failure_only_pairs": failure_only_pairs,
         "failed_pair_identities": failed_pair_identities,
@@ -307,6 +328,41 @@ def _frozen_cohort_blocker(cohort: Mapping[str, Any] | None) -> str | None:
     ).hexdigest()
     if cohort.get("cohort_sha256") != expected_cohort_hash:
         return "Frozen cohort content does not match cohort_sha256."
+    timestamp_eligible = cohort.get("timestamp_eligible_forecasts")
+    legacy_excluded = cohort.get("timestamp_eligible_legacy_excluded")
+    versioned_eligible = cohort.get("timestamp_eligible_versioned_forecasts")
+    if (
+        not _exact_int(timestamp_eligible)
+        or not _exact_int(legacy_excluded)
+        or not _exact_int(versioned_eligible)
+        or legacy_excluded + versioned_eligible != timestamp_eligible
+    ):
+        return "Frozen cohort legacy/versioned timestamp-eligible counts do not reconcile."
+    latest = cohort.get("latest_provenance_complete_origin_at")
+    latest_mature = cohort.get("latest_provenance_complete_origin_mature_for_cohort")
+    if type(latest_mature) is not bool:
+        return "Frozen cohort latest provenance maturity flag is invalid."
+    if latest is None:
+        if latest_mature:
+            return "Frozen cohort cannot mark a missing latest provenance origin as mature."
+    else:
+        try:
+            latest_time = datetime.fromisoformat(str(latest).replace("Z", "+00:00"))
+            if latest_time.tzinfo is None or latest_time.utcoffset() != timedelta(0):
+                return "Frozen cohort latest provenance origin must be explicit UTC."
+            expected_latest_mature = latest_time <= cutoff and latest_time <= as_of - timedelta(
+                hours=16
+            )
+            if latest_mature != expected_latest_mature:
+                return "Frozen cohort latest provenance maturity flag does not reconcile."
+        except (TypeError, ValueError):
+            return "Frozen cohort latest provenance origin is malformed."
+    if not computed_ready:
+        return (
+            str(blocked_reasons[0])
+            if blocked_reasons
+            else "Frozen cohort is incomplete or blocked."
+        )
     return None
 
 
@@ -544,6 +600,50 @@ def build_report(
                 "ready": frozen_cohort is not None
                 and _frozen_cohort_blocker(frozen_cohort) is None,
                 "canonical_skill_claim": False,
+                "origin_cutoff_at": (
+                    frozen_cohort.get("cohort", {}).get("origin_cutoff_at")
+                    if frozen_cohort is not None
+                    and isinstance(frozen_cohort.get("cohort"), Mapping)
+                    else None
+                ),
+                "evaluation_as_of": (
+                    frozen_cohort.get("cohort", {}).get("evaluation_as_of")
+                    if frozen_cohort is not None
+                    and isinstance(frozen_cohort.get("cohort"), Mapping)
+                    else None
+                ),
+                "timestamp_eligible_forecasts": (
+                    frozen_cohort.get("timestamp_eligible_forecasts")
+                    if frozen_cohort is not None
+                    else None
+                ),
+                "timestamp_eligible_legacy_excluded": (
+                    frozen_cohort.get("timestamp_eligible_legacy_excluded")
+                    if frozen_cohort is not None
+                    else None
+                ),
+                "confirmatory_forecasts": (
+                    frozen_cohort.get("eligible_origins") if frozen_cohort is not None else None
+                ),
+                "expected_pairs": (
+                    frozen_cohort.get("expected_pairs") if frozen_cohort is not None else None
+                ),
+                "matured_pairs": (
+                    frozen_cohort.get("matured_pairs") if frozen_cohort is not None else None
+                ),
+                "right_censored_forecasts": (
+                    frozen_cohort.get("right_censored_forecasts")
+                    if frozen_cohort is not None
+                    else None
+                ),
+                "latest_provenance_complete_origin_at": (
+                    frozen_cohort.get("latest_provenance_complete_origin_at")
+                    if frozen_cohort is not None
+                    else None
+                ),
+                "blocked_reasons": (
+                    frozen_cohort.get("blocked_reasons", []) if frozen_cohort is not None else []
+                ),
             },
         },
         "frozen_cohort_readiness": {

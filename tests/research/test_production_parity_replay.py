@@ -91,6 +91,8 @@ def frozen_cohort_report() -> dict[str, Any]:
     ]
     database_sha256 = "a" * 64
     failures: list[dict[str, Any]] = []
+    provenance_blockers: list[dict[str, str]] = []
+    blocked_reasons: list[str] = []
     failed_counts = dict.fromkeys(SHADOW_HORIZONS, 0)
     failure_only: list[dict[str, Any]] = []
     failed_identities: list[dict[str, Any]] = []
@@ -98,6 +100,8 @@ def frozen_cohort_report() -> dict[str, Any]:
         "cohort": contract,
         "rows": pairs,
         "failures": failures,
+        "provenance_blockers": provenance_blockers,
+        "blocked_reasons": blocked_reasons,
         "failed_pairs_by_horizon": failed_counts,
         "failure_only_pairs": failure_only,
         "failed_pair_identities": failed_identities,
@@ -105,6 +109,7 @@ def frozen_cohort_report() -> dict[str, Any]:
     }
     return {
         "schema_version": 1,
+        "status": "ready",
         "cohort": contract,
         "cohort_sha256": hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
@@ -112,6 +117,11 @@ def frozen_cohort_report() -> dict[str, Any]:
         "database_sha256": database_sha256,
         "code_sha256": "b" * 64,
         "eligible_origins": 1,
+        "timestamp_eligible_forecasts": 1,
+        "timestamp_eligible_legacy_excluded": 0,
+        "timestamp_eligible_versioned_forecasts": 1,
+        "latest_provenance_complete_origin_at": "2026-01-01T00:00:00+00:00",
+        "latest_provenance_complete_origin_mature_for_cohort": True,
         "expected_pairs": 4,
         "matured_pairs": 4,
         "missing_pairs_by_horizon": dict.fromkeys(SHADOW_HORIZONS, 0),
@@ -119,6 +129,8 @@ def frozen_cohort_report() -> dict[str, Any]:
             horizon: {"expected": 1, "matured": 1, "missing": 0} for horizon in SHADOW_HORIZONS
         },
         "failures": failures,
+        "provenance_blockers": provenance_blockers,
+        "blocked_reasons": blocked_reasons,
         "failed_pairs_by_horizon": failed_counts,
         "failure_only_pairs": failure_only,
         "failed_pair_identities": failed_identities,
@@ -128,6 +140,7 @@ def frozen_cohort_report() -> dict[str, Any]:
         "post_cutoff_forecasts": 0,
         "right_censored_pairs_by_horizon": dict.fromkeys(SHADOW_HORIZONS, 0),
         "ready": True,
+        "metrics_computed": False,
     }
 
 
