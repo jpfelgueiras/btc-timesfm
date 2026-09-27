@@ -12,7 +12,7 @@ CHART_WIDTH = 760
 CHART_HEIGHT = 260
 MAX_POINTS_PER_CHART = 80
 MAX_CHART_PAYLOAD_BYTES = 180_000
-ROLLING_WINDOW = 12
+ROLLING_WINDOW = 20
 
 
 def _number(value: Any) -> float | None:
@@ -167,7 +167,6 @@ def _performance_chart(
     persistence: dict[tuple[str, int], float],
     threshold: int,
 ) -> str:
-    rows = _sample(rows)
     title = f"{horizon} rolling performance"
     if not rows:
         return _empty(
@@ -206,6 +205,14 @@ def _performance_chart(
         ("Skill vs persistence pp", skill, "performance-skill"),
     ]
     xs = _scale(list(range(len(rows))), 120, CHART_WIDTH - 20)
+    sampled_indexes = (
+        [
+            round(index * (len(rows) - 1) / (MAX_POINTS_PER_CHART - 1))
+            for index in range(MAX_POINTS_PER_CHART)
+        ]
+        if len(rows) > MAX_POINTS_PER_CHART
+        else list(range(len(rows)))
+    )
     body: list[str] = []
     for panel, (label, values, color_class) in enumerate(series):
         rolling, counts = _rolling(values)
@@ -213,8 +220,15 @@ def _performance_chart(
         finite = [value for value in rolling if value is not None]
         if finite:
             scale_values = _scale(finite, bottom, top)
-            mapped = iter(scale_values)
-            points = [(x, next(mapped)) for x, value in zip(xs, rolling) if value is not None]
+            mapped_y = dict(
+                zip(
+                    (index for index, value in enumerate(rolling) if value is not None),
+                    scale_values,
+                )
+            )
+            points = [
+                (xs[index], mapped_y[index]) for index in sampled_indexes if index in mapped_y
+            ]
             body.append(
                 f'<polyline points="{_points([x for x, _ in points], [y for _, y in points])}" fill="none" class="{color_class}" stroke-width="2"/>'
             )
@@ -226,10 +240,21 @@ def _performance_chart(
             f'<text x="4" y="{top + 12}" class="chart-label">{label} ({units}) · {finite_text}</text>'
         )
         current_n = counts[-1] if counts else 0
-        body.append(
-            f'<text x="4" y="{bottom + 10}" class="chart-muted">12-origin rolling window · current n={current_n} · low sample &lt;{threshold}</text>'
+        window_origins = [
+            datetime.fromisoformat(str(rows[index].get("origin_at")).replace("Z", "+00:00"))
+            for index in range(max(0, len(rows) - ROLLING_WINDOW), len(rows))
+            if values[index] is not None
+        ]
+        elapsed = window_origins[-1] - window_origins[0] if len(window_origins) > 1 else None
+        elapsed_text = (
+            f"{elapsed.total_seconds() / 86400:.1f} days"
+            if elapsed is not None
+            else "under 2 observations"
         )
-        low_x = [x for x, count in zip(xs, counts) if count < threshold]
+        body.append(
+            f'<text x="4" y="{bottom + 10}" class="chart-muted">20-origin rolling window · current n={current_n} · span={elapsed_text} · low sample &lt;{threshold}</text>'
+        )
+        low_x = [xs[index] for index in sampled_indexes if counts[index] < threshold]
         if low_x:
             width = max(4.0, low_x[-1] - low_x[0] + 4.0)
             body.append(
@@ -240,11 +265,11 @@ def _performance_chart(
                 f'<circle cx="{low_x[-1]:.2f}" cy="{bottom:.2f}" r="3" class="chart-low-sample"/>'
             )
     body.append(
-        '<text x="120" y="250" class="chart-label">Lines use a 12-forecast rolling window; dots mark low sample windows.</text>'
+        '<text x="120" y="250" class="chart-label">Lines use a 20-forecast rolling window; dots mark low sample windows.</text>'
     )
     return _svg(
         title,
-        f"Four independent panels for rolling MAE percent, direction accuracy percent, 80% interval coverage percent, and skill versus persistence in percentage points for {horizon}. Each uses its own vertical scale, a 12-origin rolling window, and current sample count; low sample is fewer than {threshold}.",
+        f"Four independent panels for rolling MAE percent, direction accuracy percent, 80% interval coverage percent, and skill versus persistence in percentage points for {horizon}. Each uses its own vertical scale, a 20-origin rolling window, current observation count and elapsed span; low sample is fewer than {threshold}.",
         "".join(body),
     )
 
