@@ -126,6 +126,13 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _targets_at(origin_at: str) -> dict[str, str]:
+    origin = _parse_utc(origin_at)
+    return {
+        horizon: (origin + timedelta(hours=int(horizon[:-1]))).isoformat() for horizon in HORIZONS
+    }
+
+
 def _parse_utc(value: str) -> datetime:
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
@@ -819,6 +826,7 @@ class ShadowStore:
             valid_provenance = (
                 isinstance(provenance, dict)
                 and provenance.get("ledger_version") == 1
+                and provenance.get("targets_at") == _targets_at(str(forecast["origin_at"]))
                 and bool(str(forecast.get("data_lineage_id") or "").strip())
                 and isinstance(data, dict)
                 and manifest.get("data_id") == forecast.get("data_lineage_id")
@@ -1242,6 +1250,8 @@ class ShadowStore:
             ).fetchall():
                 by_role[str(row["role"])] = int(row["n"])
         diagnostics = schema_diagnostics(self.path)
+        database_sha256 = hashlib.sha256(self.path.read_bytes()).hexdigest()
+        evidence = self.evidence_report()
         return {
             "schema_version": diagnostics["schema_version"],
             "supported_schema_version": diagnostics["supported_schema_version"],
@@ -1254,6 +1264,8 @@ class ShadowStore:
             "first_shadow_origin_at": first_last[0],
             "latest_shadow_origin_at": first_last[1],
             "database_bytes": self.path.stat().st_size if self.path.exists() else 0,
+            "database_sha256": database_sha256,
+            "evidence": evidence,
         }
 
     def verify(self) -> dict[str, Any]:
@@ -1736,6 +1748,7 @@ def run_shadow(
         data_lineage_id=data_lineage_id,
         provenance={
             "ledger_version": 1,
+            "targets_at": _targets_at(origin_at),
             "experiment_manifest": manifest,
             "configuration_id": champion_configuration_id,
             "row_configuration": configuration_manifest(
@@ -1796,6 +1809,7 @@ def run_shadow(
                 data_lineage_id=data_lineage_id,
                 provenance={
                     "ledger_version": 1,
+                    "targets_at": _targets_at(origin_at),
                     "experiment_manifest": manifest,
                     "configuration_id": configuration_id,
                     "row_configuration": configuration_manifest(
@@ -1838,6 +1852,8 @@ def run_shadow(
 
     return {
         "schema_version": SHADOW_REPORT_VERSION,
+        "store_schema_version": CURRENT_SCHEMA_VERSION,
+        "forecast_schema_version": 1,
         "generated_at": generated_at or _utc_now_iso(),
         "origin_at": origin_at,
         "shadow_champion": {
@@ -1890,6 +1906,8 @@ def build_shadow_status(
         champion = None
     return {
         "schema_version": SHADOW_REPORT_VERSION,
+        "store_schema_version": CURRENT_SCHEMA_VERSION,
+        "forecast_schema_version": 1,
         "generated_at": generated_at or _utc_now_iso(),
         "policy_id": shadow_policy_identity(active),
         "policy": asdict(active),
@@ -1935,6 +1953,8 @@ def render_summary(status: Mapping[str, Any]) -> str:
                 "",
                 "## Prospective evidence ledger",
                 "",
+                f"- Store schema: **{_fmt(evidence.get('schema_version'), 0)}**; database SHA-256: "
+                f"`{status.get('statistics', {}).get('database_sha256', 'unavailable')}`",
                 f"- Confirmatory forecasts: **{_fmt(evidence.get('confirmatory_forecasts'), 0)}**; "
                 f"legacy/unversioned excluded: **{_fmt(evidence.get('legacy_or_unversioned_forecasts_excluded'), 0)}**",
                 f"- Matured target pairs: **{_fmt(evidence.get('matured_pairs'), 0)} / "
@@ -1943,6 +1963,9 @@ def render_summary(status: Mapping[str, Any]) -> str:
                 f"failures: **{_fmt(evidence.get('failures'), 0)}** "
                 f"({_fmt(evidence.get('failed_attempt_pairs'), 0)} failed pairs)",
                 f"- Forecast schema versions: `{_canonical_json(evidence.get('forecast_versions', {}))}`",
+                f"- First/latest persisted origins: "
+                f"`{status.get('statistics', {}).get('first_shadow_origin_at')}` / "
+                f"`{status.get('statistics', {}).get('latest_shadow_origin_at')}`",
                 "",
             ]
         )

@@ -131,10 +131,8 @@ jobs:
             gh release download "$HISTORY_RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --pattern 'shadow_deployment.sqlite.gz' \
-              --dir .state >/dev/null 2>&1 || true
-            if [ -f .state/shadow_deployment.sqlite.gz ]; then
-              gzip -df .state/shadow_deployment.sqlite.gz
-            fi
+              --dir .state
+            gzip -df .state/shadow_deployment.sqlite.gz
             touch .state/history_restored_from_release
             echo "Restored durable production state from release $HISTORY_RELEASE_TAG"
           else

@@ -25,6 +25,7 @@ from btc_timesfm.research.shadow_deployment import (
     render_summary,
     run_shadow,
     shadow_policy_identity,
+    _targets_at,
 )
 
 HORIZONS = ("2h", "4h", "8h", "16h")
@@ -190,6 +191,14 @@ class ShadowDeploymentTests(unittest.TestCase):
         champion_rows = self.store.load_forecasts(champion_id)
         self.assertEqual(len(champion_rows), 1)
         self.assertEqual(champion_rows[0]["predictions"], production["predictions"])
+        self.assertEqual(
+            champion_rows[0]["provenance"]["targets_at"],
+            {
+                horizon: _iso(_origin_timestamp(0) + hours * 3600)
+                for horizon, hours in zip(HORIZONS, HOURS)
+            },
+        )
+        self.assertEqual(len(self.store.stats()["database_sha256"]), 64)
 
         challenger_id = first["challengers"][0]["configuration_id"]
         self.assertNotEqual(challenger_id, champion_id)
@@ -234,6 +243,7 @@ class ShadowDeploymentTests(unittest.TestCase):
             data_lineage_id="lineage-1",
             provenance={
                 "ledger_version": 1,
+                "targets_at": _targets_at(origin),
                 "configuration_id": champion["configuration_id"],
                 "row_configuration": configuration_manifest(
                     {"name": champion["name"], "parameters": champion["parameters"]},
@@ -621,6 +631,7 @@ class ShadowDeploymentTests(unittest.TestCase):
         self.assertIn("failed pairs", summary)
         self.assertIn("Matured outcomes in store", summary)
         self.assertIn("all configurations and horizons", summary)
+        self.assertEqual(status["store_schema_version"], 6)
 
     # --- maturation idempotency ---------------------------------------------
 

@@ -138,6 +138,14 @@ experiment registry and production forecast history, the database is intended
 to be kept as a compressed GitHub Release asset, which keeps it
 Actions-compatible.
 
+The scheduled workflow permits an empty store only when no history Release has
+ever been established. Once that Release exists, failure to download or decompress
+`shadow_deployment.sqlite.gz` stops the run; it must not initialize a replacement
+ledger. Each successful origin records the exact UTC target timestamp for every
+horizon in provenance. Status reports include store/forecast schema versions,
+database SHA-256, first/latest origins, provenance coverage, missing and matured
+pairs, and failure counts.
+
 Back up the complete SQLite file using SQLite's online backup API (which
 includes committed WAL frames) or after closing the store; retain it as a compressed release asset alongside the production history
 asset. Reproduction uses the persisted forecast predictions and provenance, not
