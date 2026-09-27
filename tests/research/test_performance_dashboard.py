@@ -131,6 +131,35 @@ class PerformanceDashboardTests(unittest.TestCase):
         self.assertEqual(ensemble["interval_samples"], 2)
         self.assertIsNone(ensemble["confidence_warning"])
 
+    def test_volatility_audit_is_descriptive_and_independent_of_future_outcomes(self) -> None:
+        origin = "2026-09-05T18:00:00+00:00"
+        sample = row(
+            origin_at=origin,
+            model="ensemble",
+            horizon=2,
+            regime="range",
+            mae=1.0,
+            bias=0.0,
+            direction=1,
+            coverage=1,
+        )
+        sample["market_features_json"] = '{"volatility_24h_pct": 1.5}'
+        first = build_report([sample], now=NOW)["volatility_bucket_audit"]
+        changed_outcome = dict(sample, actual_target_price_usd=999999.0, absolute_error_pct=99.0)
+        second = build_report([changed_outcome], now=NOW)["volatility_bucket_audit"]
+
+        self.assertEqual(first, second)
+        self.assertEqual(first["valid_count"], 1)
+        self.assertEqual(first["fixed_labels"]["counts"], {"low": 0, "medium": 1, "high": 0})
+        self.assertEqual(first["conclusion"], "diagnostic_only_inconclusive")
+        self.assertEqual(first["forecast_weighting"], "not permitted")
+
+    def test_volatility_audit_reports_unavailable_feature_explicitly(self) -> None:
+        audit = build_report([], now=NOW)["volatility_bucket_audit"]
+        self.assertEqual(audit["status"], "unavailable")
+        self.assertEqual(audit["fixed_labels"]["counts"], "unavailable")
+        self.assertIn("unavailable", audit["feature_classes"])
+
     def test_paired_rolling_skill_scores_are_computed_against_baselines(self) -> None:
         rows = [
             row(

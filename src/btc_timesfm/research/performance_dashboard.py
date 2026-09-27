@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import math
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -253,6 +254,92 @@ def _window_rows(
     ]
 
 
+def _volatility_audit(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Describe observed origin volatility and the existing fixed attribution labels."""
+    from collections import defaultdict
+
+    origins: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        origin = row.get("origin_at")
+        if not origin:
+            continue
+        # Select the ensemble feature snapshot once per exact origin; outcome/model rows
+        # duplicate the same origin-level feature payload.
+        key = str(origin)
+        if key not in origins or str(row.get("model_name")) == ENSEMBLE_MODEL:
+            origins[key] = row
+
+    by_version: dict[str, list[tuple[str, float]]] = defaultdict(list)
+    values: list[tuple[str, float]] = []
+    missing = 0
+    for origin, row in origins.items():
+        try:
+            features = json.loads(row.get("market_features_json") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            features = {}
+        raw = features.get("volatility_24h_pct") if isinstance(features, dict) else None
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            value = math.nan
+        if not math.isfinite(value) or value < 0:
+            missing += 1
+            continue
+        manifest_raw = row.get("experiment_manifest_json")
+        try:
+            manifest = json.loads(manifest_raw or "{}") if isinstance(manifest_raw, str) else {}
+        except json.JSONDecodeError:
+            manifest = {}
+        config = manifest.get("configuration", {}) if isinstance(manifest, dict) else {}
+        version = (config.get("feature_set_version") if isinstance(config, dict) else None) or (
+            manifest.get("feature_set_version") if isinstance(manifest, dict) else None
+        ) or row.get("configuration_id") or "unknown"
+        values.append((origin, value))
+        by_version[str(version)].append((origin, value))
+
+    labels = {"low": 0, "medium": 0, "high": 0}
+    for _, value in values:
+        labels["low" if value < 1.0 else "medium" if value < 2.5 else "high"] += 1
+    ordered = sorted(value for _, value in values)
+
+    def quantile(probability: float) -> float | None:
+        if not ordered:
+            return None
+        index = (len(ordered) - 1) * probability
+        lower = math.floor(index)
+        upper = math.ceil(index)
+        return ordered[lower] + (ordered[upper] - ordered[lower]) * (index - lower)
+
+    coverage = [origin for origin, _ in values]
+    return {
+        "status": "available" if values else "unavailable",
+        "feature": "volatility_24h_pct",
+        "units": "percent; standard deviation of hourly log returns over 24 observations, multiplied by 100",
+        "origin_count": len(origins),
+        "valid_count": len(values),
+        "missing_or_invalid_count": missing,
+        "origin_date_coverage": {
+            "first": min(coverage) if coverage else None,
+            "last": max(coverage) if coverage else None,
+            "distinct_dates": len({origin[:10] for origin in coverage}),
+        },
+        "quantiles_pct": {str(p): quantile(p) for p in (0.0, 0.25, 0.5, 0.75, 1.0)},
+        "fixed_labels": {
+            "thresholds_pct": {"low_upper_exclusive": 1.0, "medium_upper_exclusive": 2.5},
+            "meaning": "low < 1.0%; medium >= 1.0% and < 2.5%; high >= 2.5%",
+            "counts": labels if values else "unavailable",
+        },
+        "feature_classes": {
+            version: {"status": "available", "count": len(items)}
+            for version, items in sorted(by_version.items())
+        } or {"unavailable": {"status": "unavailable", "count": 0}},
+        "candidate_cutpoints": "not evaluated; no cutpoints selected from evaluation outcomes",
+        "comparison": "not evaluated; inferential conclusions require issues #410 and #411 and #420 pairing conditions",
+        "conclusion": "diagnostic_only_inconclusive",
+        "forecast_weighting": "not permitted",
+    }
+
+
 def _horizon_report(
     rows: list[dict[str, Any]],
     *,
@@ -395,6 +482,7 @@ def build_report(
             horizon: _distributional_summary(matured_rows, horizon=int(horizon.rstrip("h")))
             for horizon in [f"{h}h" for h in horizons]
         },
+        "volatility_bucket_audit": _volatility_audit(rows),
     }
 
     if slo_metrics_log_path is not None:
@@ -470,6 +558,31 @@ def render_markdown(report: dict[str, Any]) -> str:
         "segments are explicitly flagged.",
         "",
     ]
+
+    volatility = report.get("volatility_bucket_audit", {})
+    if isinstance(volatility, dict):
+        labels = volatility.get("fixed_labels", {})
+        counts = labels.get("counts", "unavailable") if isinstance(labels, dict) else "unavailable"
+        lines.extend(
+            [
+                "## Volatility bucket audit (descriptive only)",
+                "",
+                f"Feature: `{volatility.get('feature', 'volatility_24h_pct')}` — "
+                f"{volatility.get('units', 'units unavailable')}.",
+                f"Status: **{volatility.get('status', 'unavailable')}**; origins: "
+                f"{volatility.get('origin_count', 0)}; valid: {volatility.get('valid_count', 0)}; "
+                f"missing/invalid: {volatility.get('missing_or_invalid_count', 0)}.",
+                f"Existing fixed labels: {labels.get('meaning', 'unavailable') if isinstance(labels, dict) else 'unavailable'}. "
+                f"Counts: `{json.dumps(counts, sort_keys=True)}`.",
+                f"Date coverage: `{json.dumps(volatility.get('origin_date_coverage', {}), sort_keys=True)}`; "
+                f"quantiles (%): `{json.dumps(volatility.get('quantiles_pct', {}), sort_keys=True)}`.",
+                "These labels are diagnostic only. No accuracy claim is supported by a short or "
+                "mixed-version snapshot; no evaluation-derived cutpoints or forecast weighting. "
+                "Inferential conclusions require #410 and #411 prerequisites and #420 "
+                "horizon-matched, exact-origin pairing.",
+                "",
+            ]
+        )
 
     for window in report["windows"]:
         label = "All time" if window == "all" else f"Last {window}"
@@ -653,6 +766,27 @@ def render_html(report: dict[str, Any]) -> str:
               </table>
             </section>
             """
+        )
+
+    volatility = report.get("volatility_bucket_audit", {})
+    if isinstance(volatility, dict):
+        labels = volatility.get("fixed_labels", {})
+        counts = labels.get("counts", "unavailable") if isinstance(labels, dict) else "unavailable"
+        sections.append(
+            "<section><h2>Volatility bucket audit (descriptive only)</h2>"
+            f"<p><code>{html.escape(str(volatility.get('feature', 'volatility_24h_pct')))}</code>: "
+            f"{html.escape(str(volatility.get('units', 'units unavailable')))}. "
+            f"Status: <strong>{html.escape(str(volatility.get('status', 'unavailable')))}</strong>; "
+            f"origins {int(volatility.get('origin_count', 0))}, valid "
+            f"{int(volatility.get('valid_count', 0))}, missing/invalid "
+            f"{int(volatility.get('missing_or_invalid_count', 0))}.</p>"
+            f"<p>{html.escape(str(labels.get('meaning', 'unavailable') if isinstance(labels, dict) else 'unavailable'))}. "
+            f"Bucket counts: <code>{html.escape(json.dumps(counts, sort_keys=True))}</code>. "
+            f"Origin date coverage: <code>{html.escape(json.dumps(volatility.get('origin_date_coverage', {}), sort_keys=True))}</code>. "
+            f"Quantiles (%): <code>{html.escape(json.dumps(volatility.get('quantiles_pct', {}), sort_keys=True))}</code>.</p>"
+            "<p>No accuracy claim from short/mixed-version history; no evaluation-derived cutpoints "
+            "or forecast weighting. Inference requires #410, #411 and horizon-matched, exact-origin "
+            "pairing per #420.</p></section>"
         )
 
     return f"""<!doctype html>
