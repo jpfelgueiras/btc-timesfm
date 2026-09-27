@@ -8,6 +8,7 @@ explicit implementation and review.
 - [Roadmap v8 final status](ROADMAP_V8_FINAL_STATUS.md) records that the implemented accuracy experiments remain empirically blocked by unavailable frozen BTC/USD history; no skill or promotion claim was made.
 - [Roadmap v10 forecast evidence closeout](ROADMAP_V10_FINAL_STATUS.md) summarizes the completed #397–#400 workstream outcomes, their dependencies, evidence artifacts, and remaining gates; no empirical accuracy conclusion or production change is claimed.
 - [Issue #397 corpus acquisition audit](ISSUE_397_PIT_BTCUSD_CORPUS.md) records the source evidence, exact admissibility constraints, acquisition/storage procedure, and blocked canonical audit.
+- [Issue #409 point-in-time corpus comparison](ISSUE_409_PIT_CORPUS_COMPARISON.md) records a documentation-based institutional/archive channel comparison and blocked procurement decision; machine-readable details are in [JSON](ISSUE_409_PIT_CORPUS_COMPARISON.json).
 - [Issue #399 production-parity replay status](ISSUE_399_PRODUCTION_PARITY_REPLAY.md) documents the blocked readiness gates, machine-readable report, and reproducible rerun procedure.
 - [Issue #400 bounded candidate confirmation](ISSUE_400_CANDIDATE_CONFIRMATION.md) records the blocked, no-scoring disposition, freeze-before-scoring protocol, and disjoint prospective D3 shadow prerequisites.
 - [Experiment catalog](../EXPERIMENTS.md)
