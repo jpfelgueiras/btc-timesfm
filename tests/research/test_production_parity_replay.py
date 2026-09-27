@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from btc_timesfm.research.production_parity_replay import build_report
+from btc_timesfm.research.production_parity_replay import (
+    SHADOW_HORIZONS,
+    _frozen_cohort_blocker,
+    build_report,
+)
 
 
 def corpus_audit(**updates: Any) -> dict[str, Any]:
@@ -58,7 +62,116 @@ def shadow_status(**evidence_updates: Any) -> dict[str, Any]:
     }
 
 
+def frozen_cohort_report() -> dict[str, Any]:
+    contract = {
+        "origin_cutoff_at": "2026-01-01T00:00:00+00:00",
+        "evaluation_as_of": "2026-01-01T16:00:00+00:00",
+        "horizons": list(SHADOW_HORIZONS),
+        "maximum_horizon_hours": 16,
+        "rule": "origin <= cutoff and origin + 16h <= evaluation_as_of; exact UTC targets",
+    }
+    pairs = [
+        {
+            "configuration_id": "cfg",
+            "origin_at": "2026-01-01T00:00:00+00:00",
+            "target_at": f"2026-01-01T{int(horizon[:-1]):02d}:00:00+00:00",
+            "horizon": horizon,
+            "policy_id": "policy",
+            "data_lineage_id": "data",
+            "forecast_sha256": "forecast",
+            "model_identity": {
+                "id": "model",
+                "revision": "rev",
+                "package": "pkg",
+                "package_version": "1",
+            },
+            "matured": True,
+        }
+        for horizon in SHADOW_HORIZONS
+    ]
+    database_sha256 = "a" * 64
+    failures: list[dict[str, Any]] = []
+    provenance_blockers: list[dict[str, str]] = []
+    blocked_reasons: list[str] = []
+    failed_counts = dict.fromkeys(SHADOW_HORIZONS, 0)
+    failure_only: list[dict[str, Any]] = []
+    failed_identities: list[dict[str, Any]] = []
+    payload = {
+        "cohort": contract,
+        "rows": pairs,
+        "failures": failures,
+        "provenance_blockers": provenance_blockers,
+        "blocked_reasons": blocked_reasons,
+        "failed_pairs_by_horizon": failed_counts,
+        "failure_only_pairs": failure_only,
+        "failed_pair_identities": failed_identities,
+        "snapshot_sha256": database_sha256,
+    }
+    return {
+        "schema_version": 1,
+        "status": "ready",
+        "cohort": contract,
+        "cohort_sha256": hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+        ).hexdigest(),
+        "database_sha256": database_sha256,
+        "code_sha256": "b" * 64,
+        "eligible_origins": 1,
+        "timestamp_eligible_forecasts": 1,
+        "timestamp_eligible_legacy_excluded": 0,
+        "timestamp_eligible_versioned_forecasts": 1,
+        "latest_provenance_complete_origin_at": "2026-01-01T00:00:00+00:00",
+        "latest_provenance_complete_origin_mature_for_cohort": True,
+        "expected_pairs": 4,
+        "matured_pairs": 4,
+        "missing_pairs_by_horizon": dict.fromkeys(SHADOW_HORIZONS, 0),
+        "pairs_by_horizon": {
+            horizon: {"expected": 1, "matured": 1, "missing": 0} for horizon in SHADOW_HORIZONS
+        },
+        "failures": failures,
+        "provenance_blockers": provenance_blockers,
+        "blocked_reasons": blocked_reasons,
+        "failed_pairs_by_horizon": failed_counts,
+        "failure_only_pairs": failure_only,
+        "failed_pair_identities": failed_identities,
+        "pairs": pairs,
+        "lineage_identities": [["cfg", "policy", "data", "forecast", "model", "rev", "pkg", "1"]],
+        "right_censored_forecasts": 0,
+        "post_cutoff_forecasts": 0,
+        "right_censored_pairs_by_horizon": dict.fromkeys(SHADOW_HORIZONS, 0),
+        "ready": True,
+        "metrics_computed": False,
+    }
+
+
 class ProductionParityReplayTests(unittest.TestCase):
+    def test_frozen_cohort_readiness_is_fail_closed(self) -> None:
+        cohort = frozen_cohort_report()
+        self.assertIsNone(_frozen_cohort_blocker(cohort))
+        cohort["failures"] = [{"stage": "forecast"}]
+        self.assertIsNotNone(_frozen_cohort_blocker(cohort))
+
+    def test_frozen_cohort_report_hash_and_count_tampering_are_rejected(self) -> None:
+        cohort = frozen_cohort_report()
+        cohort["pairs"][0]["target_at"] = "2026-01-01T03:00:00+00:00"
+        self.assertIsNotNone(_frozen_cohort_blocker(cohort))
+        cohort = frozen_cohort_report()
+        cohort["pairs_by_horizon"]["2h"]["missing"] = 1
+        self.assertIsNotNone(_frozen_cohort_blocker(cohort))
+
+    def test_frozen_cohort_readiness_is_reported_separately_from_historical_corpus(self) -> None:
+        cohort = frozen_cohort_report()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            corpus_path = root / "corpus.json"
+            cohort_path = root / "cohort.json"
+            corpus_path.write_text(json.dumps({"status": "blocked"}), encoding="utf-8")
+            cohort_path.write_text(json.dumps(cohort), encoding="utf-8")
+            report = build_report(corpus_path, None, cohort_path)
+        self.assertEqual(report["frozen_cohort_readiness"]["status"], "ready")
+        self.assertEqual(report["status"], "blocked")
+        self.assertFalse(report["evidence"]["frozen_prospective_cohort"]["canonical_skill_claim"])
+
     def _report(
         self, corpus: dict[str, Any], ledger: dict[str, Any] | None = None
     ) -> dict[str, Any]:

@@ -950,6 +950,498 @@ class ShadowStore:
             "forecast_versions": versions,
         }
 
+    def frozen_cohort_report(
+        self, *, origin_cutoff_at: str, evaluation_as_of: str
+    ) -> dict[str, Any]:
+        """Build immutable, exact-target evidence for a preregistered mature cohort.
+
+        Origins at or before the cutoff are included only when all supported targets
+        could have been observed by ``evaluation_as_of``. The source ledger is read-only.
+        """
+        cutoff = _parse_utc(origin_cutoff_at)
+        as_of = _parse_utc(evaluation_as_of)
+        if cutoff > as_of - timedelta(hours=16):
+            raise ValueError("origin_cutoff_at must be at least 16 hours before evaluation_as_of")
+        if datetime.fromisoformat(origin_cutoff_at.replace("Z", "+00:00")).tzinfo is None:
+            raise ValueError("origin_cutoff_at must include a timezone")
+        if datetime.fromisoformat(evaluation_as_of.replace("Z", "+00:00")).tzinfo is None:
+            raise ValueError("evaluation_as_of must include a timezone")
+        # SQLite backup gives all reads one transactionally consistent, read-only view.
+        source = sqlite3.connect(f"file:{self.path.resolve()}?mode=ro", uri=True)
+        snapshot = sqlite3.connect(":memory:")
+        try:
+            source.execute("BEGIN")
+            source.backup(snapshot)
+            snapshot_bytes = snapshot.serialize()
+            snapshot.row_factory = sqlite3.Row
+            forecasts = [
+                self._decode_forecast(row)
+                for row in snapshot.execute(
+                    "SELECT * FROM shadow_forecasts ORDER BY origin_at, configuration_id"
+                )
+            ]
+            outcomes = [
+                self._decode_outcome(row)
+                for row in snapshot.execute(
+                    "SELECT * FROM shadow_outcomes ORDER BY origin_at, horizon"
+                )
+            ]
+            configurations = {
+                row["configuration_id"]: self._decode_configuration(row)
+                for row in snapshot.execute("SELECT * FROM configurations")
+            }
+            failure_rows = [
+                dict(row)
+                for row in snapshot.execute(
+                    "SELECT * FROM shadow_failures ORDER BY observed_at, rowid"
+                )
+            ]
+        finally:
+            snapshot.close()
+            source.close()
+        timestamp_eligible = [
+            row
+            for row in forecasts
+            if _parse_utc(row["origin_at"]) <= cutoff
+            and _parse_utc(row["origin_at"]) <= as_of - timedelta(hours=16)
+        ]
+        censored = [
+            row
+            for row in forecasts
+            if _parse_utc(row["origin_at"]) > cutoff
+            or _parse_utc(row["origin_at"]) + timedelta(hours=16) > as_of
+        ]
+
+        def is_legacy(forecast: Mapping[str, Any]) -> bool:
+            provenance = forecast.get("provenance") or {}
+            if not isinstance(provenance, dict):
+                return True
+            v6_markers = (
+                "experiment_manifest",
+                "configuration_id",
+                "targets_at",
+                "policy_id",
+                "row_configuration",
+            )
+            # Early ledger rows sometimes carried only ledger_version=1. They predate
+            # the complete v6 lineage contract and remain legacy exclusions.
+            return not any(marker in provenance for marker in v6_markers) and provenance.get(
+                "ledger_version"
+            ) in (None, 1)
+
+        def provenance_issue(forecast: Mapping[str, Any]) -> str | None:
+            provenance = forecast.get("provenance") or {}
+            if is_legacy(forecast):
+                return None  # Legacy/unversioned rows are exclusions, never reclassified.
+            origin_value = datetime.fromisoformat(str(forecast["origin_at"]).replace("Z", "+00:00"))
+            if origin_value.tzinfo is None:
+                return "origin_timezone_missing"
+            if provenance.get("ledger_version") != 1:
+                return "unsupported_ledger_version"
+            manifest = provenance.get("experiment_manifest")
+            model = manifest.get("model") if isinstance(manifest, dict) else None
+            registered = configurations.get(forecast["configuration_id"])
+            expected_configuration = (
+                configuration_manifest(
+                    {"name": registered["name"], "parameters": registered["parameters"]},
+                    str(registered["role"]),
+                )
+                if registered is not None
+                else None
+            )
+            row_configuration = provenance.get("row_configuration")
+            valid = (
+                isinstance(manifest, dict)
+                and manifest.get("data_id") == forecast.get("data_lineage_id")
+                and provenance.get("configuration_id") == forecast["configuration_id"]
+                and provenance.get("targets_at") == _targets_at(str(forecast["origin_at"]))
+                and row_configuration == expected_configuration
+                and bool(str(provenance.get("policy_id") or "").strip())
+                and bool(str(manifest.get("configuration_id") or "").strip())
+                and isinstance(manifest.get("configuration"), dict)
+                and bool(manifest["configuration"])
+                and isinstance(manifest.get("data"), dict)
+                and isinstance(manifest.get("code"), dict)
+                and bool(str(manifest["code"].get("git_sha") or "").strip())
+                and isinstance(model, dict)
+                and all(
+                    isinstance(model.get(key), str) and model[key]
+                    for key in ("id", "revision", "package", "package_version")
+                )
+                and bool(str(forecast.get("data_lineage_id") or "").strip())
+                and bool(str(forecast.get("forecast_sha256") or "").strip())
+            )
+            return None if valid else "versioned_provenance_mismatch"
+
+        provenance_complete_by_origin: list[tuple[datetime, dict[str, Any]]] = []
+        provenance_blockers: list[dict[str, str]] = []
+        legacy_timestamp_eligible = 0
+        for forecast in forecasts:
+            raw_origin = datetime.fromisoformat(str(forecast["origin_at"]).replace("Z", "+00:00"))
+            if raw_origin.tzinfo is None:
+                if _parse_utc(str(forecast["origin_at"])) <= as_of:
+                    provenance_blockers.append(
+                        {
+                            "configuration_id": str(forecast["configuration_id"]),
+                            "origin_at": str(forecast["origin_at"]),
+                            "reason": "origin_timezone_missing",
+                        }
+                    )
+                continue
+            origin = raw_origin.astimezone(timezone.utc)
+            if origin > as_of:
+                continue
+            issue = provenance_issue(forecast)
+            if issue is not None:
+                provenance_blockers.append(
+                    {
+                        "configuration_id": str(forecast["configuration_id"]),
+                        "origin_at": origin.isoformat(),
+                        "reason": issue,
+                    }
+                )
+            elif not is_legacy(forecast):
+                provenance_complete_by_origin.append((origin, forecast))
+            elif forecast in timestamp_eligible:
+                legacy_timestamp_eligible += 1
+        latest_provenance_complete = max(
+            provenance_complete_by_origin, key=lambda item: item[0], default=None
+        )
+        eligible: list[dict[str, Any]] = []
+        for forecast in timestamp_eligible:
+            origin_value = datetime.fromisoformat(str(forecast["origin_at"]).replace("Z", "+00:00"))
+            if origin_value.tzinfo is None:
+                continue
+            issue = provenance_issue(forecast)
+            if issue is None and not is_legacy(forecast):
+                eligible.append(forecast)
+            elif issue is not None:
+                origin = _parse_utc(str(forecast["origin_at"]))
+                if not any(
+                    item["configuration_id"] == str(forecast["configuration_id"])
+                    and item["origin_at"] == origin.isoformat()
+                    for item in provenance_blockers
+                ):
+                    provenance_blockers.append(
+                        {
+                            "configuration_id": str(forecast["configuration_id"]),
+                            "origin_at": origin.isoformat(),
+                            "reason": issue,
+                        }
+                    )
+        unique_eligible: list[dict[str, Any]] = []
+        unique_origin_keys: set[tuple[str, datetime]] = set()
+        for forecast in eligible:
+            origin = datetime.fromisoformat(
+                str(forecast["origin_at"]).replace("Z", "+00:00")
+            ).astimezone(timezone.utc)
+            key = (str(forecast["configuration_id"]), origin)
+            if key in unique_origin_keys:
+                provenance_blockers.append(
+                    {
+                        "configuration_id": key[0],
+                        "origin_at": origin.isoformat(),
+                        "reason": "duplicate_utc_origin",
+                    }
+                )
+                continue
+            unique_origin_keys.add(key)
+            unique_eligible.append(forecast)
+        eligible = unique_eligible
+        keys: dict[tuple[str, datetime, str], dict[str, Any]] = {}
+        for outcome in outcomes:
+            try:
+                actual_timestamp = datetime.fromisoformat(
+                    str(outcome["actual_at"]).replace("Z", "+00:00")
+                )
+                outcome_matured_at = datetime.fromisoformat(
+                    str(outcome["matured_at"]).replace("Z", "+00:00")
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError("malformed outcome timestamps in frozen snapshot") from exc
+            if actual_timestamp.tzinfo is None or outcome_matured_at.tzinfo is None:
+                raise ValueError("outcome timestamps must be timezone-aware")
+            # Future target/maturity rows are outside this as-of view, including rows
+            # whose target was subsequently revised beyond the frozen evaluation time.
+            if (
+                actual_timestamp.astimezone(timezone.utc) > as_of
+                or outcome_matured_at.astimezone(timezone.utc) > as_of
+            ):
+                continue
+            if outcome["horizon"] not in HORIZONS:
+                raise ValueError("unsupported horizon in frozen outcome snapshot")
+            outcome_origin_raw = datetime.fromisoformat(
+                str(outcome["origin_at"]).replace("Z", "+00:00")
+            )
+            if outcome_origin_raw.tzinfo is None:
+                raise ValueError("outcome origin must be timezone-aware")
+            key = (
+                outcome["configuration_id"],
+                outcome_origin_raw.astimezone(timezone.utc),
+                outcome["horizon"],
+            )
+            if key in keys:
+                raise ValueError("duplicate outcome identity in frozen evidence")
+            keys[key] = outcome
+        by_horizon = {horizon: {"expected": 0, "matured": 0, "missing": 0} for horizon in HORIZONS}
+        failures: list[dict[str, Any]] = []
+        failure_only_pairs: dict[tuple[str, datetime, str], dict[str, str]] = {}
+        rows = []
+        identity_set: set[tuple[str, ...]] = set()
+        origin_keys: set[tuple[str, datetime]] = set()
+        policy_by_configuration: dict[str, str] = {}
+        for forecast in eligible:
+            raw_origin = datetime.fromisoformat(str(forecast["origin_at"]).replace("Z", "+00:00"))
+            if raw_origin.tzinfo is None:
+                raise ValueError("origin_at must be timezone-aware")
+            origin = raw_origin.astimezone(timezone.utc)
+            origin_key = (forecast["configuration_id"], origin)
+            if origin_key in origin_keys:
+                provenance_blockers.append(
+                    {
+                        "configuration_id": str(forecast["configuration_id"]),
+                        "origin_at": origin.isoformat(),
+                        "reason": "duplicate_utc_origin",
+                    }
+                )
+                continue
+            origin_keys.add(origin_key)
+            provenance = forecast.get("provenance") or {}
+            if not isinstance(provenance, dict):
+                raise ValueError("missing forecast lineage")
+            manifest = provenance.get("experiment_manifest")
+            model = manifest.get("model") if isinstance(manifest, dict) else None
+            if (
+                not isinstance(manifest, dict)
+                or manifest.get("data_id") != forecast.get("data_lineage_id")
+                or provenance.get("configuration_id") != forecast["configuration_id"]
+                or provenance.get("targets_at") != _targets_at(str(forecast["origin_at"]))
+                or not isinstance(model, dict)
+                or any(
+                    not isinstance(model.get(key), str) or not model[key]
+                    for key in ("id", "revision", "package", "package_version")
+                )
+            ):
+                raise ValueError(
+                    "forecast lineage does not match configuration, data, or target identity"
+                )
+            identity = (
+                forecast["configuration_id"],
+                str(provenance.get("policy_id") or ""),
+                str(forecast.get("data_lineage_id") or ""),
+                str(forecast.get("forecast_sha256") or ""),
+            )
+            if not all(identity[1:]) or identity[0] not in configurations:
+                raise ValueError("incomplete forecast lineage identity")
+            previous_policy = policy_by_configuration.setdefault(identity[0], identity[1])
+            if previous_policy != identity[1]:
+                raise ValueError("policy lineage changed within frozen configuration cohort")
+            model_identity = tuple(
+                str(model[key]) for key in ("id", "revision", "package", "package_version")
+            )
+            identity_set.add((*identity, *model_identity))
+            for horizon in HORIZONS:
+                bucket = by_horizon[horizon]
+                bucket["expected"] += 1
+                outcome = keys.get((forecast["configuration_id"], origin, horizon))
+                target = origin + timedelta(hours=int(horizon[:-1]))
+                prediction = (forecast.get("predictions") or {}).get(horizon)
+                exact = False
+                eligible_as_of = False
+                if outcome is not None:
+                    try:
+                        actual_raw = datetime.fromisoformat(
+                            str(outcome["actual_at"]).replace("Z", "+00:00")
+                        )
+                        matured_raw = datetime.fromisoformat(
+                            str(outcome["matured_at"]).replace("Z", "+00:00")
+                        )
+                        exact = (
+                            actual_raw.tzinfo is not None
+                            and matured_raw.tzinfo is not None
+                            and actual_raw.astimezone(timezone.utc) == target
+                        )
+                        eligible_as_of = (
+                            exact
+                            and actual_raw.astimezone(timezone.utc) <= as_of
+                            and matured_raw.astimezone(timezone.utc) <= as_of
+                        )
+                    except (TypeError, ValueError):
+                        exact = False
+                if outcome is not None and not exact:
+                    raise ValueError("outcome target does not match exact UTC origin/horizon")
+                if (
+                    eligible_as_of
+                    and isinstance(prediction, dict)
+                    and prediction.get("price_usd") is not None
+                ):
+                    bucket["matured"] += 1
+                else:
+                    bucket["missing"] += 1
+                rows.append(
+                    {
+                        "configuration_id": identity[0],
+                        "origin_at": origin.isoformat(),
+                        "target_at": target.isoformat(),
+                        "horizon": horizon,
+                        "policy_id": identity[1],
+                        "data_lineage_id": identity[2],
+                        "forecast_sha256": identity[3],
+                        "model_identity": {
+                            key: model[key]
+                            for key in ("id", "revision", "package", "package_version")
+                        },
+                        "matured": bool(eligible_as_of and prediction),
+                    }
+                )
+        eligible_ids = {(row["configuration_id"], _parse_utc(row["origin_at"])) for row in eligible}
+        failed_pairs_by_horizon = {horizon: 0 for horizon in HORIZONS}
+        counted_failed_pairs: set[tuple[str, datetime, str]] = set()
+        for failure in failure_rows:
+            try:
+                failure_origin_raw = datetime.fromisoformat(
+                    str(failure["origin_at"]).replace("Z", "+00:00")
+                )
+                if failure_origin_raw.tzinfo is None:
+                    raise ValueError("failure origin must be timezone-aware")
+                failure_origin = failure_origin_raw.astimezone(timezone.utc)
+                observed_raw = datetime.fromisoformat(
+                    str(failure["observed_at"]).replace("Z", "+00:00")
+                )
+                if observed_raw.tzinfo is None:
+                    raise ValueError("failure observed_at must be timezone-aware")
+                if observed_raw.astimezone(timezone.utc) > as_of:
+                    continue
+                failure_key = (failure["configuration_id"], failure_origin)
+                inside = (
+                    failure_origin <= cutoff
+                    and failure_origin <= as_of - timedelta(hours=16)
+                    and failure["configuration_id"] in configurations
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError("invalid failure origin/configuration in frozen snapshot") from exc
+            if inside:
+                normalized_failure = dict(failure)
+                normalized_failure["origin_at"] = failure_origin.isoformat()
+                failures.append(normalized_failure)
+                try:
+                    failed_horizons = json.loads(failure.get("expected_horizons_json") or "null")
+                except (TypeError, json.JSONDecodeError) as exc:
+                    raise ValueError("invalid failure horizon list") from exc
+                if not isinstance(failed_horizons, list) or not failed_horizons:
+                    raise ValueError("failure must declare expected horizons")
+                if any(horizon not in HORIZONS for horizon in failed_horizons):
+                    raise ValueError("failure contains unsupported expected horizon")
+                for horizon in sorted(set(failed_horizons)):
+                    failed_key = (failure["configuration_id"], failure_origin, horizon)
+                    if failed_key not in counted_failed_pairs:
+                        counted_failed_pairs.add(failed_key)
+                        failed_pairs_by_horizon[horizon] += 1
+                        if failure_key not in eligible_ids:
+                            failure_only_pairs[failed_key] = {
+                                "configuration_id": failed_key[0],
+                                "origin_at": failed_key[1].isoformat(),
+                                "horizon": failed_key[2],
+                            }
+                            by_horizon[horizon]["expected"] += 1
+                            by_horizon[horizon]["missing"] += 1
+        expected = sum(item["expected"] for item in by_horizon.values())
+        matured = sum(item["matured"] for item in by_horizon.values())
+        blocked_reasons = sorted({item["reason"] for item in provenance_blockers})
+        if not eligible:
+            blocked_reasons.append("no_confirmatory_versioned_forecasts_in_frozen_cohort")
+        if failures:
+            blocked_reasons.append("in_cohort_failures_present")
+        if eligible and matured != expected:
+            blocked_reasons.append("incomplete_exact_target_pairs")
+        latest_origin = latest_provenance_complete[0] if latest_provenance_complete else None
+        ready = bool(eligible and matured == expected and not failures and not provenance_blockers)
+        snapshot_hash = hashlib.sha256(snapshot_bytes).hexdigest()
+        cohort = {
+            "origin_cutoff_at": cutoff.isoformat(),
+            "evaluation_as_of": as_of.isoformat(),
+            "horizons": list(HORIZONS),
+            "maximum_horizon_hours": 16,
+            "rule": "origin <= cutoff and origin + 16h <= evaluation_as_of; exact UTC targets",
+        }
+        cohort_hash = _sha256_text(
+            _canonical_json(
+                {
+                    "cohort": cohort,
+                    "rows": rows,
+                    "failures": failures,
+                    "provenance_blockers": provenance_blockers,
+                    "blocked_reasons": blocked_reasons,
+                    "failed_pairs_by_horizon": failed_pairs_by_horizon,
+                    "failure_only_pairs": list(failure_only_pairs.values()),
+                    "failed_pair_identities": [
+                        {
+                            "configuration_id": config_id,
+                            "origin_at": origin.isoformat(),
+                            "horizon": h,
+                        }
+                        for config_id, origin, h in sorted(counted_failed_pairs)
+                    ],
+                    "snapshot_sha256": snapshot_hash,
+                }
+            )
+        )
+        return {
+            "schema_version": 1,
+            "status": "ready" if ready else "blocked",
+            "cohort": cohort,
+            "cohort_sha256": cohort_hash,
+            "database_sha256": snapshot_hash,
+            "code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "eligible_origins": len(eligible),
+            "timestamp_eligible_forecasts": len(timestamp_eligible),
+            "timestamp_eligible_legacy_excluded": legacy_timestamp_eligible,
+            "timestamp_eligible_versioned_forecasts": len(eligible)
+            + sum(
+                1
+                for item in provenance_blockers
+                if _parse_utc(item["origin_at"]) <= cutoff
+                and _parse_utc(item["origin_at"]) <= as_of - timedelta(hours=16)
+            ),
+            "provenance_blockers": provenance_blockers,
+            "blocked_reasons": blocked_reasons,
+            "latest_provenance_complete_origin_at": (
+                latest_origin.isoformat() if latest_origin is not None else None
+            ),
+            "latest_provenance_complete_origin_mature_for_cohort": bool(
+                latest_origin is not None
+                and latest_origin <= cutoff
+                and latest_origin <= as_of - timedelta(hours=16)
+            ),
+            "expected_pairs": expected,
+            "matured_pairs": matured,
+            "missing_pairs_by_horizon": {h: by_horizon[h]["missing"] for h in HORIZONS},
+            "pairs_by_horizon": by_horizon,
+            "failures": failures,
+            "failed_pairs_by_horizon": failed_pairs_by_horizon,
+            "failure_only_pairs": list(failure_only_pairs.values()),
+            "failed_pair_identities": [
+                {"configuration_id": config_id, "origin_at": origin.isoformat(), "horizon": h}
+                for config_id, origin, h in sorted(counted_failed_pairs)
+            ],
+            "pairs": rows,
+            "right_censored_forecasts": len(censored),
+            "post_cutoff_forecasts": sum(
+                _parse_utc(row["origin_at"]) > cutoff for row in forecasts
+            ),
+            "right_censored_pairs_by_horizon": {
+                h: sum(
+                    1
+                    for row in censored
+                    if _parse_utc(row["origin_at"]) + timedelta(hours=int(h[:-1])) > as_of
+                )
+                for h in HORIZONS
+            },
+            "lineage_identities": sorted([list(item) for item in identity_set]),
+            "ready": ready,
+            "metrics_computed": False,
+        }
+
     def load_forecasts(self, configuration_id: str | None = None) -> list[dict[str, Any]]:
         if configuration_id is None:
             with self._connect() as connection:
