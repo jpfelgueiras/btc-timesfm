@@ -1,0 +1,57 @@
+{
+  "issue": 413,
+  "schema_version": 1,
+  "status": "blocked",
+  "disposition": "no_weighting_evaluation",
+  "reason": "The prerequisite #411 diagnosis did not establish a powered ensemble-versus-persistence gap. With zero confirmatory origins and zero eligible pairs, no evidence-based weighting hypothesis can be selected without inventing a post-hoc rationale.",
+  "candidates": [],
+  "candidates_scored": 0,
+  "metrics": null,
+  "winner": null,
+  "production_changes": false,
+  "reopening_conditions": [
+    "A later #411 diagnosis, with all referenced evidence resolved and its source artifact frozen by SHA-256, establishes a powered ensemble-versus-persistence gap under the frozen #410 protocol; the diagnosis must use exact shared origin_at, target_at, and horizon keys and satisfy that protocol's per-comparison sample and effective-block requirements.",
+    "Before any score access, freeze and hash a bounded, complete candidate family and directional weighting hypotheses motivated by that diagnosis, including all planned comparisons, endpoints, strata, cutoffs, and stopping rule; retain every attempt, failure, blocked, and excluded candidate in the family accounting.",
+    "Estimate weights only within nested, purged walk-forward training folds using training-only information; freeze each outer-fold weighting choice before its outcomes mature, and reserve the untouched final holdout and any prospective confirmation from weight selection.",
+    "Evaluate candidates only on exact shared origin_at, target_at, and horizon keys, with the required outcome/vintage identity and provenance under #410; do not score unmatched, immature, legacy-excluded, or otherwise ineligible rows.",
+    "Apply the frozen #410 estimands, baselines, attempt accounting, moving-block paired uncertainty, and complete family-wise multiplicity procedure, then archive the immutable evaluation manifest and results for human review."
+  ],
+  "evidence": {
+    "issue_411_report": {
+      "path": "docs/research/ISSUE_411_PARITY_BASELINES_BLOCKED.json",
+      "sha256": null,
+      "sha256_note": "The #411 artifact does not contain its own file digest; no digest is asserted here.",
+      "status": "blocked",
+      "metric_status": "not_computed_blocked",
+      "metrics": null,
+      "confirmatory_forecasts": 0,
+      "expected_pairs": 0,
+      "matured_pairs": 0,
+      "timestamp_eligible_forecasts": 48,
+      "timestamp_eligible_legacy_excluded": 48,
+      "latest_provenance_complete_origin_at": "2026-09-27T11:00:00Z",
+      "latest_origin_mature_for_cohort": false,
+      "origin_cutoff_at": "2026-09-26T19:00:00Z",
+      "evaluation_as_of": "2026-09-27T11:00:00Z",
+      "blockers": [
+        "versioned_provenance_mismatch",
+        "no_confirmatory_versioned_forecasts_in_frozen_cohort"
+      ],
+      "last_verified_snapshot_hashes": {
+        "code_sha256": "79a95fc3debd4134ab68cfc55795007a340f15a6eff2ef7212a875a9846c28fc",
+        "cohort_sha256": "462287eb433a27c16e4f25360d9ee40e5dda2fabdced13e5390859a055f7bbb8",
+        "database_sha256": "b102f14db535264ecc2474a3b338c929abea4c39616f233a5701611c9300f57f"
+      }
+    },
+    "frozen_protocol": {
+      "path": "docs/research/ISSUE_410_SCORING_PROTOCOL.json",
+      "protocol_version": "v11-prospective-1.0.1",
+      "protocol_sha256": "4da936d505df9a15cbd073ee85ee0e4ed2db483e6058f6b81ce163f4724bb4f0",
+      "file_sha256": "1b8c6705d53882a66c0ab1277cf2a63c845d00c2c7d0cc978c0c75d8121efd18"
+    },
+    "corpus_audit": {
+      "path": "docs/research/ISSUE_397_CANONICAL_BENCHMARK_AUDIT.json",
+      "sha256": "e2bf0c671a5a4327c6852d02614a7d2e403ed12f8fe7c4362336c5e87d44a0c7"
+    }
+  }
+}
