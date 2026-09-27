@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://btc-timesfm.example/schemas/issue-410-scoring-protocol-v1.json",
+  "title": "Frozen v11 Prospective Scoring Protocol",
+  "type": "object",
+  "required": ["schema_version", "protocol_sha256", "protocol_version", "issue", "status", "purpose", "market", "pairing", "horizons_hours", "estimands", "sampling", "design", "uncertainty", "immutability"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "protocol_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "protocol_version": {"type": "string", "minLength": 1},
+    "issue": {"const": 410},
+    "status": {"const": "frozen_before_evaluation"},
+    "purpose": {"type": "string", "minLength": 1},
+    "market": {
+      "type": "object", "required": ["instrument", "bar_interval_hours", "outcome", "vintage_identity"],
+      "properties": {
+        "instrument": {"const": "BTC/USD"}, "bar_interval_hours": {"const": 1},
+        "outcome": {"type": "string", "minLength": 1}, "vintage_identity": {"type": "string", "minLength": 1}
+      }, "additionalProperties": false
+    },
+    "pairing": {
+      "type": "object", "required": ["key", "timestamps", "target_rule", "same_vintage_and_outcome_required", "forecast_information_cutoff", "statuses", "failure_denominator"],
+      "properties": {
+        "key": {"const": ["origin_at", "target_at", "horizon_hours"]}, "timestamps": {"type": "string", "minLength": 1},
+        "target_rule": {"type": "string", "minLength": 1}, "same_vintage_and_outcome_required": {"const": true},
+        "forecast_information_cutoff": {"type": "string", "minLength": 1},
+        "statuses": {"const": ["scored", "failed", "abstained", "missing", "ineligible"]},
+        "failure_denominator": {"type": "string", "minLength": 1}
+      }, "additionalProperties": false
+    },
+    "horizons_hours": {"const": [2, 4, 8, 16]},
+    "estimands": {
+      "type": "object", "required": ["point", "interval", "comparisons"],
+      "properties": {
+        "point": {"type": "object", "required": ["primary", "formula", "rationale", "secondary", "invalid_prices"], "properties": {
+          "primary": {"const": "mean_absolute_log_return_error"}, "formula": {"type": "string", "minLength": 1}, "rationale": {"type": "string", "minLength": 1},
+          "secondary": {"type": "object", "required": ["price_absolute_percent_error", "signed_log_return_bias", "signed_price_percent_bias", "direction"], "properties": {
+            "price_absolute_percent_error": {"type": "string", "minLength": 1}, "signed_log_return_bias": {"type": "string", "minLength": 1}, "signed_price_percent_bias": {"type": "string", "minLength": 1}, "direction": {"type": "string", "minLength": 1}
+          }, "additionalProperties": false}, "invalid_prices": {"type": "string", "minLength": 1}
+        }, "additionalProperties": false},
+        "interval": {"type": "object", "required": ["separate_from_point_estimand", "outcome", "units", "bounds", "quantiles", "pinball", "primary_interval_score", "coverage", "width", "bootstrap", "interpretation"], "properties": {
+          "separate_from_point_estimand": {"const": true}, "outcome": {"type": "string", "minLength": 1}, "units": {"type": "string", "minLength": 1}, "bounds": {"type": "string", "minLength": 1},
+          "quantiles": {"const": [0.1, 0.5, 0.9]}, "pinball": {"type": "string", "minLength": 1}, "primary_interval_score": {"type": "string", "minLength": 1},
+          "coverage": {"type": "string", "minLength": 1}, "width": {"type": "string", "minLength": 1}, "bootstrap": {"type": "string", "minLength": 1}, "interpretation": {"type": "string", "minLength": 1}
+        }, "additionalProperties": false},
+        "comparisons": {"type": "object", "required": ["required", "simple_baseline_pool", "selection"], "properties": {
+          "required": {"type": "array", "minItems": 4, "items": {"type": "string"}, "uniqueItems": true}, "simple_baseline_pool": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true}, "selection": {"type": "string", "minLength": 1}
+        }, "additionalProperties": false}
+      }, "additionalProperties": false
+    },
+    "sampling": {"type": "object", "required": ["strata", "minimum_effective_sample", "effective_sample"], "properties": {
+      "strata": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true}, "minimum_effective_sample": {"type": "object", "required": ["paired_origins_per_horizon", "effective_independent_blocks_per_comparison", "rule"], "properties": {
+        "paired_origins_per_horizon": {"type": "integer", "minimum": 1}, "effective_independent_blocks_per_comparison": {"type": "integer", "minimum": 1}, "rule": {"type": "string", "minLength": 1}
+      }, "additionalProperties": false}, "effective_sample": {"type": "string", "minLength": 1}
+    }, "additionalProperties": false},
+    "design": {"type": "object", "required": ["selection", "holdout", "d3", "cutoff", "stopping", "practical_effect_floor", "practical_effect_definition", "limits", "disposition", "promotion"], "properties": {
+      "selection": {"type": "string", "minLength": 1}, "holdout": {"type": "string", "minLength": 1}, "d3": {"type": "string", "minLength": 1}, "cutoff": {"type": "string", "minLength": 1}, "stopping": {"type": "string", "minLength": 1},
+      "practical_effect_floor": {"type": "number", "minimum": 0}, "practical_effect_definition": {"type": "string", "minLength": 1}, "limits": {"type": "object", "required": ["per_horizon_regression", "directional_loss"], "properties": {"per_horizon_regression": {"type": "string", "minLength": 1}, "directional_loss": {"type": "string", "minLength": 1}}, "additionalProperties": false},
+      "disposition": {"type": "array", "minItems": 4, "items": {"type": "string"}, "uniqueItems": true}, "promotion": {"type": "string", "minLength": 1}
+    }, "additionalProperties": false},
+    "uncertainty": {"type": "object", "required": ["paired", "method", "block_length_origins", "overlap_rule", "replicates", "interval", "strata_handling", "multiplicity", "seed"], "properties": {
+      "paired": {"const": true}, "method": {"type": "string", "minLength": 1}, "block_length_origins": {"type": "integer", "minimum": 1}, "overlap_rule": {"type": "string", "minLength": 1}, "replicates": {"type": "integer", "minimum": 1}, "interval": {"type": "string", "minLength": 1},
+      "strata_handling": {"type": "string", "minLength": 1}, "multiplicity": {"type": "object", "required": ["method", "alpha", "registered_test_family", "failure_handling"], "properties": {
+        "method": {"const": "Holm step-down"}, "alpha": {"type": "number", "exclusiveMinimum": 0, "maximum": 0.05}, "registered_test_family": {"type": "string", "minLength": 1}, "failure_handling": {"type": "string", "minLength": 1}
+      }, "additionalProperties": false}, "seed": {"type": "integer"}
+    }, "additionalProperties": false},
+    "immutability": {"type": "object", "required": ["no_peeking", "changes", "post_hoc_changes", "score_inspection_during_protocol_design"], "properties": {
+      "no_peeking": {"type": "string", "minLength": 1}, "changes": {"type": "string", "minLength": 1}, "post_hoc_changes": {"const": false}, "score_inspection_during_protocol_design": {"const": false}
+    }, "additionalProperties": false}
+  },
+  "additionalProperties": false
+}
