@@ -1,7 +1,7 @@
 import json
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from btc_timesfm.history.history_store import ForecastHistoryStore
@@ -164,6 +164,122 @@ class EdgeAttributionReportTests(unittest.TestCase):
         self.assertIn("95% CI", markdown)
         self.assertIn("True", markdown)
         self.assertIn("persistence", markdown.lower())
+
+    def test_pairing_diagnostics_and_origin_time_strata(self) -> None:
+        matched = row(
+            origin_at="2026-09-05T02:00:00+00:00",
+            target_at="2026-09-05T04:00:00+00:00",
+            model="ensemble",
+            horizon=2,
+            mae=1.0,
+            direction=1,
+            regime="sparse-regime",
+        )
+        matched_baseline = dict(matched, model_name="persistence", absolute_error_pct=2.0)
+        missing_persistence = dict(matched)
+        missing_persistence["model_name"] = "ensemble"
+        missing_persistence["origin_at"] = "2026-09-05T03:00:00+00:00"
+        missing_persistence["target_at"] = "2026-09-05T05:00:00+00:00"
+        missing_metrics = row(
+            origin_at="2026-09-05T04:00:00+00:00",
+            target_at="2026-09-05T06:00:00+00:00",
+            model="ensemble",
+            horizon=2,
+            mae=1.0,
+            direction=1,
+        )
+        missing_metrics["absolute_error_pct"] = None
+        missing_metrics_baseline = dict(missing_metrics, model_name="persistence")
+        mismatched_actual_ensemble = dict(
+            matched,
+            origin_at="2026-09-05T06:00:00+00:00",
+            target_at="2026-09-05T08:00:00+00:00",
+        )
+        mismatched_actual_baseline = dict(
+            mismatched_actual_ensemble,
+            model_name="persistence",
+            actual_target_price_usd=101.0,
+        )
+        pending = dict(matched, actual_target_price_usd=None, origin_at="2026-09-05T05:00:00+00:00")
+        future_with_actual = dict(
+            matched,
+            origin_at="2026-09-05T06:00:00+00:00",
+            target_at="2026-09-06T06:00:00+00:00",
+        )
+        report = build_report(
+            [
+                matched,
+                matched_baseline,
+                missing_persistence,
+                missing_metrics,
+                missing_metrics_baseline,
+                mismatched_actual_ensemble,
+                mismatched_actual_baseline,
+                pending,
+                future_with_actual,
+            ],
+            now=NOW,
+            low_sample_threshold=2,
+            min_paired_samples=2,
+            bootstrap_iterations=100,
+        )
+
+        self.assertEqual(report["paired_samples"], 1)
+        self.assertEqual(report["pairing_diagnostics"]["pending_rows_excluded"], 2)
+        self.assertEqual(
+            report["pairing_diagnostics"]["matured_pair_keys_missing_ensemble_or_persistence"], 1
+        )
+        self.assertEqual(report["pairing_diagnostics"]["matured_pair_keys_missing_persistence"], 1)
+        self.assertEqual(
+            report["pairing_diagnostics"]["matured_pair_keys_missing_error_metrics"], 1
+        )
+        self.assertEqual(report["pairing_diagnostics"]["matured_pair_keys_actual_mismatch"], 1)
+        self.assertEqual(
+            report["pairing_diagnostics"]["matured_rows_missing_error_metrics_by_model"][
+                "ensemble"
+            ],
+            1,
+        )
+        self.assertIsNone(report["pairing_diagnostics"]["failed_attempts"])
+        self.assertIn("00-06", report["by_dimension"]["origin_time_stratum"])
+        self.assertEqual(
+            report["by_dimension"]["regime_by_horizon"]["2h"]["sparse-regime"]["samples"], 1
+        )
+
+    def test_low_effective_blocks_are_inconclusive_and_volatility_absent_is_explicit(self) -> None:
+        rows = []
+        for index in range(32):
+            origin_dt = NOW - timedelta(days=index + 1)
+            origin = origin_dt.isoformat()
+            target = (origin_dt + timedelta(hours=16)).isoformat()
+            rows.extend(
+                [
+                    row(
+                        origin_at=origin,
+                        target_at=target,
+                        model="ensemble",
+                        horizon=16,
+                        mae=1,
+                        direction=1,
+                    ),
+                    row(
+                        origin_at=origin,
+                        target_at=target,
+                        model="persistence",
+                        horizon=16,
+                        mae=2,
+                        direction=0,
+                    ),
+                ]
+            )
+        report = build_report(
+            rows, now=NOW, low_sample_threshold=1, min_paired_samples=1, bootstrap_iterations=100
+        )
+        evidence = report["by_dimension"]["horizon"]["16h"]
+        self.assertEqual(evidence["conclusion"], "inconclusive")
+        self.assertEqual(evidence["reason"], "insufficient_effective_samples")
+        self.assertLess(evidence["bootstrap"]["effective_block_count_proxy"], 8)
+        self.assertIn("unknown", report["by_dimension"]["volatility_bucket"])
 
     def test_generate_report_reads_durable_history(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

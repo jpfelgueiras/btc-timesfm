@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timedelta, timezone
 
-from btc_timesfm.web.charts import MAX_CHART_PAYLOAD_BYTES, render_charts
+from btc_timesfm.web.charts import MAX_CHART_PAYLOAD_BYTES, MAX_POINTS_PER_CHART, render_charts
 
 
 class ChartTests(unittest.TestCase):
@@ -72,6 +73,57 @@ class ChartTests(unittest.TestCase):
 
         self.assertNotIn("<script>", html)
         self.assertIn("&lt;script&gt;", html)
+
+    def test_rolling_metrics_use_full_history_before_render_sampling(self) -> None:
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        rows = []
+        for index in range(101):
+            origin = start + timedelta(hours=index * (3 if index % 7 == 0 else 1))
+            rows.append(
+                self._row(
+                    origin_at=origin.isoformat(),
+                    absolute_error_pct=float(index),
+                    direction_correct=index % 2,
+                    within_q10_q90=int(index % 3 == 0),
+                )
+            )
+        html, summary = render_charts(rows, ["2h"], 20)
+
+        # The 20-origin series includes its partial-window warmup and final complete window.
+        self.assertIn("MAE % (%) · 0.00–86.20", html)
+        self.assertIn("current n=20", html)
+        self.assertIn("span=", html)
+        self.assertIn("20-origin rolling window", html)
+        self.assertIn(f"<td>{MAX_POINTS_PER_CHART}</td>", html)
+        self.assertEqual(summary["2h"]["matured_samples"], 101)
+
+    def test_missing_values_and_persistence_pairing_remain_metric_specific(self) -> None:
+        rows = []
+        for index in range(25):
+            origin = (
+                datetime(2026, 9, 1, 10, tzinfo=timezone.utc) + timedelta(days=index)
+            ).isoformat()
+            rows.append(
+                self._row(
+                    origin_at=origin,
+                    absolute_error_pct=None if index == 24 else 2.0,
+                    direction_correct=None if index % 2 else 1,
+                    within_q10_q90=None if index % 3 else 0,
+                )
+            )
+            rows.append(
+                self._row(
+                    model_name="persistence",
+                    origin_at=origin,
+                    absolute_error_pct=5.0,
+                )
+            )
+        html, _ = render_charts(rows, ["2h"], 20)
+
+        self.assertIn("MAE % (%) · 2.00–2.00", html)
+        self.assertIn("Skill vs persistence pp (pp) · 3.00–3.00", html)
+        self.assertIn("current n=19", html)
+        self.assertIn("low sample &lt;20", html)
 
 
 if __name__ == "__main__":
