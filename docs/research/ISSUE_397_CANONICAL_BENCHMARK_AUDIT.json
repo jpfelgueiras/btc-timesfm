@@ -1,0 +1,39 @@
+{
+  "duplicates": null,
+  "eligible_for_skill_comparison": false,
+  "errors": [
+    "eligible >=180-day same-venue BTC/USD corpus unavailable"
+  ],
+  "first_utc": null,
+  "gaps": null,
+  "last_utc": null,
+  "pair": null,
+  "policy": "forecast_policy.PRODUCTION_POLICY; research ridge disabled",
+  "reason": "No canonical dataset supplied; Kraken OHLC is a limited recent window and Binance BTCUSDT is not BTC/USD.",
+  "research_models_enabled": false,
+  "revision_column_present": false,
+  "row_count": 0,
+  "source_file": null,
+  "source_sha256": null,
+  "span_hours": 0,
+  "status": "blocked",
+  "target_period": {
+    "end_exclusive": "2026-09-01T00:00:00+00:00",
+    "expected_hours": 32136,
+    "missing_hours": 32136,
+    "observed_hours": 0,
+    "start_inclusive": "2023-01-01T00:00:00+00:00"
+  },
+  "target_period_observations": 0,
+  "unique_hourly_count": 0,
+  "venue": null,
+  "vintage_column_present": false,
+  "warmup_days": 0,
+  "warmup_period": {
+    "end_exclusive": "2023-01-01T00:00:00+00:00",
+    "expected_hours": 4320,
+    "missing_hours": 4320,
+    "observed_hours": 0,
+    "start_inclusive": "2022-07-05T00:00:00+00:00"
+  }
+}
