@@ -25,9 +25,7 @@ class Issue409CorpusComparisonTests(unittest.TestCase):
         self.assertTrue(report["procurement"]["not_obtained"])
         self.assertTrue(report["reproducible_next_action"])
         procurement = report["procurement"]
-        self.assertIn(
-            "project owner/budget authority", procurement["responsible_role"].casefold()
-        )
+        self.assertIn("project owner/budget authority", procurement["responsible_role"].casefold())
         self.assertIn("Before any provider inquiry", procurement["authorization_gate"])
         inquiry = procurement["first_inquiry"]
         self.assertEqual(inquiry["provider"], "Kaiko")
