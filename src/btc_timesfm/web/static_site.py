@@ -156,8 +156,10 @@ def _edge_summary(
             "matured_rows": report["matured_rows"],
             "paired_samples": report["paired_samples"],
             "by_horizon": report["by_dimension"]["horizon"],
-            "by_regime": report["by_dimension"]["regime"],
-            "by_volatility_bucket": report["by_dimension"]["volatility_bucket"],
+            "by_regime_by_horizon": report["by_dimension"]["regime_by_horizon"],
+            "by_volatility_bucket_by_horizon": report["by_dimension"][
+                "volatility_bucket_by_horizon"
+            ],
         }
     return {
         "low_sample_threshold": low_sample_threshold,
@@ -498,6 +500,7 @@ def _render_edge_metrics(metrics: dict[str, Any]) -> str:
     ci = metrics.get("confidence_interval")
     lower = _safe_float(ci.get("lower")) if isinstance(ci, dict) else None
     upper = _safe_float(ci.get("upper")) if isinstance(ci, dict) else None
+    bootstrap = metrics.get("bootstrap") if isinstance(metrics.get("bootstrap"), dict) else {}
     sign = (
         "positive"
         if delta is not None and delta > 0
@@ -507,6 +510,9 @@ def _render_edge_metrics(metrics: dict[str, Any]) -> str:
     )
     return (
         f"<td>{int(metrics.get('samples') or 0)}</td>"
+        f"<td>{html.escape(str(bootstrap.get('bootstrap_method') or '—'))} / "
+        f"{html.escape(str(bootstrap.get('block_length') or '—'))}; "
+        f"{html.escape(str(bootstrap.get('effective_block_count_proxy', '—')))} effective</td>"
         f'<td class="{sign}">{_pct(delta)}</td>'
         f"<td>[{_pct(lower)}, {_pct(upper)}]</td>"
         f"<td>{html.escape(str(metrics.get('conclusion') or 'inconclusive'))}</td>"
@@ -519,7 +525,9 @@ def _render_edge_rows(segments: dict[str, Any]) -> str:
         if not isinstance(metrics, dict):
             continue
         warning = bool(metrics.get("unstable_or_low_sample"))
-        status = "Inconclusive" if warning else ""
+        status = "Inconclusive" if warning else str(metrics.get("reason") or "")
+        if warning and metrics.get("reason"):
+            status += f" · {metrics['reason']}"
         rows.append(
             f'<tr class="{"low-sample" if warning else ""}">'
             f"<td><strong>{html.escape(str(segment))}</strong></td>"
@@ -537,16 +545,18 @@ def _render_persistence_edge(data: dict[str, Any]) -> str:
     for window in ("7d", "30d", "90d", "all"):
         summary = edge["windows"].get(window, {})
         sections = [("Per horizon", summary.get("by_horizon", {}))]
-        for label, key in (("By regime", "by_regime"), ("By volatility", "by_volatility_bucket")):
-            segments = summary.get(key, {})
-            if segments:
-                sections.append((label, segments))
+        for label, key in (
+            ("Regime by horizon", "by_regime_by_horizon"),
+            ("Volatility by horizon", "by_volatility_bucket_by_horizon"),
+        ):
+            for horizon, segments in summary.get(key, {}).items():
+                sections.append((f"{label} · {horizon}", segments))
         tables = []
         for label, segments in sections:
             tables.append(
                 f"<h3>{html.escape(label)}</h3>"
                 '<div class="table-wrap edge-table" role="region" aria-label="Scrollable persistence comparison results" tabindex="0"><table><thead><tr>'
-                '<th scope="col">Segment</th><th scope="col">Paired samples</th><th scope="col">MAE edge</th><th scope="col">95% CI</th>'
+                '<th scope="col">Segment</th><th scope="col">Paired samples</th><th scope="col">Bootstrap / block length / effective blocks</th><th scope="col">MAE edge</th><th scope="col">95% CI</th>'
                 '<th scope="col">Result</th><th scope="col">Evidence</th></tr></thead>'
                 f"<tbody>{_render_edge_rows(segments)}</tbody></table></div>"
             )

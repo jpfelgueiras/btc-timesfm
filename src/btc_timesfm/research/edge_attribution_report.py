@@ -176,6 +176,10 @@ def _build_pairs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         persistence = by_model.get(PERSISTENCE_MODEL)
         if not ensemble or not persistence:
             continue
+        ensemble_actual = _safe_float(ensemble.get("actual_target_price_usd"))
+        persistence_actual = _safe_float(persistence.get("actual_target_price_usd"))
+        if ensemble_actual is None or ensemble_actual != persistence_actual:
+            continue
         ensemble_error = _safe_float(ensemble.get("absolute_error_pct"))
         persistence_error = _safe_float(persistence.get("absolute_error_pct"))
         if ensemble_error is None or persistence_error is None:
@@ -279,6 +283,31 @@ def _segment_report(
     }
 
 
+def _horizon_segment_report(
+    pairs: list[dict[str, Any]],
+    dimension: str,
+    *,
+    low_sample_threshold: int,
+    min_paired_samples: int,
+    bootstrap_iterations: int,
+) -> dict[str, dict[str, Any]]:
+    by_horizon: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for pair in pairs:
+        by_horizon[pair["segments"]["horizon"]].append(pair)
+    return {
+        horizon: _segment_report(
+            horizon_pairs,
+            dimension,
+            low_sample_threshold=low_sample_threshold,
+            min_paired_samples=min_paired_samples,
+            bootstrap_iterations=bootstrap_iterations,
+        )
+        for horizon, horizon_pairs in sorted(
+            by_horizon.items(), key=lambda item: int(item[0].removesuffix("h"))
+        )
+    }
+
+
 def _monthly_stability(
     pairs: list[dict[str, Any]],
     *,
@@ -332,6 +361,14 @@ def build_report(
     current_time = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     matured_rows = [row for row in rows if row.get("actual_target_price_usd") is not None]
     pairs = _build_pairs(matured_rows)
+    matured_keys: dict[tuple[Any, Any, Any], set[str]] = defaultdict(set)
+    for row in matured_rows:
+        matured_keys[(row.get("origin_at"), row.get("target_at"), row.get("horizon_hours"))].add(
+            str(row.get("model_name"))
+        )
+    unmatched_pair_keys = sum(
+        not {ENSEMBLE_MODEL, PERSISTENCE_MODEL}.issubset(models) for models in matured_keys.values()
+    )
     horizons = sorted(
         {f"{horizon}h" for horizon in DEFAULT_HORIZONS}
         | {pair["segments"]["horizon"] for pair in pairs},
@@ -358,6 +395,20 @@ def build_report(
         )
         for dimension in dimensions
     }
+    by_dimension["regime_by_horizon"] = _horizon_segment_report(
+        pairs,
+        "regime",
+        low_sample_threshold=low_sample_threshold,
+        min_paired_samples=min_paired_samples,
+        bootstrap_iterations=bootstrap_iterations,
+    )
+    by_dimension["volatility_bucket_by_horizon"] = _horizon_segment_report(
+        pairs,
+        "volatility_bucket",
+        low_sample_threshold=low_sample_threshold,
+        min_paired_samples=min_paired_samples,
+        bootstrap_iterations=bootstrap_iterations,
+    )
     for horizon in horizons:
         by_dimension["horizon"].setdefault(
             horizon,
@@ -375,6 +426,7 @@ def build_report(
         "baseline_model": PERSISTENCE_MODEL,
         "matured_rows": len(matured_rows),
         "paired_samples": len(pairs),
+        "unmatched_matured_pair_keys": unmatched_pair_keys,
         "low_sample_threshold": low_sample_threshold,
         "min_paired_samples": min_paired_samples,
         "horizons": horizons,
@@ -446,6 +498,8 @@ def render_markdown(report: dict[str, Any]) -> str:
     )
 
     for dimension, segments in report["by_dimension"].items():
+        if dimension in {"regime_by_horizon", "volatility_bucket_by_horizon"}:
+            continue
         lines.extend(
             [
                 "",
