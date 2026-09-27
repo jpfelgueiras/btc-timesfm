@@ -107,6 +107,8 @@ for matured ensemble and persistence rows is shown as counts only; when it
 cannot be established it is marked unavailable. Feature version is taken from
 explicit feature-set provenance and otherwise marked unknown; a configuration
 identifier is not treated as feature provenance.
+Feature-provenance counts include valid and missing-feature origins separately;
+rows without explicit provenance contribute to an `unknown` class.
 
 These summaries validate the feature distribution and existing labels; they
 are descriptive only. Candidate cutpoints must be preregistered and estimated

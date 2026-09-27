@@ -155,10 +155,23 @@ class PerformanceDashboardTests(unittest.TestCase):
         self.assertEqual(first["forecast_weighting"], "not permitted")
 
     def test_volatility_audit_reports_unavailable_feature_explicitly(self) -> None:
-        audit = build_report([], now=NOW)["volatility_bucket_audit"]
+        missing = row(
+            origin_at="2026-09-05T18:00:00+00:00",
+            model="ensemble",
+            horizon=2,
+            regime="range",
+            mae=1.0,
+            bias=0.0,
+            direction=1,
+            coverage=1,
+        )
+        missing["configuration_id"] = "not-feature-provenance"
+        audit = build_report([missing], now=NOW)["volatility_bucket_audit"]
         self.assertEqual(audit["status"], "unavailable")
         self.assertEqual(audit["fixed_labels"]["counts"], "unavailable")
-        self.assertEqual(audit["feature_classes"]["unknown"]["status"], "unavailable")
+        unknown = audit["feature_classes"]["unknown"]
+        self.assertEqual(unknown["status"], "unknown")
+        self.assertEqual(unknown["missing_feature_count"], 1)
 
     def test_volatility_audit_has_per_horizon_coverage_and_exact_pair_support(self) -> None:
         origin = "2026-09-05T18:00:00+00:00"
@@ -177,7 +190,17 @@ class PerformanceDashboardTests(unittest.TestCase):
             target_at="2026-09-05T20:00:00+00:00",
         )
         persistence = dict(ensemble, model_name="persistence", absolute_error_pct=2.0)
-        report = build_report([ensemble, persistence], now=NOW)
+        second_ensemble = dict(
+            ensemble,
+            target_at="2026-09-05T21:00:00+00:00",
+            absolute_error_pct=1.5,
+        )
+        second_persistence = dict(
+            persistence,
+            target_at="2026-09-05T21:00:00+00:00",
+            absolute_error_pct=2.5,
+        )
+        report = build_report([ensemble, persistence, second_ensemble, second_persistence], now=NOW)
         audit = report["volatility_bucket_audit"]["by_horizon"]["2h"]
 
         self.assertEqual(audit["origin_count"], 1)
@@ -187,13 +210,16 @@ class PerformanceDashboardTests(unittest.TestCase):
         self.assertEqual(audit["all_origin_date_coverage"]["distinct_dates"], 1)
         self.assertEqual(audit["valid_feature_date_coverage"]["distinct_dates"], 1)
         support = audit["exact_origin_horizon_pair_support"]
-        self.assertEqual(support["pair_count"], 1)
-        self.assertEqual(support["by_volatility_bucket"]["high"], 1)
+        self.assertEqual(support["pair_count"], 2)
+        self.assertEqual(support["by_volatility_bucket"]["high"], 2)
         self.assertFalse(support["inferential_comparison_performed"])
         markdown = render_markdown(report)
         self.assertIn("Per-horizon support", markdown)
         self.assertIn("exact paired support=", markdown)
         self.assertIn("diagnostic only", markdown)
+        html = render_html(report)
+        self.assertIn("All-origin date coverage:", html)
+        self.assertIn("Valid-feature date coverage:", html)
 
     def test_future_origin_feature_mutation_does_not_change_past_bucket(self) -> None:
         earlier = row(

@@ -314,9 +314,14 @@ def _volatility_audit(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
         all_origins = [key[1] for key in keys]
         valid_origins = [key[1] for key in valid]
-        feature_classes: dict[str, int] = defaultdict(int)
-        for key in valid:
-            feature_classes[versions[key]] += 1
+        feature_classes: dict[str, dict[str, int]] = defaultdict(
+            lambda: {"origin_count": 0, "valid_feature_count": 0, "missing_feature_count": 0}
+        )
+        for key in keys:
+            feature_classes[versions[key]]["origin_count"] += 1
+            feature_classes[versions[key]][
+                "valid_feature_count" if key in values else "missing_feature_count"
+            ] += 1
         return {
             "status": "available" if valid else "unavailable",
             "origin_count": len(keys),
@@ -333,9 +338,9 @@ def _volatility_audit(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "feature_classes": {
                 version: {
                     "status": "available" if version != "unknown" else "unknown",
-                    "count": count,
+                    **counts,
                 }
-                for version, count in sorted(feature_classes.items())
+                for version, counts in sorted(feature_classes.items())
             }
             or {"unknown": {"status": "unavailable", "count": 0}},
         }
@@ -362,8 +367,8 @@ def _volatility_audit(rows: list[dict[str, Any]]) -> dict[str, Any]:
         except (KeyError, TypeError, ValueError):
             continue
         grouped[pair_key][str(row.get("model_name"))] = row
-    pair_keys: set[tuple[int, str]] = set()
-    for (horizon, origin, _), models in grouped.items():
+    pair_keys: set[tuple[int, str, Any]] = set()
+    for (horizon, origin, target_at), models in grouped.items():
         ensemble = models.get(ENSEMBLE_MODEL)
         persistence = models.get("persistence")
         if ensemble is None or persistence is None:
@@ -373,7 +378,7 @@ def _volatility_audit(rows: list[dict[str, Any]]) -> dict[str, Any]:
             or _safe_float(persistence.get("absolute_error_pct")) is None
         ):
             continue
-        pair_keys.add((horizon, origin))
+        pair_keys.add((horizon, origin, target_at))
 
     horizons = sorted({horizon for horizon, _ in origin_rows})
     by_horizon: dict[str, Any] = {}
@@ -382,16 +387,18 @@ def _volatility_audit(rows: list[dict[str, Any]]) -> dict[str, Any]:
         summary = summarize(keys)
         pair_counts = {"low": 0, "medium": 0, "high": 0, "unavailable": 0}
         support_available = False
-        for key in pair_keys:
-            if key[0] != horizon:
+        for pair_key in pair_keys:
+            pair_horizon, pair_origin, _target_at = pair_key
+            if pair_horizon != horizon:
                 continue
             support_available = True
-            pair_counts[bucket(values[key]) if key in values else "unavailable"] += 1
+            origin_key = (pair_horizon, pair_origin)
+            pair_counts[bucket(values[origin_key]) if origin_key in values else "unavailable"] += 1
         summary["exact_origin_horizon_pair_support"] = {
             "status": "available" if support_available else "unavailable",
             "pair_count": sum(pair_counts.values()) if support_available else None,
             "by_volatility_bucket": pair_counts if support_available else "unavailable",
-            "definition": "matured exact origin_at+horizon_hours+target_at keys with valid ensemble and persistence absolute errors; counts only",
+            "definition": "count of distinct matured exact (horizon_hours, origin_at, target_at) keys with valid ensemble and persistence absolute errors; counts only",
             "inferential_comparison_performed": False,
         }
         by_horizon[f"{horizon}h"] = summary
@@ -873,7 +880,8 @@ def render_html(report: dict[str, Any]) -> str:
             f"{int(volatility.get('missing_or_invalid_count', 0))}.</p>"
             f"<p>{html.escape(str(labels.get('meaning', 'unavailable') if isinstance(labels, dict) else 'unavailable'))}. "
             f"Bucket counts: <code>{html.escape(json.dumps(counts, sort_keys=True))}</code>. "
-            f"Origin date coverage: <code>{html.escape(json.dumps(volatility.get('origin_date_coverage', {}), sort_keys=True))}</code>. "
+            f"All-origin date coverage: <code>{html.escape(json.dumps(volatility.get('all_origin_date_coverage', {}), sort_keys=True))}</code>. "
+            f"Valid-feature date coverage: <code>{html.escape(json.dumps(volatility.get('valid_feature_date_coverage', {}), sort_keys=True))}</code>. "
             f"Quantiles (%): <code>{html.escape(json.dumps(volatility.get('quantiles_pct', {}), sort_keys=True))}</code>.</p>"
             f"<p>Per-horizon counts/date coverage/pair support: <code>{html.escape(json.dumps(volatility.get('by_horizon', {}), sort_keys=True))}</code>.</p>"
             "<p>No accuracy claim from short/mixed-version history; no evaluation-derived cutpoints "
