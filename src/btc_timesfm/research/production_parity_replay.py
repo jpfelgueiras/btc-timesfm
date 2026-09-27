@@ -182,22 +182,28 @@ def build_report(corpus_path: Path, ledger_path: Path | None) -> dict[str, Any]:
     if corpus_error:
         blockers.append({"code": "corpus_audit_unreadable", "detail": corpus_error})
     elif not corpus_ready:
-        blockers.append({
-            "code": "canonical_corpus_ineligible",
-            "detail": "Require ready_for_replay plus exact 32,136 target and 4,320 warm-up coverage, zero gaps/duplicates/errors, named USD venue/pair, source hash, and vintage/revision provenance (issue #397).",
-        })
+        blockers.append(
+            {
+                "code": "canonical_corpus_ineligible",
+                "detail": "Require ready_for_replay plus exact 32,136 target and 4,320 warm-up coverage, zero gaps/duplicates/errors, named USD venue/pair, source hash, and vintage/revision provenance (issue #397).",
+            }
+        )
     if ledger_path is None:
-        blockers.append({
-            "code": "prospective_ledger_evidence_missing",
-            "detail": "Export the #398 prospective shadow ledger with exact origins, horizons, policy/configuration identity, failures, and matured actuals; then rerun with --ledger.",
-        })
+        blockers.append(
+            {
+                "code": "prospective_ledger_evidence_missing",
+                "detail": "Export the #398 prospective shadow ledger with exact origins, horizons, policy/configuration identity, failures, and matured actuals; then rerun with --ledger.",
+            }
+        )
     elif ledger_error:
         blockers.append({"code": "prospective_ledger_unreadable", "detail": ledger_error})
     elif (ledger_problem := _ledger_blocker(ledger)) is not None:
-        blockers.append({
-            "code": "prospective_ledger_not_eligible",
-            "detail": ledger_problem,
-        })
+        blockers.append(
+            {
+                "code": "prospective_ledger_not_eligible",
+                "detail": ledger_problem,
+            }
+        )
 
     ready = not blockers
     return {
@@ -210,7 +216,9 @@ def build_report(corpus_path: Path, ledger_path: Path | None) -> dict[str, Any]:
         "metric_status": "not_computed_blocked" if not ready else "replay_not_run",
         "gates": {
             "corpus": "passed" if corpus_ready else "blocked",
-            "eligible_mature_production_policy_evidence": "passed" if ledger is not None and _ledger_blocker(ledger) is None else "blocked",
+            "eligible_mature_production_policy_evidence": "passed"
+            if ledger is not None and _ledger_blocker(ledger) is None
+            else "blocked",
         },
         "evidence": {
             "corpus_audit": {"path": str(corpus_path), "sha256": corpus_hash},
@@ -236,7 +244,12 @@ def build_report(corpus_path: Path, ledger_path: Path | None) -> dict[str, Any]:
             },
         },
         "blockers": blockers,
-        "required_comparisons": ["production_policy", "persistence", "seasonal_naive", "strongest_simple_baseline"],
+        "required_comparisons": [
+            "production_policy",
+            "persistence",
+            "seasonal_naive",
+            "strongest_simple_baseline",
+        ],
         "required_shared_key": ["origin_at", "target_at", "horizon"],
         "required_metrics": ["mae", "bias", "direction_accuracy", "samples", "failures"],
         "stratification": ["horizon", "regime"],
@@ -244,7 +257,15 @@ def build_report(corpus_path: Path, ledger_path: Path | None) -> dict[str, Any]:
             "dependence_aware_uncertainty": "moving-block paired resampling over exact shared keys",
             "multiplicity": "predeclared family-wise adjustment across all comparisons and strata",
         },
-        "replay_manifest_required": ["corpus_sha256", "ledger_sha256", "policy_id", "configuration", "code_revision", "command", "evaluation_cutoff"],
+        "replay_manifest_required": [
+            "corpus_sha256",
+            "ledger_sha256",
+            "policy_id",
+            "configuration",
+            "code_revision",
+            "command",
+            "evaluation_cutoff",
+        ],
         "next_action": "Resolve blockers, preserve immutable evidence and hashes, then rerun this audit before executing replay.",
     }
 

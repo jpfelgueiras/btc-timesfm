@@ -59,7 +59,9 @@ def shadow_status(**evidence_updates: Any) -> dict[str, Any]:
 
 
 class ProductionParityReplayTests(unittest.TestCase):
-    def _report(self, corpus: dict[str, Any], ledger: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _report(
+        self, corpus: dict[str, Any], ledger: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             corpus_path = root / "corpus.json"
