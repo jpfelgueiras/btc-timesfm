@@ -7,8 +7,12 @@ import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from btc_timesfm._requests import requests
-from btc_timesfm.data.derivatives_signals import (
+from tests.support.unit_test_stubs import install_timesfm_stub
+
+install_timesfm_stub()
+
+from btc_timesfm._requests import requests  # noqa: E402
+from btc_timesfm.data.derivatives_signals import (  # noqa: E402
     DERIVATIVE_FEATURE_NAMES,
     fetch_derivatives_history,
     snapshot_from_rows,
@@ -32,6 +36,9 @@ class DerivativesSignalTests(unittest.TestCase):
     def setUp(self) -> None:
         self.origin = datetime(2026, 9, 6, 8, tzinfo=timezone.utc)
         self.origin_s = int(self.origin.timestamp())
+
+    def test_request_stub_exposes_http_error(self) -> None:
+        self.assertTrue(issubclass(requests.HTTPError, requests.RequestException))
 
     def test_future_rows_are_ignored_before_feature_derivation(self) -> None:
         funding = [

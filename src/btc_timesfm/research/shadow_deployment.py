@@ -24,12 +24,12 @@ import argparse
 import hashlib
 import json
 import math
-import shutil
 import sqlite3
 import sys
+import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Mapping, TextIO
 
@@ -44,7 +44,7 @@ from btc_timesfm.forecasting.statistical_significance import (
 from btc_timesfm.research.champion_challenger import configuration_manifest
 
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 6
 SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 SHADOW_REPORT_VERSION = 1
 SHADOW_POLICY_VERSION = 1
@@ -116,6 +116,10 @@ def _canonical_json(value: object) -> str:
 
 def _sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _failure_attempt_id(configuration_id: Any, origin_at: Any, stage: str) -> str:
+    return _sha256_text(_canonical_json([configuration_id, origin_at, stage]))
 
 
 def _utc_now_iso() -> str:
@@ -279,9 +283,86 @@ def _migration_2_monitoring_audit(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migration_3_provenance(connection: sqlite3.Connection) -> None:
+    columns = {
+        str(row[1]) for row in connection.execute("PRAGMA table_info(shadow_forecasts)").fetchall()
+    }
+    if "provenance_json" not in columns:
+        connection.execute("ALTER TABLE shadow_forecasts ADD COLUMN provenance_json TEXT")
+
+
+def _migration_4_failure_attempts(connection: sqlite3.Connection) -> None:
+    columns = {
+        str(row[1]) for row in connection.execute("PRAGMA table_info(shadow_failures)").fetchall()
+    }
+    if "attempt_id" not in columns:
+        connection.execute("ALTER TABLE shadow_failures ADD COLUMN attempt_id TEXT")
+    if "expected_horizons_json" not in columns:
+        connection.execute("ALTER TABLE shadow_failures ADD COLUMN expected_horizons_json TEXT")
+    rows = connection.execute(
+        "SELECT rowid, configuration_id, origin_at, stage FROM shadow_failures WHERE attempt_id IS NULL"
+    ).fetchall()
+    for row in rows:
+        attempt_id = _failure_attempt_id(row["configuration_id"], row["origin_at"], row["stage"])
+        connection.execute(
+            "UPDATE shadow_failures SET attempt_id = ?, expected_horizons_json = ? WHERE rowid = ?",
+            (attempt_id, _canonical_json(list(HORIZONS)), row["rowid"]),
+        )
+
+
+def _migration_5_distinct_legacy_attempts(connection: sqlite3.Connection) -> None:
+    rows = connection.execute("SELECT rowid FROM shadow_failures ORDER BY rowid").fetchall()
+    for row in rows:
+        connection.execute(
+            "UPDATE shadow_failures SET attempt_id = ? WHERE rowid = ?",
+            (f"legacy-attempt-{row['rowid']}", row["rowid"]),
+        )
+
+
+def _migration_6_failure_attempt_key(connection: sqlite3.Connection) -> None:
+    connection.execute("DROP INDEX IF EXISTS idx_shadow_failures_observed_at")
+    connection.execute("ALTER TABLE shadow_failures RENAME TO shadow_failures_v5")
+    connection.execute(
+        """
+        CREATE TABLE shadow_failures (
+            configuration_id TEXT,
+            origin_at TEXT,
+            stage TEXT NOT NULL,
+            error_type TEXT NOT NULL,
+            message TEXT NOT NULL,
+            observed_at TEXT NOT NULL,
+            attempt_id TEXT NOT NULL,
+            expected_horizons_json TEXT NOT NULL,
+            PRIMARY KEY (configuration_id, origin_at, stage, attempt_id, error_type, message),
+            FOREIGN KEY (configuration_id)
+                REFERENCES configurations(configuration_id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO shadow_failures(
+            configuration_id, origin_at, stage, error_type, message, observed_at,
+            attempt_id, expected_horizons_json
+        )
+        SELECT configuration_id, origin_at, stage, error_type, message, observed_at,
+               attempt_id, expected_horizons_json
+        FROM shadow_failures_v5
+        """
+    )
+    connection.execute("DROP TABLE shadow_failures_v5")
+    connection.execute(
+        "CREATE INDEX idx_shadow_failures_observed_at ON shadow_failures(observed_at)"
+    )
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial_shadow_store", _migration_1_initial_shadow_store),
     Migration(2, "monitoring_audit", _migration_2_monitoring_audit),
+    Migration(3, "prospective_provenance", _migration_3_provenance),
+    Migration(4, "failure_attempt_coverage", _migration_4_failure_attempts),
+    Migration(5, "distinct_legacy_failure_attempts", _migration_5_distinct_legacy_attempts),
+    Migration(6, "failure_attempt_primary_key", _migration_6_failure_attempt_key),
 )
 
 
@@ -328,6 +409,17 @@ def _set_version(connection: sqlite3.Connection, migration: Migration) -> None:
 
 def migration_backup_path(path: Path, source_version: int) -> Path:
     return path.with_name(f"{path.name}.pre-migration-v{source_version}.bak")
+
+
+def _backup_database(source_path: Path, destination_path: Path) -> None:
+    """Take a consistent SQLite snapshot, including committed WAL frames."""
+    source = sqlite3.connect(source_path)
+    destination = sqlite3.connect(destination_path)
+    try:
+        source.backup(destination)
+    finally:
+        destination.close()
+        source.close()
 
 
 def _remove_sqlite_sidecars(path: Path) -> None:
@@ -451,7 +543,7 @@ def migrate_database(
     backup: Path | None = None
     if source_version < target_version and existed:
         backup = migration_backup_path(db_path, source_version)
-        shutil.copy2(db_path, backup)
+        _backup_database(db_path, backup)
 
     if source_version == target_version:
         return validate_database(db_path, target_version)
@@ -461,7 +553,6 @@ def migrate_database(
         try:
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA foreign_keys = ON")
-            connection.execute("PRAGMA journal_mode = DELETE")
             connection.execute("BEGIN IMMEDIATE")
             for migration in ordered:
                 if migration.version <= source_version:
@@ -480,12 +571,11 @@ def migrate_database(
             result["migration_backup"] = str(backup)
         return result
     except Exception:
-        _remove_sqlite_sidecars(db_path)
         if backup is not None and backup.exists():
-            shutil.copy2(backup, db_path)
+            _backup_database(backup, db_path)
         elif not existed and db_path.exists():
             db_path.unlink()
-        _remove_sqlite_sidecars(db_path)
+            _remove_sqlite_sidecars(db_path)
         raise
 
 
@@ -636,6 +726,7 @@ class ShadowStore:
         record["model_predictions"] = _loads_optional(record.get("model_predictions")) or {}
         record["model_weights"] = _loads_optional(record.get("model_weights")) or {}
         record["predictions"] = _loads_optional(record.get("predictions")) or {}
+        record["provenance"] = _loads_optional(record.get("provenance_json")) or {}
         return record
 
     def record_forecast(
@@ -651,6 +742,7 @@ class ShadowStore:
         predictions: Mapping[str, Any],
         forecast_sha256: str,
         data_lineage_id: str | None = None,
+        provenance: Mapping[str, Any] | None = None,
         created_at: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
         """Persist one shadow forecast idempotently keyed by (config, origin)."""
@@ -665,8 +757,8 @@ class ShadowStore:
                 INSERT OR IGNORE INTO shadow_forecasts(
                     configuration_id, origin_at, latest_close_at, latest_close_usd,
                     regime, model_predictions, model_weights, predictions,
-                    forecast_sha256, data_lineage_id, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    forecast_sha256, data_lineage_id, provenance_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     configuration_id,
@@ -679,6 +771,7 @@ class ShadowStore:
                     _canonical_json(dict(predictions)),
                     forecast_sha256,
                     data_lineage_id,
+                    _canonical_json(dict(provenance or {})),
                     created,
                 ),
             )
@@ -688,6 +781,134 @@ class ShadowStore:
                 (configuration_id, origin_at),
             ).fetchone()
         return self._decode_forecast(row), created_flag
+
+    def evidence_report(self) -> dict[str, Any]:
+        """Summarize prospective coverage; legacy rows without provenance are excluded."""
+        forecasts = self.load_forecasts()
+        outcomes = self.load_outcomes()
+        configurations = {item["configuration_id"]: item for item in self.list_configurations()}
+        outcome_keys = {
+            (row["configuration_id"], row["origin_at"], row["horizon"]): row for row in outcomes
+        }
+        expected = matured = 0
+        missing_by_horizon = {horizon: 0 for horizon in HORIZONS}
+        versions: dict[str, int] = {}
+        eligible = 0
+        confirmatory_keys: set[tuple[str, str, str]] = set()
+        for forecast in forecasts:
+            provenance = forecast.get("provenance") or {}
+            manifest = (
+                provenance.get("experiment_manifest") if isinstance(provenance, dict) else None
+            )
+            model = manifest.get("model") if isinstance(manifest, dict) else None
+            code = manifest.get("code") if isinstance(manifest, dict) else None
+            config = manifest.get("configuration") if isinstance(manifest, dict) else None
+            data = manifest.get("data") if isinstance(manifest, dict) else None
+            row_configuration = (
+                provenance.get("row_configuration") if isinstance(provenance, dict) else None
+            )
+            registered = configurations.get(forecast["configuration_id"])
+            expected_row_configuration = (
+                configuration_manifest(
+                    {"name": registered["name"], "parameters": registered["parameters"]},
+                    str(registered["role"]),
+                )
+                if registered is not None
+                else None
+            )
+            valid_provenance = (
+                isinstance(provenance, dict)
+                and provenance.get("ledger_version") == 1
+                and bool(str(forecast.get("data_lineage_id") or "").strip())
+                and isinstance(data, dict)
+                and manifest.get("data_id") == forecast.get("data_lineage_id")
+                and provenance.get("configuration_id") == forecast["configuration_id"]
+                and row_configuration == expected_row_configuration
+                and bool(str(provenance.get("policy_id") or "").strip())
+                and isinstance(manifest, dict)
+                and bool(str(manifest.get("configuration_id") or "").strip())
+                and isinstance(model, dict)
+                and all(
+                    str(model.get(key) or "").strip()
+                    for key in ("id", "revision", "package", "package_version")
+                )
+                and isinstance(code, dict)
+                and bool(str(code.get("git_sha") or "").strip())
+                and isinstance(config, dict)
+                and bool(config)
+            )
+            if not valid_provenance:
+                continue
+            eligible += 1
+            version = str(provenance["ledger_version"])
+            versions[version] = versions.get(version, 0) + 1
+            for horizon in HORIZONS:
+                expected += 1
+                key = (forecast["configuration_id"], forecast["origin_at"], horizon)
+                confirmatory_keys.add(key)
+                prediction = forecast["predictions"].get(horizon)
+                outcome = outcome_keys.get(key)
+                exact_target = False
+                if outcome is not None:
+                    target = _parse_utc(str(forecast["origin_at"])) + timedelta(
+                        hours=int(horizon[:-1])
+                    )
+                    try:
+                        exact_target = _parse_utc(str(outcome["actual_at"])) == target
+                    except (TypeError, ValueError):
+                        exact_target = False
+                if (
+                    isinstance(prediction, dict)
+                    and prediction.get("price_usd") is not None
+                    and exact_target
+                ):
+                    matured += 1
+                else:
+                    missing_by_horizon[horizon] += 1
+        with self._connect() as connection:
+            failure_rows = connection.execute(
+                "SELECT * FROM shadow_failures ORDER BY observed_at, rowid"
+            ).fetchall()
+        attempts: dict[tuple[str, str, str], set[str]] = {}
+        failed_pairs = 0
+        for row in failure_rows:
+            config_id = row["configuration_id"]
+            origin_at = row["origin_at"]
+            attempt_id = row["attempt_id"] or _failure_attempt_id(
+                config_id, origin_at, str(row["stage"])
+            )
+            attempt_key = (str(config_id or ""), str(origin_at or ""), str(attempt_id))
+            try:
+                failed_horizons = _loads_optional(row["expected_horizons_json"]) or list(HORIZONS)
+                if not isinstance(failed_horizons, list):
+                    failed_horizons = list(HORIZONS)
+            except (TypeError, ValueError):
+                continue
+            attempts.setdefault(attempt_key, set()).update(
+                str(horizon) for horizon in failed_horizons if str(horizon) in HORIZONS
+            )
+        failures = len(attempts)
+        for config_id, origin_at, attempt_id in sorted(attempts):
+            if not config_id or not origin_at:
+                continue
+            for horizon in sorted(attempts[(config_id, origin_at, attempt_id)]):
+                expected += 1
+                failed_pairs += 1
+                missing_by_horizon[horizon] += 1
+        return {
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "forecast_schema_version": 1,
+            "forecasts_total": len(forecasts),
+            "confirmatory_forecasts": eligible,
+            "legacy_or_unversioned_forecasts_excluded": len(forecasts) - eligible,
+            "expected_pairs": expected,
+            "matured_pairs": matured,
+            "maturity_fraction": matured / expected if expected else None,
+            "missing_pairs_by_horizon": missing_by_horizon,
+            "failures": failures,
+            "failed_attempt_pairs": failed_pairs,
+            "forecast_versions": versions,
+        }
 
     def load_forecasts(self, configuration_id: str | None = None) -> list[dict[str, Any]]:
         if configuration_id is None:
@@ -770,18 +991,28 @@ class ShadowStore:
         error: Exception,
         configuration_id: str | None = None,
         origin_at: str | None = None,
+        expected_horizons: Iterable[str] = HORIZONS,
+        attempt_id: str | None = None,
         observed_at: str | None = None,
     ) -> bool:
         if not stage:
             raise ValueError("stage must be a non-empty string")
         if configuration_id is not None:
             self.get_configuration(configuration_id)
+        horizons = sorted(set(expected_horizons))
+        invalid_horizons = sorted(set(horizons) - set(HORIZONS))
+        if invalid_horizons:
+            raise ValueError(f"unsupported expected horizons: {invalid_horizons}")
+        if attempt_id is not None and not attempt_id.strip():
+            raise ValueError("attempt_id must be a non-empty string when supplied")
+        attempt = attempt_id if attempt_id is not None else uuid.uuid4().hex
         with self._connect() as connection:
             cursor = connection.execute(
                 """
                 INSERT OR IGNORE INTO shadow_failures(
-                    configuration_id, origin_at, stage, error_type, message, observed_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    configuration_id, origin_at, stage, error_type, message, observed_at,
+                    attempt_id, expected_horizons_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     configuration_id,
@@ -790,6 +1021,8 @@ class ShadowStore:
                     type(error).__name__,
                     str(error),
                     observed_at or _utc_now_iso(),
+                    attempt,
+                    _canonical_json(horizons),
                 ),
             )
         return cursor.rowcount > 0
@@ -1087,11 +1320,16 @@ def _evaluate_series(
             # shadow_outcomes; never pair merely by origin when maturity differs.
             challenger_target = challenger_outcome.get("actual_at")
             champion_target = champion_outcome.get("actual_at")
-            if (
-                not challenger_target
-                or not champion_target
-                or _parse_utc(str(challenger_target)) != _parse_utc(str(champion_target))
-            ):
+            try:
+                expected_target = _parse_utc(origin_at) + timedelta(hours=int(horizon[:-1]))
+                if (
+                    not challenger_target
+                    or not champion_target
+                    or _parse_utc(str(challenger_target)) != expected_target
+                    or _parse_utc(str(champion_target)) != expected_target
+                ):
+                    continue
+            except (TypeError, ValueError):
                 continue
             try:
                 challenger_actual = float(challenger_outcome["actual_price_usd"])
@@ -1496,6 +1734,16 @@ def run_shadow(
         predictions=predictions,
         forecast_sha256=_forecast_sha256(origin_at, predictions),
         data_lineage_id=data_lineage_id,
+        provenance={
+            "ledger_version": 1,
+            "experiment_manifest": manifest,
+            "configuration_id": champion_configuration_id,
+            "row_configuration": configuration_manifest(
+                {"name": champion_record["name"], "parameters": champion_record["parameters"]},
+                str(champion_record["role"]),
+            ),
+            "policy_id": shadow_policy_identity(ShadowPolicy()),
+        },
         created_at=generated_at,
     )
 
@@ -1546,6 +1794,16 @@ def run_shadow(
                 predictions=challenger_predictions_value,
                 forecast_sha256=_forecast_sha256(origin_at, challenger_predictions_value),
                 data_lineage_id=data_lineage_id,
+                provenance={
+                    "ledger_version": 1,
+                    "experiment_manifest": manifest,
+                    "configuration_id": configuration_id,
+                    "row_configuration": configuration_manifest(
+                        {"name": record["name"], "parameters": record["parameters"]},
+                        str(record["role"]),
+                    ),
+                    "policy_id": shadow_policy_identity(ShadowPolicy()),
+                },
                 created_at=generated_at,
             )
             challenger_results.append(
@@ -1638,6 +1896,7 @@ def build_shadow_status(
         "champion": champion,
         "challengers": evaluations,
         "statistics": store.stats(),
+        "evidence": store.evidence_report(),
     }
 
 
@@ -1655,11 +1914,9 @@ def render_summary(status: Mapping[str, Any]) -> str:
     if isinstance(statistics, dict):
         shadow_forecasts = int(statistics.get("shadow_forecasts", 0))
         matured_outcomes = int(statistics.get("matured_outcomes", 0))
-        per_origin = int(champion.get("shadow_forecasts", 0)) if champion else 0
     else:
         shadow_forecasts = 0
         matured_outcomes = 0
-        per_origin = 0
 
     lines = [
         "# Shadow deployment",
@@ -1669,11 +1926,32 @@ def render_summary(status: Mapping[str, Any]) -> str:
         if champion
         else "- Champion: **none registered**",
         f"- Persisted shadow forecasts: **{shadow_forecasts}**",
-        f"- Matured outcomes: **{matured_outcomes}** (across **{per_origin}** champion origins)",
-        "",
-        "## Challengers",
-        "",
+        f"- Matured outcomes in store: **{matured_outcomes}** (all configurations and horizons)",
     ]
+    evidence = status.get("evidence")
+    if isinstance(evidence, dict):
+        lines.extend(
+            [
+                "",
+                "## Prospective evidence ledger",
+                "",
+                f"- Confirmatory forecasts: **{_fmt(evidence.get('confirmatory_forecasts'), 0)}**; "
+                f"legacy/unversioned excluded: **{_fmt(evidence.get('legacy_or_unversioned_forecasts_excluded'), 0)}**",
+                f"- Matured target pairs: **{_fmt(evidence.get('matured_pairs'), 0)} / "
+                f"{_fmt(evidence.get('expected_pairs'), 0)}** "
+                f"({_fmt((evidence.get('maturity_fraction') or 0) * 100, 1)}%); "
+                f"failures: **{_fmt(evidence.get('failures'), 0)}** "
+                f"({_fmt(evidence.get('failed_attempt_pairs'), 0)} failed pairs)",
+                f"- Forecast schema versions: `{_canonical_json(evidence.get('forecast_versions', {}))}`",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            "## Challengers",
+            "",
+        ]
+    )
     evaluations = status.get("challengers")
     if isinstance(evaluations, list) and evaluations:
         lines.extend(

@@ -22,10 +22,14 @@ def install_timesfm_stub() -> None:
         class RequestException(Exception):
             pass
 
+        class HTTPError(RequestException):
+            pass
+
         def get(*args: Any, **kwargs: Any) -> Any:
             raise RequestException("requests is stubbed in unit tests")
 
         requests_module.RequestException = RequestException
+        requests_module.HTTPError = HTTPError
         requests_module.get = get
         sys.modules["requests"] = requests_module
 

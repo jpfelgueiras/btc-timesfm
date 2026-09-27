@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import copy
+import json
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -13,8 +15,13 @@ from typing import Any
 from btc_timesfm.research.shadow_deployment import (
     ShadowPolicy,
     ShadowStore,
+    MIGRATIONS,
+    Migration,
     _evaluate_series,
     build_shadow_status,
+    configuration_manifest,
+    migrate_database,
+    migration_backup_path,
     render_summary,
     run_shadow,
     shadow_policy_identity,
@@ -60,7 +67,16 @@ def _production_snapshot(index: int, *, price: float, offset: float = 6.0) -> di
     return {
         "generated_at": origin_at,
         "experiment_manifest": {
+            "configuration_id": f"cfg-test-{index}",
             "data_id": f"data-test-{index}",
+            "model": {
+                "id": "timesfm-test",
+                "revision": "revision-test",
+                "package": "timesfm",
+                "package_version": "1.0",
+            },
+            "code": {"git_sha": "code-test"},
+            "configuration": {"forecast": {"context_hours": 512}},
             "data": {"latest_close_at": origin_at},
         },
         "latest_close_at": origin_at,
@@ -177,12 +193,147 @@ class ShadowDeploymentTests(unittest.TestCase):
 
         challenger_id = first["challengers"][0]["configuration_id"]
         self.assertNotEqual(challenger_id, champion_id)
+        challenger_row = self.store.load_forecasts(challenger_id)[0]
+        self.assertEqual(
+            challenger_row["provenance"]["row_configuration"]["configuration_id"],
+            challenger_id,
+        )
+        self.assertEqual(self.store.evidence_report()["confirmatory_forecasts"], 2)
+        champion_identity = self.store.load_forecasts(champion_id)[0]["provenance"][
+            "row_configuration"
+        ]
+        challenger_provenance = challenger_row["provenance"]
+        challenger_provenance["row_configuration"] = champion_identity
+        with sqlite3.connect(self.db_path) as connection:
+            connection.execute(
+                "UPDATE shadow_forecasts SET provenance_json = ? WHERE configuration_id = ?",
+                (json.dumps(challenger_provenance), challenger_id),
+            )
+        self.assertEqual(self.store.evidence_report()["confirmatory_forecasts"], 1)
         self.assertTrue(first["challengers"][0]["challenger_persisted"])
 
         second = run_shadow(self.store, production, actuals, configs=configs)
         self.assertEqual(second["shadow_champion"]["persisted"], False)
         self.assertEqual(second["challengers"][0]["challenger_persisted"], False)
         self.assertEqual(self.store.count_forecasts(), 2)
+
+    def test_evidence_report_excludes_unversioned_rows_and_tracks_maturity(self) -> None:
+        champion = self._register_champion()
+        origin = _iso(_origin_timestamp(0))
+        predictions = _production_predictions(100.0, 1.0)
+        self.store.record_forecast(
+            configuration_id=champion["configuration_id"],
+            origin_at=origin,
+            latest_close_at=origin,
+            latest_close_usd=100.0,
+            regime="range",
+            model_predictions={},
+            model_weights={},
+            predictions=predictions,
+            forecast_sha256="ledger-test",
+            data_lineage_id="lineage-1",
+            provenance={
+                "ledger_version": 1,
+                "configuration_id": champion["configuration_id"],
+                "row_configuration": configuration_manifest(
+                    {"name": champion["name"], "parameters": champion["parameters"]},
+                    champion["role"],
+                ),
+                "policy_id": "policy-x",
+                "experiment_manifest": {
+                    "configuration_id": "cfg-manifest",
+                    "data_id": "lineage-1",
+                    "model": {
+                        "id": "timesfm",
+                        "revision": "rev",
+                        "package": "timesfm",
+                        "package_version": "1.0",
+                    },
+                    "code": {"git_sha": "abc"},
+                    "configuration": {"forecast": {"model": "timesfm"}},
+                    "data": {"ohlcv_sha256": "hash"},
+                },
+            },
+        )
+        legacy = self._register_challenger()
+        _record_static(self.store, legacy["configuration_id"], 0, price_by_horizon={"2h": 101.0})
+        report = self.store.evidence_report()
+        self.assertEqual(report["confirmatory_forecasts"], 1)
+        self.assertEqual(report["legacy_or_unversioned_forecasts_excluded"], 1)
+        self.assertEqual(report["expected_pairs"], 4)
+        self.assertEqual(report["matured_pairs"], 0)
+        timestamp = _origin_timestamp(0)
+        self.store.mature_outcomes({timestamp + hour * 3600: 101.0 for hour in HOURS})
+        report = self.store.evidence_report()
+        self.assertEqual(report["matured_pairs"], 4)
+
+    def test_evidence_report_rejects_incomplete_provenance(self) -> None:
+        champion = self._register_champion()
+        origin = _iso(_origin_timestamp(0))
+        self.store.record_forecast(
+            configuration_id=champion["configuration_id"],
+            origin_at=origin,
+            latest_close_at=origin,
+            latest_close_usd=100.0,
+            regime="range",
+            model_predictions={},
+            model_weights={},
+            predictions=_production_predictions(100.0, 1.0),
+            forecast_sha256="incomplete-provenance",
+            data_lineage_id="lineage-1",
+            provenance={"ledger_version": 1, "configuration_id": champion["configuration_id"]},
+        )
+        report = self.store.evidence_report()
+        self.assertEqual(report["confirmatory_forecasts"], 0)
+        self.assertEqual(report["legacy_or_unversioned_forecasts_excluded"], 1)
+        self.assertEqual(report["expected_pairs"], 0)
+
+    def test_failure_attempts_are_deduplicated_and_count_expected_pairs(self) -> None:
+        challenger = self._register_challenger()
+        origin = _iso(_origin_timestamp(0))
+        self.assertTrue(
+            self.store.record_failure(
+                configuration_id=challenger["configuration_id"],
+                origin_at=origin,
+                stage="prediction",
+                error=RuntimeError("first error"),
+                expected_horizons=("2h", "4h"),
+                attempt_id="attempt-one",
+            )
+        )
+        self.assertTrue(
+            self.store.record_failure(
+                configuration_id=challenger["configuration_id"],
+                origin_at=origin,
+                stage="prediction",
+                error=RuntimeError("different retry error"),
+                expected_horizons=("2h", "4h"),
+                attempt_id="attempt-one",
+            )
+        )
+        self.store.record_failure(
+            configuration_id=challenger["configuration_id"],
+            origin_at=origin,
+            stage="prediction",
+            error=RuntimeError("first error"),
+            expected_horizons=("2h", "4h"),
+            attempt_id="attempt-two",
+        )
+        report = self.store.evidence_report()
+        self.assertEqual(report["failures"], 2)
+        self.assertEqual(report["failed_attempt_pairs"], 4)
+        self.assertEqual(report["expected_pairs"], 4)
+        self.assertEqual(report["maturity_fraction"], 0.0)
+
+    def test_evidence_report_requires_exact_actual_target_timestamp(self) -> None:
+        self.test_evidence_report_excludes_unversioned_rows_and_tracks_maturity()
+        with sqlite3.connect(self.db_path) as connection:
+            connection.execute(
+                "UPDATE shadow_outcomes SET actual_at = ? WHERE horizon = '2h'",
+                (_iso(_origin_timestamp(0) + 3 * 3600),),
+            )
+        report = self.store.evidence_report()
+        self.assertEqual(report["matured_pairs"], 3)
 
     def test_shadow_forecasts_are_persisted_separately_per_configuration(self) -> None:
         challenger = self._register_challenger(name="longer_history")
@@ -401,6 +552,58 @@ class ShadowDeploymentTests(unittest.TestCase):
         self.assertEqual(paired["2h"], 0)
         self.assertEqual(paired["4h"], 1)
         self.assertEqual(significance["paired_samples_by_horizon"], paired)
+        same_wrong_target = {
+            origin: {
+                "2h": {
+                    "actual_at": _iso(_origin_timestamp(0) + 3 * 3600),
+                    "actual_price_usd": 101.0,
+                }
+            }
+        }
+        _, _, _, _, paired_wrong = _evaluate_series(
+            common_origins=[origin],
+            challenger_forecasts=forecasts,
+            champion_forecasts=forecasts,
+            challenger_outcomes=same_wrong_target,
+            champion_outcomes=same_wrong_target,
+            policy=ShadowPolicy(minimum_live_samples=1, minimum_paired_samples_per_horizon=1),
+        )
+        self.assertEqual(paired_wrong["2h"], 0)
+
+    def test_migration_backup_and_rollback_preserve_committed_wal_data(self) -> None:
+        db_path = Path(self.tmp.name) / "wal-shadow.sqlite"
+        migrate_database(db_path, migrations=MIGRATIONS[:-1], target_version=5)
+        connection = sqlite3.connect(db_path)
+        try:
+            connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute(
+                "INSERT OR REPLACE INTO metadata(key, value) VALUES('wal_marker', 'committed')"
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        def fail_migration(_connection) -> None:
+            raise RuntimeError("intentional migration failure")
+
+        migrations = MIGRATIONS[:-1] + (Migration(6, "intentional_failure", fail_migration),)
+        with self.assertRaisesRegex(RuntimeError, "fail"):
+            migrate_database(db_path, migrations=migrations, target_version=6)
+        with sqlite3.connect(db_path) as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT value FROM metadata WHERE key = 'wal_marker'"
+                ).fetchone()[0],
+                "committed",
+            )
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 5)
+        with sqlite3.connect(migration_backup_path(db_path, 5)) as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT value FROM metadata WHERE key = 'wal_marker'"
+                ).fetchone()[0],
+                "committed",
+            )
 
     def test_requirements_are_reported_in_summary(self) -> None:
         self._register_challenger(name="report_runner")
@@ -413,6 +616,11 @@ class ShadowDeploymentTests(unittest.TestCase):
         self.assertIn("# Shadow deployment", summary)
         self.assertIn("blocked", summary)
         self.assertIn(status["policy_id"], summary)
+        self.assertIn("Prospective evidence ledger", summary)
+        self.assertIn("Forecast schema versions", summary)
+        self.assertIn("failed pairs", summary)
+        self.assertIn("Matured outcomes in store", summary)
+        self.assertIn("all configurations and horizons", summary)
 
     # --- maturation idempotency ---------------------------------------------
 
