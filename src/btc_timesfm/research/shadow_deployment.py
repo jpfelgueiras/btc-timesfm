@@ -21,11 +21,14 @@ rollback backups on migration, and bounded append-only tables keyed by
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import math
+import os
 import sqlite3
 import sys
+import tempfile
 import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
@@ -584,6 +587,35 @@ def migrate_database(
             db_path.unlink()
             _remove_sqlite_sidecars(db_path)
         raise
+
+
+def restore_shadow_archive(archive_path: Path | str, database_path: Path | str) -> dict[str, Any]:
+    """Restore and migrate a compressed shadow ledger without replacing it on failure."""
+    archive = Path(archive_path)
+    database = Path(database_path)
+    if not archive.is_file():
+        raise FileNotFoundError(f"established shadow evidence archive is missing: {archive}")
+    database.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="shadow-evidence-restore-", dir=database.parent) as tmp:
+        staged = Path(tmp) / database.name
+        try:
+            with gzip.open(archive, "rb") as source, staged.open("wb") as target:
+                while chunk := source.read(1024 * 1024):
+                    target.write(chunk)
+        except (OSError, EOFError) as exc:
+            raise RuntimeError("shadow evidence archive cannot be decompressed") from exc
+        migration = migrate_database(staged)
+        verification = validate_database(staged)
+        os.replace(staged, database)
+    return {"restored_to": str(database), "migration": migration, "verification": verification}
+
+
+def initialize_first_shadow_store(database_path: Path | str) -> dict[str, Any]:
+    """Create the shadow ledger only when the caller established this is first-ever state."""
+    database = Path(database_path)
+    if database.exists():
+        raise RuntimeError("refusing first-ever shadow initialization over existing database")
+    return ShadowStore(database).verify()
 
 
 class ShadowStore:
@@ -2032,8 +2064,11 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("init")
+    subparsers.add_parser("init-first-run")
     subparsers.add_parser("verify")
     subparsers.add_parser("stats")
+    restore = subparsers.add_parser("restore")
+    restore.add_argument("--archive", type=Path, required=True)
 
     approve = subparsers.add_parser("approve")
     approve.add_argument("--name", required=True)
@@ -2071,6 +2106,12 @@ def main() -> None:
     report.add_argument("--summary", type=Path, default=DEFAULT_SUMMARY_PATH)
 
     args = parser.parse_args()
+    if args.command == "restore":
+        _write_json(restore_shadow_archive(args.archive, args.db))
+        return
+    if args.command == "init-first-run":
+        _write_json(initialize_first_shadow_store(args.db))
+        return
     store = ShadowStore(args.db)
 
     if args.command == "init":

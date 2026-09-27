@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import gzip
 import json
 import sqlite3
 import tempfile
@@ -23,6 +24,7 @@ from btc_timesfm.research.shadow_deployment import (
     migrate_database,
     migration_backup_path,
     render_summary,
+    restore_shadow_archive,
     run_shadow,
     shadow_policy_identity,
     _targets_at,
@@ -173,6 +175,41 @@ class ShadowDeploymentTests(unittest.TestCase):
                 price_by_horizon=challenger_prices,
             )
         self.store.mature_outcomes(_actuals_for(count))
+
+    def test_v5_restore_migrates_to_v6_and_retries_maturity_once_at_exact_utc_targets(self) -> None:
+        legacy_db = Path(self.tmp.name) / "legacy-v5.sqlite"
+        migrate_database(legacy_db, migrations=MIGRATIONS[:-1], target_version=5)
+        archive = Path(self.tmp.name) / "legacy-v5.sqlite.gz"
+        with legacy_db.open("rb") as source, gzip.open(archive, "wb") as target:
+            target.write(source.read())
+
+        restored_db = Path(self.tmp.name) / "restored-shadow.sqlite"
+        restored = restore_shadow_archive(archive, restored_db)
+        self.assertEqual(restored["verification"]["schema_version"], 6)
+        restored_store = ShadowStore(restored_db)
+        production = _production_snapshot(0, price=100.0)
+        actuals = _actuals_for(1)
+        first_run = run_shadow(restored_store, production, actuals, configs=[])
+        retry_run = run_shadow(restored_store, production, actuals, configs=[])
+        self.assertTrue(first_run["shadow_champion"]["persisted"])
+        self.assertFalse(retry_run["shadow_champion"]["persisted"])
+
+        first_maturity = restored_store.mature_outcomes(actuals)
+        duplicate_maturity = restored_store.mature_outcomes(actuals)
+        self.assertEqual(first_maturity["inserted_outcomes"], 4)
+        self.assertEqual(duplicate_maturity["inserted_outcomes"], 0)
+        self.assertEqual(duplicate_maturity["already_matured"], 4)
+        expected_targets = {
+            horizon: _iso(_origin_timestamp(0) + hours * 3600)
+            for horizon, hours in zip(HORIZONS, HOURS)
+        }
+        self.assertEqual(
+            restored_store.load_forecasts()[0]["provenance"]["targets_at"], expected_targets
+        )
+        self.assertEqual(
+            {row["actual_at"] for row in restored_store.load_outcomes()},
+            set(expected_targets.values()),
+        )
 
     # --- shadow run isolation ------------------------------------------------
 

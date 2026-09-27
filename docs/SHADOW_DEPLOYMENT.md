@@ -152,3 +152,10 @@ asset. Reproduction uses the persisted forecast predictions and provenance, not
 a regenerated current configuration. The operational `report` command emits
 coverage/version/maturity evidence for inspection; retention and restore
 procedures follow `HISTORY_BACKUP.md`.
+
+The independent-backup manifest supports both `forecast_history` and
+`shadow_deployment` database types. Production uploads the v6 shadow archive to
+`${HISTORY_INDEPENDENT_BACKUP_URI}.shadow_deployment`; the monitor verifies its
+schema, checksum, row counts, and age, and the recovery drill restores it into
+scratch storage and verifies it without touching production state. Shadow
+recovery receipts are recorded separately from production-history receipts.
