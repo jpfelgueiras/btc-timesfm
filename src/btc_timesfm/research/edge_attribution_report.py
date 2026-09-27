@@ -19,6 +19,9 @@ DEFAULT_LOW_SAMPLE_THRESHOLD = 20
 DEFAULT_MIN_PAIRED_SAMPLES = 32
 DEFAULT_BOOTSTRAP_ITERATIONS = 1000
 PERSISTENCE_MODEL = "persistence"
+REGIME_STRATA = ("range", "trending", "high_volatility", "unknown")
+VOLATILITY_STRATA = ("low", "medium", "high", "unknown")
+ORIGIN_TIME_STRATA = ("00-06", "06-12", "12-18", "18-24", "unknown")
 
 
 def _safe_float(value: Any) -> float | None:
@@ -243,6 +246,7 @@ def _paired_summary(
     unstable = bool(warning) or significance.get("conclusion") == "inconclusive"
     return {
         "samples": samples,
+        "availability": "available" if samples else "unavailable",
         "ensemble_mae_pct": _round(_mean(ensemble_errors)),
         "persistence_mae_pct": _round(_mean(persistence_errors)),
         "mae_delta_pct_points": _round(_mean(mae_delta)),
@@ -291,22 +295,33 @@ def _horizon_segment_report(
     low_sample_threshold: int,
     min_paired_samples: int,
     bootstrap_iterations: int,
+    horizons: list[str],
+    expected_segments: tuple[str, ...],
 ) -> dict[str, dict[str, Any]]:
     by_horizon: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for pair in pairs:
         by_horizon[pair["segments"]["horizon"]].append(pair)
-    return {
-        horizon: _segment_report(
-            horizon_pairs,
+    output: dict[str, dict[str, Any]] = {}
+    for horizon in horizons:
+        segments = _segment_report(
+            by_horizon.get(horizon, []),
             dimension,
             low_sample_threshold=low_sample_threshold,
             min_paired_samples=min_paired_samples,
             bootstrap_iterations=bootstrap_iterations,
         )
-        for horizon, horizon_pairs in sorted(
-            by_horizon.items(), key=lambda item: int(item[0].removesuffix("h"))
-        )
-    }
+        for segment in expected_segments:
+            segments.setdefault(
+                segment,
+                _paired_summary(
+                    [],
+                    low_sample_threshold=low_sample_threshold,
+                    min_paired_samples=min_paired_samples,
+                    bootstrap_iterations=bootstrap_iterations,
+                ),
+            )
+        output[horizon] = segments
+    return output
 
 
 def _pairing_diagnostics(rows: list[dict[str, Any]], current_time: datetime) -> dict[str, Any]:
@@ -460,6 +475,8 @@ def build_report(
         low_sample_threshold=low_sample_threshold,
         min_paired_samples=min_paired_samples,
         bootstrap_iterations=bootstrap_iterations,
+        horizons=horizons,
+        expected_segments=REGIME_STRATA,
     )
     by_dimension["volatility_bucket_by_horizon"] = _horizon_segment_report(
         pairs,
@@ -467,6 +484,8 @@ def build_report(
         low_sample_threshold=low_sample_threshold,
         min_paired_samples=min_paired_samples,
         bootstrap_iterations=bootstrap_iterations,
+        horizons=horizons,
+        expected_segments=VOLATILITY_STRATA,
     )
     by_dimension["origin_time_stratum_by_horizon"] = _horizon_segment_report(
         pairs,
@@ -474,6 +493,8 @@ def build_report(
         low_sample_threshold=low_sample_threshold,
         min_paired_samples=min_paired_samples,
         bootstrap_iterations=bootstrap_iterations,
+        horizons=horizons,
+        expected_segments=ORIGIN_TIME_STRATA,
     )
     for horizon in horizons:
         by_dimension["horizon"].setdefault(

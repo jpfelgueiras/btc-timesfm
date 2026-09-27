@@ -530,7 +530,13 @@ def _render_edge_rows(segments: dict[str, Any]) -> str:
         if not isinstance(metrics, dict):
             continue
         warning = bool(metrics.get("unstable_or_low_sample"))
-        status = "Inconclusive" if warning else str(metrics.get("reason") or "")
+        status = (
+            "Unavailable · inconclusive"
+            if metrics.get("availability") == "unavailable"
+            else "Inconclusive"
+            if warning
+            else str(metrics.get("reason") or "")
+        )
         if warning and metrics.get("reason"):
             status += f" · {metrics['reason']}"
         rows.append(
@@ -619,6 +625,13 @@ def _render_pairing_diagnostics(diagnostics: dict[str, Any]) -> str:
         ),
     )
     rendered = "".join(f"<li>{html.escape(label)}: {int(value or 0)}</li>" for label, value in rows)
+    per_model = diagnostics.get("matured_rows_missing_error_metrics_by_model", {})
+    if isinstance(per_model, dict):
+        rendered += "".join(
+            f"<li>Matured {html.escape(str(model))} rows missing error metrics: "
+            f"{int(count or 0)}</li>"
+            for model, count in sorted(per_model.items())
+        )
     note = html.escape(str(diagnostics.get("failed_attempts_note") or ""))
     return f"<details><summary>Pairing exclusions and failures</summary><ul>{rendered}</ul><p>{note}</p></details>"
 

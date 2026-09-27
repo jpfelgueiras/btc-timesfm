@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import unittest
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from btc_timesfm.web.historical_explorer import build_explorer_data, render_explorer
+from btc_timesfm.research.edge_attribution_report import build_report as build_edge_report
 from btc_timesfm.web.static_site import (
     MAX_SITE_BYTES,
     _render_latest,
@@ -22,6 +23,165 @@ from btc_timesfm.web.static_site import (
 
 
 class StaticSiteTests(unittest.TestCase):
+    def test_persistence_edge_site_reconciles_backend_and_emits_unavailable_strata(self) -> None:
+        now = datetime(2026, 9, 7, 17, tzinfo=timezone.utc)
+
+        def forecast_row(
+            origin: datetime,
+            horizon: int,
+            model: str,
+            error: float | None,
+            *,
+            volatility: float | None = 0.5,
+        ) -> dict[str, object]:
+            item = self._row(
+                origin=origin.isoformat(),
+                horizon=horizon,
+                predicted=101.0,
+                change=1.0,
+                actual=100.0,
+                error=error,
+                direction=1,
+                model=model,
+            )
+            item["target_at"] = (origin + timedelta(hours=horizon)).isoformat()
+            item["market_features_json"] = (
+                "{}" if volatility is None else f'{{"volatility_24h_pct": {volatility}}}'
+            )
+            return item
+
+        rows: list[dict[str, object]] = []
+        for index in range(32):
+            origin = now - timedelta(days=index + 1)
+            rows.extend(
+                [
+                    forecast_row(origin, 16, "ensemble", 1.0),
+                    forecast_row(origin, 16, "persistence", 2.0),
+                ]
+            )
+        supported_origin = now - timedelta(days=3)
+        rows.extend(
+            [
+                forecast_row(supported_origin, 6, "ensemble", 1.0, volatility=None),
+                forecast_row(supported_origin, 6, "persistence", 2.0, volatility=None),
+                forecast_row(now - timedelta(days=4), 6, "ensemble", 1.0),
+            ]
+        )
+        failed_origin = now - timedelta(days=5)
+        rows.extend(
+            [
+                forecast_row(failed_origin, 6, "ensemble", None),
+                forecast_row(failed_origin, 6, "persistence", 2.0),
+            ]
+        )
+
+        site_data = build_site_data(rows, now=now)
+        site_window = site_data["persistence_edge"]["windows"]["all"]
+        backend = build_edge_report(
+            rows,
+            now=now,
+            low_sample_threshold=site_data["persistence_edge"]["low_sample_threshold"],
+            bootstrap_iterations=1000,
+        )
+        backend_16h = backend["by_dimension"]["horizon"]["16h"]
+        site_16h = site_window["by_horizon"]["16h"]
+        self.assertEqual(site_16h["samples"], backend_16h["samples"])
+        self.assertEqual(site_16h["confidence_interval"], backend_16h["confidence_interval"])
+        self.assertEqual(
+            site_16h["bootstrap"]["effective_block_count_proxy"],
+            backend_16h["bootstrap"]["effective_block_count_proxy"],
+        )
+        self.assertEqual(site_window["pairing_diagnostics"], backend["pairing_diagnostics"])
+        self.assertEqual(site_16h["reason"], "insufficient_effective_samples")
+        self.assertEqual(site_window["by_horizon"]["6h"]["samples"], 1)
+        self.assertEqual(site_window["by_horizon"]["2h"]["availability"], "unavailable")
+        self.assertEqual(
+            site_window["by_volatility_bucket_by_horizon"]["6h"]["unknown"]["samples"], 1
+        )
+        self.assertEqual(
+            site_window["by_volatility_bucket_by_horizon"]["6h"]["low"]["availability"],
+            "unavailable",
+        )
+        self.assertEqual(
+            site_window["by_regime_by_horizon"]["2h"]["range"]["availability"],
+            "unavailable",
+        )
+        self.assertEqual(
+            site_window["pairing_diagnostics"]["matured_rows_missing_error_metrics_by_model"][
+                "ensemble"
+            ],
+            1,
+        )
+        rendered = render_html(site_data)
+        self.assertIn("Unavailable · inconclusive", rendered)
+        self.assertIn("Matured ensemble rows missing error metrics: 1", rendered)
+        self.assertIn("D2 16h MAE edge is a descriptive point estimate", rendered)
+
+        single_origin = now - timedelta(days=2)
+        single_rows = [
+            forecast_row(single_origin, 6, "ensemble", 1.0, volatility=None),
+            forecast_row(single_origin, 6, "persistence", 2.0, volatility=None),
+            forecast_row(now - timedelta(days=3), 6, "ensemble", 1.0),
+        ]
+        failed_origin = now - timedelta(days=4)
+        single_rows.extend(
+            [
+                forecast_row(failed_origin, 6, "ensemble", None),
+                forecast_row(failed_origin, 6, "persistence", 2.0),
+            ]
+        )
+        single_site_data = build_site_data(single_rows, now=now)
+        single_window = single_site_data["persistence_edge"]["windows"]["all"]
+        single_backend = build_edge_report(
+            single_rows,
+            now=now,
+            low_sample_threshold=single_site_data["persistence_edge"]["low_sample_threshold"],
+            bootstrap_iterations=1000,
+        )
+        self.assertEqual(single_backend["horizons"], ["2h", "4h", "6h", "8h", "16h"])
+        self.assertEqual(single_window["by_horizon"]["6h"]["samples"], 1)
+        self.assertEqual(
+            single_window["by_horizon"]["6h"]["confidence_interval"],
+            single_backend["by_dimension"]["horizon"]["6h"]["confidence_interval"],
+        )
+        self.assertEqual(
+            single_window["by_horizon"]["6h"]["bootstrap"]["effective_block_count_proxy"],
+            single_backend["by_dimension"]["horizon"]["6h"]["bootstrap"][
+                "effective_block_count_proxy"
+            ],
+        )
+        for absent_horizon in ("2h", "4h", "8h", "16h"):
+            self.assertEqual(
+                single_window["by_horizon"][absent_horizon]["availability"], "unavailable"
+            )
+            self.assertEqual(
+                single_window["by_regime_by_horizon"][absent_horizon]["range"]["availability"],
+                "unavailable",
+            )
+        self.assertEqual(
+            single_window["by_regime_by_horizon"]["6h"]["trending"]["availability"],
+            "unavailable",
+        )
+        for absent_volatility in ("low", "medium", "high"):
+            self.assertEqual(
+                single_window["by_volatility_bucket_by_horizon"]["6h"][absent_volatility][
+                    "availability"
+                ],
+                "unavailable",
+            )
+        self.assertEqual(
+            single_window["pairing_diagnostics"]["matured_pair_keys_missing_persistence"], 1
+        )
+        self.assertEqual(
+            single_window["pairing_diagnostics"]["matured_rows_missing_error_metrics_by_model"][
+                "ensemble"
+            ],
+            1,
+        )
+        self.assertEqual(
+            single_window["pairing_diagnostics"], single_backend["pairing_diagnostics"]
+        )
+
     def test_persistence_edge_renders_d2_16h_caveat_and_accessible_diagnostics(self) -> None:
         evidence = {
             "samples": 32,
