@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "issue": 416,
+  "status": "blocked",
+  "disposition": "accepted_blocked_closeout",
+  "as_of": "2026-09-27",
+  "scope": "The bounded evidence and candidate-evaluation family spanning issues #411 through #415 under the frozen #410 protocol.",
+  "summary": {
+    "families": 5,
+    "actual_candidate_attempts": 0,
+    "actual_candidate_scores": 0,
+    "confirmatory_origins": 0,
+    "eligible_pairs": 0,
+    "winner": null,
+    "metrics": null,
+    "holdout_used": false,
+    "d3_used": false,
+    "production_mutated": false
+  },
+  "families": [
+    {
+      "id": "issue-411-parity-baselines",
+      "source_issue": 411,
+      "status": "blocked",
+      "attempt_status": "not_attempted",
+      "attempt_count": 0,
+      "score_count": 0,
+      "candidate_count": null,
+      "reason": "Readiness evidence is blocked; zero confirmatory origins and pairs. All 48 timestamp-eligible legacy records are excluded.",
+      "metrics": null,
+      "winner": null,
+      "holdout_accessed": false,
+      "d3_accessed": false,
+      "production_mutated": false,
+      "evidence": [
+        {"path": "docs/research/ISSUE_411_PARITY_BASELINES_BLOCKED.json", "sha256": "c1b3471495c0c32bcb8a5a90ae7fe5a4e20a6bdcb5d4d617e8d83e8be18202a7"},
+        {"path": "docs/research/ISSUE_410_SCORING_PROTOCOL.json", "sha256": "1b8c6705d53882a66c0ab1277cf2a63c845d00c2c7d0cc978c0c75d8121efd18"}
+      ]
+    },
+    {
+      "id": "issue-412-timesfm-context-target",
+      "source_issue": 412,
+      "status": "blocked",
+      "attempt_status": "not_attempted",
+      "attempt_count": 0,
+      "score_count": 0,
+      "candidate_count": 0,
+      "reason": "No diagnosis supports a context or target hypothesis; the report records zero preregistered candidates and zero folds.",
+      "metrics": null,
+      "winner": null,
+      "holdout_accessed": false,
+      "d3_accessed": false,
+      "production_mutated": false,
+      "evidence": [
+        {"path": "docs/research/ISSUE_412_TIMESFM_CONTEXT_BLOCKED.json", "sha256": "add3bfb14838de33bf5f91841cf6ffda5af0774d24d96cfc775e553310c6ede9"}
+      ]
+    },
+    {
+      "id": "issue-413-ensemble-weighting",
+      "source_issue": 413,
+      "status": "blocked",
+      "attempt_status": "not_attempted",
+      "attempt_count": 0,
+      "score_count": 0,
+      "candidate_count": 0,
+      "reason": "No powered ensemble-versus-persistence diagnosis; no weighting evaluation was run.",
+      "metrics": null,
+      "winner": null,
+      "holdout_accessed": false,
+      "d3_accessed": false,
+      "production_mutated": false,
+      "evidence": [
+        {"path": "docs/research/ISSUE_413_ENSEMBLE_WEIGHTING_BLOCKED.json", "sha256": "6771a6e09a661238e5f251fe8859af8e26085d8de570625bbbe5eebbdb777419"}
+      ]
+    },
+    {
+      "id": "issue-414-interval-evidence",
+      "source_issue": 414,
+      "status": "blocked",
+      "attempt_status": "not_attempted",
+      "attempt_count": 0,
+      "score_count": 0,
+      "candidate_count": 0,
+      "reason": "Miscalibration is not established; scores and calibration fits were not computed.",
+      "metrics": null,
+      "winner": null,
+      "holdout_accessed": false,
+      "d3_accessed": false,
+      "production_mutated": false,
+      "evidence": [
+        {"path": "docs/research/ISSUE_414_INTERVAL_EVIDENCE_BLOCKED.json", "sha256": "ab14b68ffae1024f49316749e50c790034f4df1e0ca7ba02caf8a04d60f1a893"}
+      ]
+    },
+    {
+      "id": "issue-415-optional-signal-families",
+      "source_issue": 415,
+      "status": "blocked",
+      "attempt_status": "not_attempted",
+      "attempt_count": 0,
+      "score_count": 0,
+      "candidate_count": 0,
+      "reason": "No input-related diagnosis or eligible point-in-time data supports optional signal evaluation.",
+      "metrics": null,
+      "winner": null,
+      "holdout_accessed": false,
+      "d3_accessed": false,
+      "production_mutated": false,
+      "evidence": [
+        {"path": "docs/research/ISSUE_415_OPTIONAL_SIGNAL_FAMILIES_BLOCKED.json", "sha256": "e893c7351f7ca3e5b6fca39671db97ceb6c9d8e9fb78b98d92b5558cfeb49d28"}
+      ]
+    }
+  ],
+  "family_manifest_requirements": {
+    "before_any_candidate_score": [
+      "Freeze and SHA-256 hash one complete family manifest enumerating every candidate identity and configuration, comparison, endpoint, horizon/stratum, planned attempt, exclusion/failure treatment, fixed cutoff and stopping rule.",
+      "Register immutable data vintage and point-in-time provenance, exact UTC shared origin/target/horizon keys, outcomes, code revision, commands, and access log before score access.",
+      "Specify nested earlier purged walk-forward folds, training-only selection, maturity purge/embargo, dependence-aware paired uncertainty, and family-wise multiplicity across the complete family.",
+      "Reserve a chronological untouched holdout and a separate prospective D3; neither may inform candidate, protocol, or analysis selection."
+    ],
+    "required_analysis": [
+      "Retain every attempted, failed, blocked, abstained, missing, and excluded candidate in a single reconciled family ledger.",
+      "Use exact shared eligible matured pairs only; report all attempt denominators and preserve blocked or inconclusive dispositions without forcing selection.",
+      "No winner may be declared with zero attempts, missing family accounting, or unmet evidence gates."
+    ]
+  },
+  "reopening_rules": [
+    "First resolve the #411 prerequisites and produce a new immutable, hashed readiness artifact with nonzero confirmatory evidence; timestamp eligibility alone does not qualify.",
+    "Record a specific evidence-supported diagnosis and establish the applicable #410 minimum evidence/power gates; if not met, retain blocked or inconclusive status.",
+    "Before any candidate score is accessed, publish and hash a complete preregistration manifest for the entire family meeting every requirement above. No partial or per-issue manifest is sufficient.",
+    "Use nested earlier purged folds for all candidate selection, preserve untouched holdout and D3, and apply dependence-aware inference and multiplicity correction across all candidates, comparisons, and strata.",
+    "If these conditions cannot be met, record the family as blocked/not attempted; do not invent candidates, folds, power, metrics, or a winner."
+  ],
+  "limitations": [
+    "This is an accounting closeout, not a model selection or accuracy evaluation.",
+    "No selection is complete; issue #418 accuracy objective remains open.",
+    "No holdout or D3 observations were accessed or used."
+  ]
+}
