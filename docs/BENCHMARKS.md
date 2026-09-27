@@ -65,6 +65,10 @@ first-publication vintage or revision state. Kraken's current OHLC fetch is boun
 to 720 hourly candles and Bitstamp's fallback to 1,000. Neither those bounded live
 feeds nor retrospective Coinbase candles demonstrate the required production-venue
 point-in-time corpus.
+Issue [#397's source audit and reproducible blocked report](research/ISSUE_397_PIT_BTCUSD_CORPUS.md)
+document the evidence, required license/provenance, local immutable-storage
+convention, and canonical audit result. The checked-in report is an absence audit
+only; it does not claim to have evaluated an acquired dataset.
 
 Run the normal walk-forward backtest to produce `backtest_report.json`:
 
