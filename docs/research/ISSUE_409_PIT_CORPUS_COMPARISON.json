@@ -108,7 +108,32 @@
   ],
   "procurement": {
     "decision": "No purchase, provider contact, or approval. No candidate is admitted based on public documentation alone.",
-    "remaining_external_decision": "A project owner with budget authority must authorize a procurement evaluation and identify acceptable spend/contract terms before any provider outreach or paid access.",
+    "responsible_role": "Project owner/budget authority; no individual is assigned or named by this audit.",
+    "authorization_gate": "Before any provider inquiry is submitted, the project owner/budget authority must record written authorization for the procurement evaluation and acceptable spend/contract boundaries. This authorization permits inquiry only; purchase, account creation, paid access, and data acquisition require their own explicit approval under the resulting terms.",
+    "first_inquiry": {
+      "provider": "Kaiko",
+      "channel": "Official Contact page inquiry form (Kaiko says to describe requirements there for a custom price quote).",
+      "url": "https://www.kaiko.com/contact-kaiko",
+      "public_source": "https://www.kaiko.com/contact",
+      "product_context": "CeFi spot count/OHLCV aggregation API for Kraken XBT/USD; ask about a licensed bulk/original export only if available. The endpoint is a candidate channel, not evidence of eligibility.",
+      "submission_status": "not_sent",
+      "submission_date": null,
+      "response_status": "not_requested",
+      "response_date": null,
+      "response_record_location": "If authorized and submitted later, record submission date, exact specification sent, provider response date/status, and evidence link or a sanitized response summary here. Until then, preserve submission_status=not_sent and response_status=not_requested; if sent with no reply, set response_status=no_response and record the follow-up/check date without implying provider refusal."
+    },
+    "inquiry_specification": {
+      "text_to_send_after_authorization": "We are evaluating a research-only BTC/USD historical corpus. Please confirm whether you can supply one named spot venue only: Kraken XBT/USD (do not combine with another venue), hourly UTC OHLCV for target [2023-01-01T00:00:00Z, 2026-09-01T00:00:00Z) and contiguous warm-up [2022-07-05T00:00:00Z, 2023-01-01T00:00:00Z), totaling 32,136 target hours and 4,320 warm-up hours. For the exact original candle records, can you provide candle interval/close timestamp, the timestamp each record was first published/available (and confirm it is no later than the close), immutable original revision-0 values, and revision/change history sufficient to distinguish revision 0 from later corrections? Please state completeness/gap reporting and exact venue/instrument identifiers. Please provide the applicable research storage/use and retention license terms, restrictions on retained source files, acquisition/delivery method, quote and contract dependencies, and an authorized sample/schema demonstrating these fields. If any requested field, coverage, venue/pair, vintage, license, or retention right is unavailable, please identify it explicitly as unavailable; do not substitute another venue or quote asset.",
+      "required_questions": [
+        "Can you supply Kraken spot XBT/USD alone, without venue aggregation or stitching?",
+        "Can you supply every hourly UTC candle for both exact half-open intervals, with a coverage/gap report and the exact instrument identifier?",
+        "Does each row expose candle close and that record's first publication/availability time, and can you confirm first availability is no later than candle close?",
+        "Can you deliver the original revision-0 value plus revision history/change records so the initially available value is distinguishable from later corrections?",
+        "What written license allows this research storage/use and how long may original files be retained? What redistribution, derived-output, or deletion conditions apply?",
+        "What authorized sample/schema, original-file delivery method, one-time/recurring cost, quote validity, and contract/approval requirements apply?"
+      ],
+      "fallback_if_unavailable": "Record the specific constraint as unavailable and keep the source inadmissible. Any different venue would be a separately reviewed single-venue proposal and must not be spliced into Kraken history or silently substituted."
+    },
     "not_obtained": [
       "provider quotes or negotiated cost",
       "signed contract and research-use/storage/retention license",
@@ -118,8 +143,10 @@
     ]
   },
   "reproducible_next_action": [
-    "After documented budget/procurement authorization, request written confirmation from candidate providers for one named canonical spot venue and exact BTC/USD or XBT/USD instrument; hourly UTC target 2023-01-01T00:00:00Z through 2026-09-01T00:00:00Z plus contiguous 180-day warm-up 2022-07-05T00:00:00Z through 2023-01-01T00:00:00Z.",
-    "Require an authorized sample/schema and written license/retention terms showing exact candle close, first-publication timestamp no later than close, immutable revision-0 values and revision history, venue, and pair. Mark any unavailable response as unknown; do not infer it.",
+    "Responsible role: the project owner/budget authority (not named by this audit) must first record written authorization for provider inquiry and acceptable spend/contract boundaries. No inquiry or purchase is authorized by this document; paid access, purchase, account creation, and acquisition require separate explicit approval.",
+    "First inquiry after that gate: submit the exact inquiry_specification.text_to_send_after_authorization through Kaiko's official Contact form at https://www.kaiko.com/contact-kaiko. Kaiko's official https://www.kaiko.com/contact page describes that channel as a way to provide requirements for a custom quote. The proposed first instrument is Kraken XBT/USD only; the channel is not evidence of coverage or eligibility.",
+    "Record the exact text and submission date in procurement.first_inquiry. Before submission, status remains submission_status=not_sent and response_status=not_requested. If submitted but no response is received, record response_status=no_response and a dated follow-up/check; do not describe silence as refusal or approval. Link or summarize any response without secrets or licensed samples.",
+    "Require written answers and an authorized sample/schema for exact candle close, first-publication timestamp no later than close, original revision-0 values plus revision history, venue/pair, contiguous full coverage, and research storage/use/retention terms. Mark each unanswered or unavailable item unknown/unavailable; do not infer it.",
     "Only after authorized approval/access, preserve provider originals, applicable terms, acquisition method/time, and SHA-256 manifest under .state/research/canonical-benchmark/; create a sanitized manifest and run the canonical audit documented in docs/research/ISSUE_397_PIT_BTCUSD_CORPUS.md.",
     "Admit only if the unchanged canonical audit passes all 32,136 target and 4,320 warm-up hours with exact venue/pair and point-in-time fields. Otherwise retain blocked status and record the failing evidence."
   ],

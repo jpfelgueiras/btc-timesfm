@@ -24,6 +24,24 @@ class Issue409CorpusComparisonTests(unittest.TestCase):
         self.assertIn("mixed venues", report["prohibited_substitutions"])
         self.assertTrue(report["procurement"]["not_obtained"])
         self.assertTrue(report["reproducible_next_action"])
+        procurement = report["procurement"]
+        self.assertIn(
+            "project owner/budget authority", procurement["responsible_role"].casefold()
+        )
+        self.assertIn("Before any provider inquiry", procurement["authorization_gate"])
+        inquiry = procurement["first_inquiry"]
+        self.assertEqual(inquiry["provider"], "Kaiko")
+        self.assertEqual(inquiry["submission_status"], "not_sent")
+        self.assertEqual(inquiry["response_status"], "not_requested")
+        self.assertIn("contact-kaiko", inquiry["url"])
+        self.assertIn(
+            "Kraken XBT/USD",
+            procurement["inquiry_specification"]["text_to_send_after_authorization"],
+        )
+        self.assertIn(
+            "keep the source inadmissible",
+            procurement["inquiry_specification"]["fallback_if_unavailable"],
+        )
         for candidate in report["comparison"]:
             with self.subTest(channel=candidate["channel"]):
                 self.assertTrue(candidate["source_urls"])
