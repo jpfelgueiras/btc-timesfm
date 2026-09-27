@@ -19,7 +19,7 @@ from btc_timesfm.web.historical_explorer import build_explorer_data, render_expl
 
 DEFAULT_OUTPUT_DIR = Path("site")
 DEFAULT_RECENT_ROWS = 80
-MAX_SITE_BYTES = 5 * 1024 * 1024
+MAX_SITE_BYTES = 10 * 1024 * 1024
 
 
 def _safe_float(value: Any) -> float | None:
@@ -1044,11 +1044,12 @@ def generate_site(
     )
     data["database_verification"] = verification
     page = render_html(data)
-    # Keep the duplicate machine-readable export compact so the HTML ledger and
-    # its downloadable JSON together stay inside the GitHub Pages payload cap.
+    # Bound the combined HTML ledger and downloadable JSON snapshot while allowing
+    # durable history to grow beyond the original 5 MiB threshold.
     json_data = json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n"
-    if len(page.encode("utf-8")) + len(json_data.encode("utf-8")) > MAX_SITE_BYTES:
-        raise RuntimeError(f"site exceeds {MAX_SITE_BYTES} byte budget")
+    site_bytes = len(page.encode("utf-8")) + len(json_data.encode("utf-8"))
+    if site_bytes > MAX_SITE_BYTES:
+        raise RuntimeError(f"site is {site_bytes} bytes, exceeding {MAX_SITE_BYTES} byte budget")
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "index.html").write_text(page, encoding="utf-8")
     (output_dir / "data.json").write_text(json_data, encoding="utf-8")
