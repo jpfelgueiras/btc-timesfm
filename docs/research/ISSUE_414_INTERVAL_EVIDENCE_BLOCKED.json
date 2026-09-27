@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "issue": 414,
+  "status": "blocked",
+  "disposition": "no_interval_claim",
+  "source_report": {
+    "path": "docs/research/ISSUE_411_PARITY_BASELINES_BLOCKED.json",
+    "snapshot_at": "2026-09-27T11:00:00Z",
+    "snapshot_sha256": null,
+    "note": "The source report does not contain its own file digest; no digest is fabricated."
+  },
+  "evidence": {
+    "timestamp_eligible_forecasts": 48,
+    "timestamp_eligible_legacy_excluded": 48,
+    "confirmatory_forecasts": 0,
+    "expected_pairs": 0,
+    "matured_pairs": 0,
+    "latest_provenance_complete_origin_at": "2026-09-27T11:00:00Z",
+    "latest_origin_mature_for_cohort": false,
+    "historical_canonical_status": "blocked",
+    "prospective_status": "blocked",
+    "frozen_cohort_ready": false,
+    "blockers": [
+      "versioned_provenance_mismatch",
+      "no_confirmatory_versioned_forecasts_in_frozen_cohort",
+      "canonical_corpus_ineligible",
+      "prospective_ledger_evidence_missing",
+      "frozen_prospective_cohort_not_ready"
+    ],
+    "hashes_from_issue_411_report_only": {
+      "code_sha256": "79a95fc3debd4134ab68cfc55795007a340f15a6eff2ef7212a875a9846c28fc",
+      "database_sha256": "b102f14db535264ecc2474a3b338c929abea4c39616f233a5701611c9300f57f",
+      "last_verified_cohort_content_sha256": "462287eb433a27c16e4f25360d9ee40e5dda2fabdced13e5390859a055f7bbb8",
+      "frozen_protocol_file_sha256": "1b8c6705d53882a66c0ab1277cf2a63c845d00c2c7d0cc978c0c75d8121efd18",
+      "frozen_protocol_sha256": "4da936d505df9a15cbd073ee85ee0e4ed2db483e6058f6b81ce163f4724bb4f0",
+      "corpus_audit_sha256": "e2bf0c671a5a4327c6852d02614a7d2e403ed12f8fe7c4362336c5e87d44a0c7"
+    }
+  },
+  "interval_evaluation": {
+    "diagnosis_of_miscalibration": "not_established",
+    "scores_computed": false,
+    "calibration_fits_computed": false,
+    "metrics": {
+      "pinball_loss": null,
+      "winkler_score_80": null,
+      "coverage_80": null,
+      "mean_width": null,
+      "calibration_parameters": null
+    },
+    "point_forecasts_changed": false,
+    "winner": null,
+    "reason": "No confirmatory versioned eligible origins or matured exact pairs; legacy rows are excluded; newest provenance-complete origin is immature; #409 corpus is blocked."
+  },
+  "reopen_gates": [
+    "#411 versioned provenance-complete production lineage and nonzero confirmatory origins with exact matured outcomes; rerun readiness and retain evidence hashes",
+    "#409 canonical point-in-time corpus readiness with complete coverage and source/vintage provenance; keep historical and prospective tracks distinct",
+    "freeze interval policy and quantiles before outcome access; under #410 use cumulative log-return q10/q50/q90, L=q10 and U=q90",
+    "any calibration fit uses prior-only data available by each origin; no evaluation/test/D3 outcomes for fitting or selection",
+    "freeze/hash protocol, candidates, vintage, cutoffs, strata, test family, and analysis before scores; proper pinball and 80% Winkler scores plus coverage/width, full failure denominators, paired 24-origin moving-block bootstrap and Holm family adjustment under #410",
+    "keep chronological test/holdout disjoint from fitting/selection and D3 separately untouched; D3 minimum 30 calendar days and 200 mature exact pairs per horizon"
+  ],
+  "report": "docs/research/ISSUE_414_INTERVAL_EVIDENCE_BLOCKED.md"
+}
