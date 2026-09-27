@@ -1,0 +1,133 @@
+{
+  "artifact_version": 1,
+  "issue": 409,
+  "reviewed_on": "2026-09-27",
+  "status": "blocked",
+  "admitted_source": null,
+  "contract": {
+    "venue": "one named spot venue, consistent with the canonical production BTC/USD contract",
+    "pairs": ["BTC/USD", "XBT/USD"],
+    "cadence": "hourly",
+    "timezone": "UTC",
+    "target_start_inclusive": "2023-01-01T00:00:00Z",
+    "target_end_exclusive": "2026-09-01T00:00:00Z",
+    "target_hours": 32136,
+    "warmup_start_inclusive": "2022-07-05T00:00:00Z",
+    "warmup_end_exclusive": "2023-01-01T00:00:00Z",
+    "warmup_hours": 4320,
+    "row_provenance": [
+      "exact candle close timestamp",
+      "first-publication/availability timestamp no later than candle close",
+      "original revision-0 record with revision history establishing its original status",
+      "venue and exact fiat-USD spot pair identity"
+    ],
+    "license": "explicitly authorized research storage and use, including required retention"
+  },
+  "comparison": [
+    {
+      "channel": "Kaiko historical data and cloud/API delivery",
+      "public_evidence": "Documentation describes centralized spot trade aggregations including OHLCV, instrument and exchange reference data, and a data-versioning feature.",
+      "source_urls": [
+        "https://docs.kaiko.com/rest-api/cefi-spot-market-data/trade-aggregations/trade-count-ohlcv-and-vwap.md",
+        "https://docs.kaiko.com/rest-api/general/getting-started/data-versioning.md",
+        "https://docs.kaiko.com/rest-api/reference-data/exchange-trading-pair-codes-instruments.md",
+        "https://docs.kaiko.com/cloud-delivery/general/readme.md"
+      ],
+      "venue_pair": "Potentially selectable by instrument; exact BTC/USD or XBT/USD instrument and eligible venue not verified against entitlement/catalog.",
+      "hourly_utc_and_coverage": "OHLCV endpoint exists; exact hourly UTC coverage for the full target plus warm-up has not been verified.",
+      "first_publication_and_revision_0": "Versioning documentation exists, but evidence that the export supplies each candle's first-publication timestamp and original revision-0 value with history is not established.",
+      "license_retention": "Not established; signed terms and research storage/retention rights not obtained.",
+      "acquisition": "Documented API/cloud delivery channel; dataset-specific acquisition method and original-file export not confirmed.",
+      "cost_contract": "Quote, commercial terms, contract, and budget not obtained.",
+      "decision": "Not admitted; documentation supports further diligence only."
+    },
+    {
+      "channel": "Coin Metrics Market Data Feed",
+      "public_evidence": "Documentation describes venue-specific market candles, hourly frequency, UTC timestamps, coverage discovery, and historical API access. It says candles are derived from collected trades and recent candles are recalculated over a rolling window; finalized candles replace initial realtime values.",
+      "source_urls": [
+        "https://gitbook-docs.coinmetrics.io/market-data/market-data-overview.md",
+        "https://gitbook-docs.coinmetrics.io/market-data/market-data-overview/market-candles.md",
+        "https://gitbook-docs.coinmetrics.io/access-our-data.md"
+      ],
+      "venue_pair": "Market identifiers can represent a specific venue and spot pair (example in docs: coinbase-btc-usd-spot); required production venue/pair availability is unverified.",
+      "hourly_utc_and_coverage": "1h candles and UTC timestamps are documented. Coverage is venue-specific and must be checked via entitlement/catalog; required full interval is not verified.",
+      "first_publication_and_revision_0": "Fails evidence threshold as documented: recent recalculation is described, but per-candle first-publication timestamp and recoverable original revision-0 values/history are not documented.",
+      "license_retention": "Not established; applicable research storage, use, and retention license not obtained.",
+      "acquisition": "Historical HTTP API and realtime websocket documented; contract-authorized historical export/acquisition not obtained.",
+      "cost_contract": "Subscription/quote and contract terms not obtained.",
+      "decision": "Not admitted; documented candle recalculation alone does not establish revision-0 eligibility."
+    },
+    {
+      "channel": "CoinAPI Flat Files / Market Data API",
+      "public_evidence": "Public product documentation describes Flat Files as bulk historical data for backtesting, ML training, or audits, and the Market Data API as historical and realtime crypto market data.",
+      "source_urls": [
+        "https://docs.coinapi.io/",
+        "https://docs.coinapi.io/products/market-data-api/docs",
+        "https://docs.coinapi.io/products/flat-files/docs"
+      ],
+      "venue_pair": "Exact venue and BTC/USD or XBT/USD spot market support not verified from public product landing documentation.",
+      "hourly_utc_and_coverage": "Historical bulk product is described; exact hourly UTC coverage for the required venue and full interval is not verified.",
+      "first_publication_and_revision_0": "Not established in public documentation reviewed; no verified per-candle first-publication timestamp or original revision-0 history.",
+      "license_retention": "Not established; applicable license, storage and retention rights not obtained.",
+      "acquisition": "Bulk Flat Files are publicly described; exact eligible data product and delivery specification not verified.",
+      "cost_contract": "Quote, contract, and budget not obtained.",
+      "decision": "Not admitted; requires product-specific written provenance, coverage, and license evidence."
+    },
+    {
+      "channel": "Amberdata historical spot OHLCV API / batch API",
+      "public_evidence": "Documentation describes historical spot OHLCV and batch endpoints, hourly granularity, quote-denominated price/base-denominated volume, and a published exchange/dataset coverage table. The table lists Kraken spot OHLCV from 2016-07-19 and Bitstamp spot OHLCV from 2011-08-18.",
+      "source_urls": [
+        "https://docs.amberdata.io/data-dictionary/market/ohlcv",
+        "https://docs.amberdata.io/data-dictionary/coverage/coverage-market",
+        "https://docs.amberdata.io/http/market/spot-ohlcv.md",
+        "https://docs.amberdata.io/http/market/spot-batch-ohlcv.md"
+      ],
+      "venue_pair": "Coverage lists venues and OHLCV start dates but does not establish exact eligible Kraken XBT/USD or Bitstamp BTC/USD instrument coverage for this contract; pair-level entitlement unverified.",
+      "hourly_utc_and_coverage": "Hourly granularity is documented and some listed OHLCV history begins before the required interval; exact instrument rows, interval completeness, and UTC candle semantics are not verified.",
+      "first_publication_and_revision_0": "Not established in reviewed documentation; no verified first-publication field or revision-0 history.",
+      "license_retention": "Not established; research storage/use and retention terms not obtained.",
+      "acquisition": "Historical and batch HTTP API delivery documented; authorized export and original source-file retention not confirmed.",
+      "cost_contract": "Quote, contract, and budget not obtained.",
+      "decision": "Not admitted; documented data coverage and cadence do not satisfy vintage/provenance evidence."
+    },
+    {
+      "channel": "Direct Kraken public OHLC endpoint/archive",
+      "public_evidence": "Existing repository audit cites Kraken's OHLC endpoint documentation: at most 720 recent entries, older data cannot be retrieved, and the response includes the current uncommitted interval.",
+      "source_urls": [
+        "https://docs.kraken.com/api/docs/rest-api/get-ohlc-data/",
+        "docs/research/ISSUE_397_PIT_BTCUSD_CORPUS.md"
+      ],
+      "venue_pair": "Kraken XBT/USD may match the venue/pair identity, but exact requisite historical records are unavailable through this endpoint.",
+      "hourly_utc_and_coverage": "Hourly endpoint is bounded to recent records, far short of target plus 180-day warm-up.",
+      "first_publication_and_revision_0": "Endpoint does not document first-publication timestamps or revision history; not established.",
+      "license_retention": "No archival/research license or retention terms established for a historical licensed export.",
+      "acquisition": "Public API only; no distinct authorized archival export identified in this review.",
+      "cost_contract": "No archive quote or contract identified; no provider contacted.",
+      "decision": "Rejected as documented public endpoint; a separate authorized venue archive would require independent evidence."
+    }
+  ],
+  "procurement": {
+    "decision": "No purchase, provider contact, or approval. No candidate is admitted based on public documentation alone.",
+    "remaining_external_decision": "A project owner with budget authority must authorize a procurement evaluation and identify acceptable spend/contract terms before any provider outreach or paid access.",
+    "not_obtained": [
+      "provider quotes or negotiated cost",
+      "signed contract and research-use/storage/retention license",
+      "authorized sample schema or sample rows",
+      "entitlement-level pair coverage and complete interval report",
+      "evidence that every candle has first-publication time and original revision-0 value/history"
+    ]
+  },
+  "reproducible_next_action": [
+    "After documented budget/procurement authorization, request written confirmation from candidate providers for one named canonical spot venue and exact BTC/USD or XBT/USD instrument; hourly UTC target 2023-01-01T00:00:00Z through 2026-09-01T00:00:00Z plus contiguous 180-day warm-up 2022-07-05T00:00:00Z through 2023-01-01T00:00:00Z.",
+    "Require an authorized sample/schema and written license/retention terms showing exact candle close, first-publication timestamp no later than close, immutable revision-0 values and revision history, venue, and pair. Mark any unavailable response as unknown; do not infer it.",
+    "Only after authorized approval/access, preserve provider originals, applicable terms, acquisition method/time, and SHA-256 manifest under .state/research/canonical-benchmark/; create a sanitized manifest and run the canonical audit documented in docs/research/ISSUE_397_PIT_BTCUSD_CORPUS.md.",
+    "Admit only if the unchanged canonical audit passes all 32,136 target and 4,320 warm-up hours with exact venue/pair and point-in-time fields. Otherwise retain blocked status and record the failing evidence."
+  ],
+  "prohibited_substitutions": [
+    "BTCUSDT or any non-fiat-USD quote pair",
+    "mixed venues",
+    "latest revised retrospective history represented as original vintage",
+    "inferred publication times or revisions",
+    "partial coverage or relaxed audit gates"
+  ]
+}

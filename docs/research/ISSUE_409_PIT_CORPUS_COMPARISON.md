@@ -1,0 +1,68 @@
+# Issue #409 — point-in-time BTC/USD corpus procurement comparison
+
+_Public documentation reviewed: 2026-09-27. No provider was contacted; no
+quote, sample, dataset, license, or approval was obtained._
+
+## Outcome: blocked
+
+The machine-readable comparison is
+[`ISSUE_409_PIT_CORPUS_COMPARISON.json`](ISSUE_409_PIT_CORPUS_COMPARISON.json).
+Five archive/data channels are compared against the unchanged canonical
+contract. Public product descriptions establish plausible historical data
+channels, not the complete set of exact-pair, complete-coverage, publication
+vintage, revision-0, and licensed-retention requirements. Therefore **no source
+is admitted**, no procurement is approved, and no data was acquired. The
+existing canonical absence audit remains 0/32,136 target hours and 0/4,320
+warm-up hours; it is not an audit of vendor data.
+
+## Contract and decision rule
+
+The required archive is one named spot venue, exact BTC/USD or XBT/USD, hourly
+UTC OHLCV for target `[2023-01-01T00:00:00Z, 2026-09-01T00:00:00Z)` and its
+contiguous 180-day warm-up `[2022-07-05T00:00:00Z, 2023-01-01T00:00:00Z)`.
+Each observation must provide the exact candle-close timestamp, the exact
+candle's first-publication time no later than its close, and original revision-0
+values plus revision history. Research storage/use and retention must be
+explicitly licensed. The unchanged canonical audit requires all 32,136 target
+and 4,320 warm-up hours; no dataset was available to run through it.
+
+## Comparison findings
+
+| Channel | Publicly documented capability | Eligibility blocker / unknown |
+| --- | --- | --- |
+| Kaiko | Spot trade aggregations including OHLCV, exchange/instrument references, versioning documentation, and API/cloud channels. | Exact eligible instrument and interval not entitlement-verified; documentation does not establish per-candle first-publication plus recoverable original revision-0 history; license, retention, quote, and sample not obtained. |
+| Coin Metrics Market Data Feed | Market-specific OHLCV including `1h`, UTC timestamps, catalog/coverage discovery, historical HTTP access. Its candle documentation explicitly describes recalculation of recent values and replacement by finalized candles. | Exact venue coverage and full interval not verified. No evidence that per-candle initial publication and original revision-0 candle values/history can be obtained. License, retention, quote, and sample not obtained. |
+| CoinAPI Flat Files / Market Data API | Product documentation describes bulk historical files and historical/realtime market data. | Public product overview does not establish exact pair, coverage, first-publication/revision-0 fields, license/retention, or cost. No sample or quote obtained. |
+| Amberdata spot OHLCV | Historical/batch OHLCV, hourly granularity, and venue/dataset coverage table are documented. Public coverage lists Kraken and Bitstamp spot OHLCV history before the target start. | Coverage dates do not prove pair-level exactness or every required hour; publication vintage/revision-0 history is not established. License, retention, quote, and sample not obtained. |
+| Direct Kraken public OHLC endpoint | Repository's #397 source review records the documented 720-entry recent limit and inability to retrieve older records. | Cannot cover target plus warm-up and does not establish first publication or revision history. No separate licensed archive identified. |
+
+These are documentation-level findings only. In particular, a data-versioning
+feature, long history start date, hourly API, or coverage table alone does not
+prove that the exact immutable revision-0 records required by this gate can be
+licensed and delivered.
+
+## Procurement decision and reproducible next action
+
+No provider contact, purchase, budget approval, or license approval is claimed.
+The remaining external dependency is an authorized project owner/budget
+decision to permit procurement evaluation and set acceptable spend/contract
+terms. Once authorized, request written confirmation plus an authorized sample
+and schema for the exact venue/pair, full UTC date range, first-publication
+timestamps and revision history, original revision-0 values, and research
+storage/retention rights. Mark missing evidence unknown and reject any source
+that cannot demonstrate the contract. Only after authorized access, preserve
+original files and terms outside Git with acquisition metadata and SHA-256
+manifest, then run the canonical audit described in
+[`ISSUE_397_PIT_BTCUSD_CORPUS.md`](ISSUE_397_PIT_BTCUSD_CORPUS.md).
+
+Do not use BTCUSDT, combine venues, treat revised latest history as a vintage,
+infer missing vintage data, admit partial coverage, or relax any gate. Until a
+fully licensed source passes the unchanged audit, the corpus remains blocked.
+
+## Public documentation references
+
+- [Kaiko OHLCV trade aggregations](https://docs.kaiko.com/rest-api/cefi-spot-market-data/trade-aggregations/trade-count-ohlcv-and-vwap.md), [data versioning](https://docs.kaiko.com/rest-api/general/getting-started/data-versioning.md), and [instrument reference](https://docs.kaiko.com/rest-api/reference-data/exchange-trading-pair-codes-instruments.md).
+- [Coin Metrics market data overview](https://gitbook-docs.coinmetrics.io/market-data/market-data-overview.md) and [market candles](https://gitbook-docs.coinmetrics.io/market-data/market-data-overview/market-candles.md).
+- [CoinAPI documentation and product navigation](https://docs.coinapi.io/), including Flat Files and Market Data API.
+- [Amberdata OHLCV](https://docs.amberdata.io/data-dictionary/market/ohlcv), [coverage](https://docs.amberdata.io/data-dictionary/coverage/coverage-market), and [spot historical OHLCV](https://docs.amberdata.io/http/market/spot-ohlcv.md).
+- [Kraken OHLC endpoint](https://docs.kraken.com/api/docs/rest-api/get-ohlc-data/) and prior repository evidence in [#397 audit](ISSUE_397_PIT_BTCUSD_CORPUS.md).
