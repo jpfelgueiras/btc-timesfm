@@ -20,7 +20,14 @@ parameters automatically.
   - `configurations` — approved challengers and the production champion
     (`role`, `approval_status`, stable `configuration_id`);
   - `shadow_forecasts` — one row per `(configuration_id, origin_at)`,
-    first-write-wins so manual reruns are idempotent;
+    first-write-wins so manual reruns are idempotent; schema version 3 introduced
+    immutable provenance JSON (forecast schema version 1) containing ledger
+    version, the production runtime experiment manifest (model/package, code,
+    production data, and production configuration identity), the registered
+    row-configuration fingerprint, and shadow-policy identity. The manifest
+    describes the production runtime that generated the shared input; the
+    row-configuration records the effective champion or challenger parameters
+    actually used for this row;
   - `shadow_outcomes` — matured per-horizon outcomes filled once the exact
     target candle exists.
 - `ShadowPolicy` — configurable requirements before promotion can be considered:
@@ -31,6 +38,10 @@ parameters automatically.
 - `mature_shadow_outcomes` — fills outcomes from the same market data used for
   the champion.
 - `build_shadow_status` / `render_summary` — Actions-friendly status report.
+- `ShadowStore.evidence_report()` — forecast/horizon coverage, missingness,
+  exact-target maturity, failures, and version counts. Rows without both a data
+  lineage ID and versioned provenance are explicitly counted as legacy and
+  excluded from its confirmatory pair denominator.
 - `shadow_failures` — durable, idempotent failure records so a bad challenger
   is observable without interrupting the champion or public publication.
 - a CLI (`python -m btc_timesfm.research.shadow_deployment`).
@@ -82,6 +93,25 @@ promotion gate (`eligible` / `blocked`) plus the unmet reasons. It is designed
 to be appended to an Actions step summary exactly like the optimizer and
 promotion-policy summaries.
 
+Forecast schema version 1 is stored in each row's provenance. Database schema
+version 6 is managed through ordered migrations and rejects unsupported newer
+schemas without modification. Outcomes pair by `(configuration_id, origin_at,
+horizon)` and mature only when the exact UTC target candle exists; duplicate
+forecast and outcome writes are idempotent/write-once. No legacy row is assigned
+retroactive provenance, and no evidence report changes production parameters.
+The report validates supported forecast schema version 1 and complete model,
+code, production experiment configuration, registered row-configuration
+fingerprint, policy, and matching lineage identity before treating a forecast
+as confirmatory. The registered fingerprint is recomputed from the store's
+configuration name, role, and parameters, and must match the forecast row's
+configuration ID. Failed attempts carry an
+expected-horizon set and an optional caller-supplied `attempt_id`. Repeated
+errors with the same ID are combined; omitted IDs produce unique attempts, so
+separate executions at the same configuration/origin/stage remain distinct.
+Migration snapshots and rollback restoration use SQLite's online backup API,
+so committed WAL frames are included and journal-mode changes are unnecessary
+for transactional migrations.
+
 ## Promotion gate
 
 A challenger's decision is `eligible` only when **all** of these hold:
@@ -107,3 +137,10 @@ outcome row per matured `(configuration_id, origin_at, horizon)`. Like the
 experiment registry and production forecast history, the database is intended
 to be kept as a compressed GitHub Release asset, which keeps it
 Actions-compatible.
+
+Back up the complete SQLite file using SQLite's online backup API (which
+includes committed WAL frames) or after closing the store; retain it as a compressed release asset alongside the production history
+asset. Reproduction uses the persisted forecast predictions and provenance, not
+a regenerated current configuration. The operational `report` command emits
+coverage/version/maturity evidence for inspection; retention and restore
+procedures follow `HISTORY_BACKUP.md`.
