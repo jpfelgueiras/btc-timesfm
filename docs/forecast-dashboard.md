@@ -100,8 +100,13 @@ of the preceding 24 hourly log-return observations, multiplied by 100 and
 reported in percent (not a decimal fraction). The fixed labels mean: **low**
 below 1.0%, **medium** at least 1.0% and below 2.5%, and **high** at least
 2.5%. The report gives unique-origin counts, missing/invalid feature counts,
-quantiles, and first/last origin date plus distinct-date coverage. Missing
-features or unsupported feature classes are shown as unavailable.
+quantiles, and first/last date plus distinct-date coverage, both for all origins
+and separately for origins with valid volatility features. These summaries are
+also broken out by forecast horizon. Exact-origin/horizon/target paired support
+for matured ensemble and persistence rows is shown as counts only; when it
+cannot be established it is marked unavailable. Feature version is taken from
+explicit feature-set provenance and otherwise marked unknown; a configuration
+identifier is not treated as feature provenance.
 
 These summaries validate the feature distribution and existing labels; they
 are descriptive only. Candidate cutpoints must be preregistered and estimated
