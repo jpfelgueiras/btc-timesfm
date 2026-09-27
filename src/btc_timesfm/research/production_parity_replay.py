@@ -1,4 +1,4 @@
-"""Fail-closed readiness report for production-parity replay (roadmap v10 #399).
+"""Fail-closed readiness report for production-parity replay (roadmap v11 #411).
 
 This command audits evidence availability only. It does not run a replay or
 interpret metrics unless the corpus, production policy, and mature paired
@@ -15,9 +15,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from btc_timesfm.research.frozen_scoring_protocol import PROTOCOL_PATH, load_frozen_protocol
+
 SCHEMA_VERSION = 1
 DEFAULT_CORPUS_AUDIT = Path("docs/research/ISSUE_397_CANONICAL_BENCHMARK_AUDIT.json")
 DEFAULT_OUTPUT = Path("docs/research/ISSUE_399_PRODUCTION_PARITY_BLOCKED.json")
+DEFAULT_ISSUE_411_OUTPUT = Path("docs/research/ISSUE_411_PARITY_BASELINES_BLOCKED.json")
 TARGET_HOURS = 32_136
 WARMUP_HOURS = 4_320
 SHADOW_EVIDENCE_SCHEMA_VERSION = 6
@@ -516,12 +519,27 @@ def _ledger_blocker(ledger: Mapping[str, Any] | None) -> str | None:
 
 
 def build_report(
-    corpus_path: Path, ledger_path: Path | None, frozen_cohort_path: Path | None = None
+    corpus_path: Path,
+    ledger_path: Path | None,
+    frozen_cohort_path: Path | None = None,
+    protocol_path: Path = PROTOCOL_PATH,
 ) -> dict[str, Any]:
     """Build a reproducible machine-readable readiness report from evidence files."""
     corpus, corpus_error, corpus_hash = _load(corpus_path)
     ledger, ledger_error, ledger_hash = _load(ledger_path)
     frozen_cohort, frozen_error, frozen_hash = _load(frozen_cohort_path)
+    protocol_file_hash: str | None = None
+    protocol: Mapping[str, Any] | None = None
+    protocol_problem: str | None = None
+    try:
+        protocol_file_hash = hashlib.sha256(protocol_path.read_bytes()).hexdigest()
+        protocol = load_frozen_protocol(protocol_path)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RuntimeError, ValueError) as exc:
+        protocol_problem = f"Frozen scoring protocol is invalid or unavailable: {exc}"
+    try:
+        protocol_display_path = str(protocol_path.resolve().relative_to(Path.cwd().resolve()))
+    except ValueError:
+        protocol_display_path = str(protocol_path)
     blockers: list[dict[str, str]] = []
     corpus_ready = _corpus_ready(corpus)
     if corpus_error:
@@ -557,22 +575,38 @@ def build_report(
         else None
     )
 
+    if protocol_problem:
+        blockers.append({"code": "frozen_protocol_invalid", "detail": protocol_problem})
+    if frozen_cohort_path is None:
+        frozen_problem = (
+            "Frozen #419 prospective cohort report is required for prospective readiness."
+        )
+    if frozen_problem:
+        blockers.append({"code": "frozen_prospective_cohort_not_ready", "detail": frozen_problem})
+
     ready = not blockers
     return {
         "schema_version": SCHEMA_VERSION,
-        "issue": 399,
+        "issue": 411,
         "status": "ready_for_replay" if ready else "blocked",
         "canonical_skill_claim": False,
         "metrics_interpretable_as_canonical": False,
         "metrics": None,
         "metric_status": "not_computed_blocked" if not ready else "replay_not_run",
         "gates": {
+            "frozen_protocol": "passed" if protocol_problem is None else "blocked",
             "corpus": "passed" if corpus_ready else "blocked",
             "eligible_mature_production_policy_evidence": "passed"
             if ledger is not None and _ledger_blocker(ledger) is None
             else "blocked",
         },
         "evidence": {
+            "frozen_protocol": {
+                "path": protocol_display_path,
+                "file_sha256": protocol_file_hash,
+                "protocol_sha256": protocol.get("protocol_sha256") if protocol else None,
+                "protocol_version": protocol.get("protocol_version") if protocol else None,
+            },
             "corpus_audit": {"path": str(corpus_path), "sha256": corpus_hash},
             "prospective_ledger": {
                 "path": str(ledger_path) if ledger_path else None,
@@ -647,14 +681,43 @@ def build_report(
             },
         },
         "frozen_cohort_readiness": {
-            "status": "not_requested"
-            if frozen_cohort_path is None
-            else "ready"
-            if frozen_problem is None
-            else "blocked",
+            "status": "blocked" if frozen_problem else "ready",
             "blocker": frozen_problem,
         },
         "blockers": blockers,
+        "evidence_tracks": {
+            "historical_canonical": {
+                "status": "blocked" if not corpus_ready else "replay_not_run",
+                "canonical_corpus_required": True,
+                "metrics": None,
+            },
+            "prospective": {
+                "status": "blocked" if frozen_problem else "ready_for_capture_replay",
+                "metrics": None,
+                "canonical_skill_claim": False,
+            },
+        },
+        "last_verified_prospective_snapshot": {
+            "source": "docs/research/FROZEN_SHADOW_COHORT.md sanitized live-artifact verification",
+            "snapshot_at": "2026-09-27T11:00:00Z",
+            "origin_cutoff_at": "2026-09-26T19:00:00Z",
+            "evaluation_as_of": "2026-09-27T11:00:00Z",
+            "database_sha256": "b102f14db535264ecc2474a3b338c929abea4c39616f233a5701611c9300f57f",
+            "cohort_sha256": "462287eb433a27c16e4f25360d9ee40e5dda2fabdced13e5390859a055f7bbb8",
+            "code_sha256": "79a95fc3debd4134ab68cfc55795007a340f15a6eff2ef7212a875a9846c28fc",
+            "timestamp_eligible_forecasts": 48,
+            "timestamp_eligible_legacy_excluded": 48,
+            "confirmatory_forecasts": 0,
+            "expected_pairs": 0,
+            "matured_pairs": 0,
+            "latest_provenance_complete_origin_at": "2026-09-27T11:00:00Z",
+            "latest_origin_mature_for_cohort": False,
+            "blockers": [
+                "versioned_provenance_mismatch",
+                "no_confirmatory_versioned_forecasts_in_frozen_cohort",
+            ],
+            "metrics": None,
+        },
         "required_comparisons": [
             "production_policy",
             "persistence",
@@ -688,9 +751,10 @@ def main() -> None:
     parser.add_argument(
         "--frozen-cohort", type=Path, help="immutable #419 frozen prospective cohort report JSON"
     )
+    parser.add_argument("--protocol", type=Path, default=PROTOCOL_PATH)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
-    report = build_report(args.corpus_audit, args.ledger, args.frozen_cohort)
+    report = build_report(args.corpus_audit, args.ledger, args.frozen_cohort, args.protocol)
     rendered = json.dumps(report, indent=2, sort_keys=True) + "\n"
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(rendered, encoding="utf-8")
