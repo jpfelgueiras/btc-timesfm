@@ -57,8 +57,29 @@ jobs:
             --archive .drill/independent-backup.sqlite.gz \
             --report .drill/disaster_recovery_report.json
 
-      - name: Record successful independent restore
+      - name: Restore and verify independent shadow evidence
+        id: shadow_drill
         if: steps.drill.outcome == 'success'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.HISTORY_BACKUP_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.HISTORY_BACKUP_AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ vars.HISTORY_BACKUP_AWS_REGION }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python -m btc_timesfm.history.independent_backup restore \
+            --uri "${HISTORY_INDEPENDENT_BACKUP_URI}.shadow_deployment" \
+            --output .drill/shadow-independent-backup.sqlite.gz \
+            > .drill/shadow-independent-restore.json
+          PYTHONPATH=src python -m btc_timesfm.research.shadow_deployment \
+            --db .drill/shadow-restored.sqlite restore \
+            --archive .drill/shadow-independent-backup.sqlite.gz \
+            > .drill/shadow-database-restore.json
+          PYTHONPATH=src python -m btc_timesfm.research.shadow_deployment \
+            --db .drill/shadow-restored.sqlite verify \
+            > .drill/shadow-database-verification.json
+
+      - name: Record successful independent restore
+        if: steps.drill.outcome == 'success' && steps.shadow_drill.outcome == 'success'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.HISTORY_BACKUP_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.HISTORY_BACKUP_AWS_SECRET_ACCESS_KEY }}
@@ -66,6 +87,9 @@ jobs:
         run: |
           PYTHONPATH=src python -m btc_timesfm.history.independent_backup record-restore \
             --uri "$HISTORY_INDEPENDENT_BACKUP_URI" > .drill/restore_receipt.json
+          PYTHONPATH=src python -m btc_timesfm.history.independent_backup record-restore \
+            --uri "${HISTORY_INDEPENDENT_BACKUP_URI}.shadow_deployment" \
+            > .drill/shadow-restore-receipt.json
 
       - name: Add drill report to job summary
         if: always() && hashFiles('.drill/disaster_recovery_report.json') != ''
@@ -74,6 +98,13 @@ jobs:
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
           cat .drill/disaster_recovery_report.json >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+          if [ -f .drill/shadow-database-verification.json ]; then
+            echo '' >> "$GITHUB_STEP_SUMMARY"
+            echo '## Shadow evidence restore verification' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat .drill/shadow-database-verification.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload drill report
         if: always() && (hashFiles('.drill/disaster_recovery_report.json') != '' || hashFiles('.drill/independent_restore.json') != '')
@@ -84,6 +115,10 @@ jobs:
             .drill/disaster_recovery_report.json
             .drill/independent_restore.json
             .drill/restore_receipt.json
+            .drill/shadow-independent-restore.json
+            .drill/shadow-database-restore.json
+            .drill/shadow-database-verification.json
+            .drill/shadow-restore-receipt.json
           retention-days: 90
 
       - name: Create failure issue

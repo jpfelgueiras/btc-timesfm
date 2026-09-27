@@ -45,21 +45,32 @@ jobs:
             --uri "$HISTORY_INDEPENDENT_BACKUP_URI" \
             --max-age-hours 2 \
             --report independent_backup_monitor.json > independent_backup_monitor.stdout.json
+          PYTHONPATH=src python -m btc_timesfm.history.independent_backup check \
+            --uri "${HISTORY_INDEPENDENT_BACKUP_URI}.shadow_deployment" \
+            --max-age-hours 2 \
+            --report independent_shadow_backup_monitor.json > independent_shadow_backup_monitor.stdout.json
 
       - name: Add verification report to summary
-        if: always() && hashFiles('independent_backup_monitor.json') != ''
+        if: always() && (hashFiles('independent_backup_monitor.json') != '' || hashFiles('independent_shadow_backup_monitor.json') != '')
         run: |
           echo '## Independent forecast-history backup' >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
           cat independent_backup_monitor.json >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo '## Independent shadow-evidence backup' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat independent_shadow_backup_monitor.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload verification report
-        if: always() && hashFiles('independent_backup_monitor.json') != ''
+        if: always() && (hashFiles('independent_backup_monitor.json') != '' || hashFiles('independent_shadow_backup_monitor.json') != '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: independent-history-backup-monitor-${{ github.run_id }}
-          path: independent_backup_monitor.json
+          path: |
+            independent_backup_monitor.json
+            independent_shadow_backup_monitor.json
           retention-days: 90
 
       - name: Open deduplicated backup incident

@@ -1,4 +1,5 @@
 import hashlib
+import gzip
 import json
 import os
 import shutil
@@ -11,6 +12,7 @@ from unittest.mock import patch
 from btc_timesfm.history.history_backup import create_archive
 from btc_timesfm.history.history_migrations import CURRENT_SCHEMA_VERSION
 from btc_timesfm.history.history_store import ForecastHistoryStore
+from btc_timesfm.research.shadow_deployment import ShadowStore
 from btc_timesfm.history.independent_backup import (
     BackupAgeError,
     check_backup,
@@ -21,6 +23,43 @@ from btc_timesfm.history.independent_backup import (
 
 
 class IndependentBackupTests(unittest.TestCase):
+    def test_shadow_database_independent_backup_upload_and_restore_verification(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = root / "shadow.sqlite"
+            ShadowStore(database)
+            archive = root / "shadow.sqlite.gz"
+            with database.open("rb") as source, gzip.open(archive, "wb") as target:
+                shutil.copyfileobj(source, target)
+            remote: dict[str, bytes] = {}
+
+            def fake_aws(*args: str) -> None:
+                source, target = args[1], args[2]
+                if source.startswith("s3://"):
+                    Path(target).write_bytes(remote[source])
+                else:
+                    remote[target] = Path(source).read_bytes()
+
+            uri = "s3://bucket/evidence/shadow"
+            with patch("btc_timesfm.history.independent_backup._aws", side_effect=fake_aws):
+                report = upload_and_verify(archive, uri, database_type="shadow_deployment")
+                restored = restore_from_s3(uri, root / "restored-shadow.sqlite.gz")
+
+            self.assertTrue(report["verified"])
+            self.assertEqual(report["database_type"], "shadow_deployment")
+            self.assertEqual(report["database_verification"]["schema_version"], 6)
+            self.assertEqual(restored["manifest"]["database_type"], "shadow_deployment")
+            self.assertTrue(restored["database_verification"]["ok"])
+            self.assertEqual(
+                restored["manifest"]["row_counts"],
+                {
+                    "configurations": 0,
+                    "shadow_forecasts": 0,
+                    "shadow_outcomes": 0,
+                    "shadow_failures": 0,
+                },
+            )
+
     def test_aws_passes_configured_endpoint(self) -> None:
         with (
             patch.dict(os.environ, {"HISTORY_BACKUP_AWS_ENDPOINT_URL": "https://s3.example.com"}),

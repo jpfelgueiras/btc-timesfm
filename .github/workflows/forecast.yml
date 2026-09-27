@@ -131,10 +131,10 @@ jobs:
             gh release download "$HISTORY_RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --pattern 'shadow_deployment.sqlite.gz' \
-              --dir .state >/dev/null 2>&1 || true
-            if [ -f .state/shadow_deployment.sqlite.gz ]; then
-              gzip -df .state/shadow_deployment.sqlite.gz
-            fi
+              --dir .state
+            PYTHONPATH=src python -m btc_timesfm.research.shadow_deployment \
+              --db .state/shadow_deployment.sqlite restore \
+              --archive .state/shadow_deployment.sqlite.gz
             touch .state/history_restored_from_release
             echo "Restored durable production state from release $HISTORY_RELEASE_TAG"
           else
@@ -144,6 +144,8 @@ jobs:
               exit 1
             fi
             echo "No durable history release exists yet; the first forecast will create it."
+            PYTHONPATH=src python -m btc_timesfm.research.shadow_deployment \
+              --db .state/shadow_deployment.sqlite init-first-run
           fi
 
       - name: Migrate and verify durable history schema
@@ -295,6 +297,11 @@ jobs:
               --archive ".state/backup_verify/${backup_name}" \
               --uri "$HISTORY_INDEPENDENT_BACKUP_URI" \
               --report .state/independent_backup_verification.json
+            PYTHONPATH=src python -m btc_timesfm.history.independent_backup upload \
+              --archive .state/shadow_deployment.sqlite.gz \
+              --uri "${HISTORY_INDEPENDENT_BACKUP_URI}.shadow_deployment" \
+              --database-type shadow_deployment \
+              --report .state/independent_shadow_backup_verification.json
 
             # Only after the new rollback generation has been re-downloaded and
             # verified may the current canonical assets be replaced.
@@ -335,6 +342,11 @@ jobs:
               --archive .state/forecast_history.sqlite.gz \
               --uri "$HISTORY_INDEPENDENT_BACKUP_URI" \
               --report .state/independent_backup_verification.json
+            PYTHONPATH=src python -m btc_timesfm.history.independent_backup upload \
+              --archive .state/shadow_deployment.sqlite.gz \
+              --uri "${HISTORY_INDEPENDENT_BACKUP_URI}.shadow_deployment" \
+              --database-type shadow_deployment \
+              --report .state/independent_shadow_backup_verification.json
 
             gh release create "$HISTORY_RELEASE_TAG" "${assets[@]}" \
               --repo "$GITHUB_REPOSITORY" \
@@ -405,6 +417,13 @@ jobs:
             echo '### Independent history backup' >> "$GITHUB_STEP_SUMMARY"
             echo '```json' >> "$GITHUB_STEP_SUMMARY"
             cat .state/independent_backup_verification.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f .state/independent_shadow_backup_verification.json ]; then
+            echo '' >> "$GITHUB_STEP_SUMMARY"
+            echo '### Independent shadow evidence backup' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat .state/independent_shadow_backup_verification.json >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ -f shadow_deployment_summary.md ]; then
@@ -525,5 +544,6 @@ jobs:
             .state/uploaded_backup_verification.json
             .state/backup_retention_plan.json
             .state/independent_backup_verification.json
+            .state/independent_shadow_backup_verification.json
           if-no-files-found: warn
           retention-days: 7

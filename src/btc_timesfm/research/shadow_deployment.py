@@ -21,11 +21,14 @@ rollback backups on migration, and bounded append-only tables keyed by
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import math
+import os
 import sqlite3
 import sys
+import tempfile
 import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
@@ -124,6 +127,13 @@ def _failure_attempt_id(configuration_id: Any, origin_at: Any, stage: str) -> st
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _targets_at(origin_at: str) -> dict[str, str]:
+    origin = _parse_utc(origin_at)
+    return {
+        horizon: (origin + timedelta(hours=int(horizon[:-1]))).isoformat() for horizon in HORIZONS
+    }
 
 
 def _parse_utc(value: str) -> datetime:
@@ -579,6 +589,35 @@ def migrate_database(
         raise
 
 
+def restore_shadow_archive(archive_path: Path | str, database_path: Path | str) -> dict[str, Any]:
+    """Restore and migrate a compressed shadow ledger without replacing it on failure."""
+    archive = Path(archive_path)
+    database = Path(database_path)
+    if not archive.is_file():
+        raise FileNotFoundError(f"established shadow evidence archive is missing: {archive}")
+    database.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="shadow-evidence-restore-", dir=database.parent) as tmp:
+        staged = Path(tmp) / database.name
+        try:
+            with gzip.open(archive, "rb") as source, staged.open("wb") as target:
+                while chunk := source.read(1024 * 1024):
+                    target.write(chunk)
+        except (OSError, EOFError) as exc:
+            raise RuntimeError("shadow evidence archive cannot be decompressed") from exc
+        migration = migrate_database(staged)
+        verification = validate_database(staged)
+        os.replace(staged, database)
+    return {"restored_to": str(database), "migration": migration, "verification": verification}
+
+
+def initialize_first_shadow_store(database_path: Path | str) -> dict[str, Any]:
+    """Create the shadow ledger only when the caller established this is first-ever state."""
+    database = Path(database_path)
+    if database.exists():
+        raise RuntimeError("refusing first-ever shadow initialization over existing database")
+    return ShadowStore(database).verify()
+
+
 class ShadowStore:
     """SQLite-backed append-safe store for live shadow forecasts."""
 
@@ -819,6 +858,7 @@ class ShadowStore:
             valid_provenance = (
                 isinstance(provenance, dict)
                 and provenance.get("ledger_version") == 1
+                and provenance.get("targets_at") == _targets_at(str(forecast["origin_at"]))
                 and bool(str(forecast.get("data_lineage_id") or "").strip())
                 and isinstance(data, dict)
                 and manifest.get("data_id") == forecast.get("data_lineage_id")
@@ -1242,6 +1282,8 @@ class ShadowStore:
             ).fetchall():
                 by_role[str(row["role"])] = int(row["n"])
         diagnostics = schema_diagnostics(self.path)
+        database_sha256 = hashlib.sha256(self.path.read_bytes()).hexdigest()
+        evidence = self.evidence_report()
         return {
             "schema_version": diagnostics["schema_version"],
             "supported_schema_version": diagnostics["supported_schema_version"],
@@ -1254,6 +1296,8 @@ class ShadowStore:
             "first_shadow_origin_at": first_last[0],
             "latest_shadow_origin_at": first_last[1],
             "database_bytes": self.path.stat().st_size if self.path.exists() else 0,
+            "database_sha256": database_sha256,
+            "evidence": evidence,
         }
 
     def verify(self) -> dict[str, Any]:
@@ -1736,6 +1780,7 @@ def run_shadow(
         data_lineage_id=data_lineage_id,
         provenance={
             "ledger_version": 1,
+            "targets_at": _targets_at(origin_at),
             "experiment_manifest": manifest,
             "configuration_id": champion_configuration_id,
             "row_configuration": configuration_manifest(
@@ -1796,6 +1841,7 @@ def run_shadow(
                 data_lineage_id=data_lineage_id,
                 provenance={
                     "ledger_version": 1,
+                    "targets_at": _targets_at(origin_at),
                     "experiment_manifest": manifest,
                     "configuration_id": configuration_id,
                     "row_configuration": configuration_manifest(
@@ -1838,6 +1884,8 @@ def run_shadow(
 
     return {
         "schema_version": SHADOW_REPORT_VERSION,
+        "store_schema_version": CURRENT_SCHEMA_VERSION,
+        "forecast_schema_version": 1,
         "generated_at": generated_at or _utc_now_iso(),
         "origin_at": origin_at,
         "shadow_champion": {
@@ -1890,6 +1938,8 @@ def build_shadow_status(
         champion = None
     return {
         "schema_version": SHADOW_REPORT_VERSION,
+        "store_schema_version": CURRENT_SCHEMA_VERSION,
+        "forecast_schema_version": 1,
         "generated_at": generated_at or _utc_now_iso(),
         "policy_id": shadow_policy_identity(active),
         "policy": asdict(active),
@@ -1935,6 +1985,8 @@ def render_summary(status: Mapping[str, Any]) -> str:
                 "",
                 "## Prospective evidence ledger",
                 "",
+                f"- Store schema: **{_fmt(evidence.get('schema_version'), 0)}**; database SHA-256: "
+                f"`{status.get('statistics', {}).get('database_sha256', 'unavailable')}`",
                 f"- Confirmatory forecasts: **{_fmt(evidence.get('confirmatory_forecasts'), 0)}**; "
                 f"legacy/unversioned excluded: **{_fmt(evidence.get('legacy_or_unversioned_forecasts_excluded'), 0)}**",
                 f"- Matured target pairs: **{_fmt(evidence.get('matured_pairs'), 0)} / "
@@ -1943,6 +1995,9 @@ def render_summary(status: Mapping[str, Any]) -> str:
                 f"failures: **{_fmt(evidence.get('failures'), 0)}** "
                 f"({_fmt(evidence.get('failed_attempt_pairs'), 0)} failed pairs)",
                 f"- Forecast schema versions: `{_canonical_json(evidence.get('forecast_versions', {}))}`",
+                f"- First/latest persisted origins: "
+                f"`{status.get('statistics', {}).get('first_shadow_origin_at')}` / "
+                f"`{status.get('statistics', {}).get('latest_shadow_origin_at')}`",
                 "",
             ]
         )
@@ -2009,8 +2064,11 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("init")
+    subparsers.add_parser("init-first-run")
     subparsers.add_parser("verify")
     subparsers.add_parser("stats")
+    restore = subparsers.add_parser("restore")
+    restore.add_argument("--archive", type=Path, required=True)
 
     approve = subparsers.add_parser("approve")
     approve.add_argument("--name", required=True)
@@ -2048,6 +2106,12 @@ def main() -> None:
     report.add_argument("--summary", type=Path, default=DEFAULT_SUMMARY_PATH)
 
     args = parser.parse_args()
+    if args.command == "restore":
+        _write_json(restore_shadow_archive(args.archive, args.db))
+        return
+    if args.command == "init-first-run":
+        _write_json(initialize_first_shadow_store(args.db))
+        return
     store = ShadowStore(args.db)
 
     if args.command == "init":
