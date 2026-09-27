@@ -98,6 +98,7 @@ def _history_summary(archive: Path, database_type: str = "forecast_history") -> 
                         "shadow_forecasts",
                         "shadow_outcomes",
                         "shadow_failures",
+                        "parity_baseline_attempts",
                     )
                 }
                 latest_origin = connection.execute(

@@ -20,10 +20,10 @@ from btc_timesfm.research.frozen_scoring_protocol import PROTOCOL_PATH, load_fro
 SCHEMA_VERSION = 1
 DEFAULT_CORPUS_AUDIT = Path("docs/research/ISSUE_397_CANONICAL_BENCHMARK_AUDIT.json")
 DEFAULT_OUTPUT = Path("docs/research/ISSUE_399_PRODUCTION_PARITY_BLOCKED.json")
-DEFAULT_ISSUE_411_OUTPUT = Path("docs/research/ISSUE_411_PARITY_BASELINES_BLOCKED.json")
+DEFAULT_ISSUE_411_OUTPUT = Path("docs/research/ISSUE_411_BASELINE_CAPTURE_BLOCKED.json")
 TARGET_HOURS = 32_136
 WARMUP_HOURS = 4_320
-SHADOW_EVIDENCE_SCHEMA_VERSION = 6
+SHADOW_EVIDENCE_SCHEMA_VERSION = 7
 SHADOW_FORECAST_SCHEMA_VERSION = 1
 SHADOW_HORIZONS = ("2h", "4h", "8h", "16h")
 
@@ -717,6 +717,21 @@ def build_report(
                 "no_confirmatory_versioned_forecasts_in_frozen_cohort",
             ],
             "metrics": None,
+        },
+        "prospective_replay_readiness": {
+            "status": "blocked",
+            "evidence_class": "prospective_only_noncanonical",
+            "registered_baseline_capture": "implemented_waiting_for_new_eligible_origins",
+            "confirmatory_origins": 0,
+            "eligible_exact_pairs": 0,
+            "metrics": None,
+            "blockers": [
+                "latest_frozen_cohort_has_zero_confirmatory_versioned_origins",
+                "latest_frozen_cohort_has_zero_eligible_pairs",
+                "training_only_strongest_simple_baseline_selection_not_available",
+                "frozen_cohort_actual_source_identity_and_complete_attempts_required_for_replay",
+                "frozen_protocol_effective_sample_and_block_minima_not_met",
+            ],
         },
         "required_comparisons": [
             "production_policy",
