@@ -50,12 +50,61 @@ def _receipt_uri(uri: str) -> str:
     return f"{uri}.restore.json"
 
 
-def _history_summary(archive: Path) -> dict[str, Any]:
-    with tempfile.TemporaryDirectory(prefix="independent-history-summary-") as directory:
-        db = Path(directory) / "history.sqlite"
+DATABASE_TYPES = ("forecast_history", "shadow_deployment")
+
+
+def _extract_archive(archive: Path, database_type: str) -> tuple[Path, tempfile.TemporaryDirectory]:
+    if database_type not in DATABASE_TYPES:
+        raise ValueError(f"unsupported independent backup database type: {database_type}")
+    temporary = tempfile.TemporaryDirectory(prefix=f"independent-{database_type}-")
+    db = Path(temporary.name) / f"{database_type}.sqlite"
+    try:
         with gzip.open(archive, "rb") as source, db.open("wb") as target:
             while chunk := source.read(1024 * 1024):
                 target.write(chunk)
+    except Exception:
+        temporary.cleanup()
+        raise
+    return db, temporary
+
+
+def _database_verification(archive: Path, database_type: str) -> dict[str, Any]:
+    if database_type == "forecast_history":
+        return verify_archive(archive)
+    from btc_timesfm.research.shadow_deployment import validate_database
+
+    db, temporary = _extract_archive(archive, database_type)
+    try:
+        verification = validate_database(db)
+    finally:
+        temporary.cleanup()
+    return {
+        "archive": str(archive),
+        "archive_bytes": archive.stat().st_size,
+        "sha256": _sha256(archive),
+        "database_verification": {**verification, "ok": True},
+    }
+
+
+def _history_summary(archive: Path, database_type: str = "forecast_history") -> dict[str, Any]:
+    db, temporary = _extract_archive(archive, database_type)
+    try:
+        if database_type == "shadow_deployment":
+            with closing(sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True)) as connection:
+                counts = {
+                    table: int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+                    for table in (
+                        "configurations",
+                        "shadow_forecasts",
+                        "shadow_outcomes",
+                        "shadow_failures",
+                        "parity_baseline_attempts",
+                    )
+                }
+                latest_origin = connection.execute(
+                    "SELECT MAX(origin_at) FROM shadow_forecasts"
+                ).fetchone()[0]
+            return {"row_counts": counts, "latest_origin_at": latest_origin}
         with closing(sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True)) as connection:
             counts = {
                 "forecast_origins": int(
@@ -74,7 +123,9 @@ def _history_summary(archive: Path) -> dict[str, Any]:
             latest_origin = connection.execute(
                 "SELECT MAX(origin_at) FROM forecast_origins"
             ).fetchone()[0]
-    return {"row_counts": counts, "latest_origin_at": latest_origin}
+        return {"row_counts": counts, "latest_origin_at": latest_origin}
+    finally:
+        temporary.cleanup()
 
 
 def _read_manifest(path: Path) -> dict[str, Any]:
@@ -96,6 +147,9 @@ def _read_manifest(path: Path) -> dict[str, Any]:
         raise RuntimeError("independent backup manifest is incomplete")
     if manifest["manifest_version"] != MANIFEST_VERSION:
         raise RuntimeError("independent backup manifest version is unsupported")
+    manifest.setdefault("database_type", "forecast_history")
+    if manifest["database_type"] not in DATABASE_TYPES:
+        raise RuntimeError("independent backup database type is unsupported")
     try:
         verified_at = datetime.fromisoformat(str(manifest["verified_at"]).replace("Z", "+00:00"))
         if verified_at.tzinfo is None:
@@ -126,13 +180,14 @@ def _download_verified(uri: str, destination: Path) -> tuple[dict[str, Any], dic
         _aws("cp", archive_uri, str(archive_tmp), "--only-show-errors")
         if archive_tmp.stat().st_size != int(manifest["archive_bytes"]):
             raise RuntimeError("independent backup archive size does not match manifest")
-        verification = verify_archive(archive_tmp)
+        database_type = str(manifest["database_type"])
+        verification = _database_verification(archive_tmp, database_type)
         if verification["sha256"] != manifest["sha256"]:
             raise RuntimeError("independent backup archive checksum does not match manifest")
         database = verification["database_verification"]
         if database.get("schema_version") != manifest["schema_version"]:
             raise RuntimeError("independent backup schema does not match manifest")
-        summary = _history_summary(archive_tmp)
+        summary = _history_summary(archive_tmp, database_type)
         if summary["row_counts"] != manifest["row_counts"]:
             raise RuntimeError("independent backup row counts do not match manifest")
         if summary["latest_origin_at"] != manifest["latest_origin_at"]:
@@ -141,13 +196,16 @@ def _download_verified(uri: str, destination: Path) -> tuple[dict[str, Any], dic
     return manifest, verification
 
 
-def upload_and_verify(archive: Path | str, uri: str) -> dict[str, Any]:
+def upload_and_verify(
+    archive: Path | str, uri: str, *, database_type: str = "forecast_history"
+) -> dict[str, Any]:
     """Upload the archive and its row-count manifest, then verify the remote pair."""
     source = Path(archive)
-    local = verify_archive(source)
-    summary = _history_summary(source)
+    local = _database_verification(source, database_type)
+    summary = _history_summary(source, database_type)
     manifest = {
         "manifest_version": MANIFEST_VERSION,
+        "database_type": database_type,
         "verified_at": datetime.now(timezone.utc).isoformat(),
         "archive_bytes": local["archive_bytes"],
         "sha256": local["sha256"],
@@ -164,7 +222,7 @@ def upload_and_verify(archive: Path | str, uri: str) -> dict[str, Any]:
         with tempfile.TemporaryDirectory(prefix="independent-history-verify-") as verify_dir:
             downloaded_archive = Path(verify_dir) / "archive.sqlite.gz"
             _aws("cp", manifest["archive_uri"], str(downloaded_archive), "--only-show-errors")
-            remote = verify_archive(downloaded_archive)
+            remote = _database_verification(downloaded_archive, database_type)
             if remote["sha256"] != local["sha256"]:
                 raise RuntimeError("independent S3 backup checksum mismatch")
             _aws("cp", str(manifest_path), _manifest_uri(uri), "--only-show-errors")
@@ -229,6 +287,7 @@ def check_backup(
             pass
     report = {
         "verified": True,
+        "database_type": manifest["database_type"],
         "checked_at": current.isoformat(),
         "backup_age_seconds": int(age.total_seconds()),
         "max_age_hours": max_age_hours,
@@ -265,6 +324,7 @@ def main() -> None:
     upload.add_argument("--archive", type=Path, required=True)
     upload.add_argument("--uri", required=True)
     upload.add_argument("--report", type=Path, required=True)
+    upload.add_argument("--database-type", choices=DATABASE_TYPES, default="forecast_history")
     restore = commands.add_parser("restore")
     restore.add_argument("--uri", required=True)
     restore.add_argument("--output", type=Path, required=True)
@@ -276,7 +336,7 @@ def main() -> None:
     record.add_argument("--uri", required=True)
     args = parser.parse_args()
     if args.command == "upload":
-        report = upload_and_verify(args.archive, args.uri)
+        report = upload_and_verify(args.archive, args.uri, database_type=args.database_type)
         _write_json(args.report, report)
     elif args.command == "restore":
         report = restore_from_s3(args.uri, args.output)

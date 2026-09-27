@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import gzip
 import json
 import sqlite3
 import tempfile
@@ -23,9 +24,12 @@ from btc_timesfm.research.shadow_deployment import (
     migrate_database,
     migration_backup_path,
     render_summary,
+    restore_shadow_archive,
     run_shadow,
     shadow_policy_identity,
+    _targets_at,
 )
+from btc_timesfm.research.production_parity_replay import _frozen_cohort_blocker
 
 HORIZONS = ("2h", "4h", "8h", "16h")
 HOURS = (2, 4, 8, 16)
@@ -152,6 +156,47 @@ class ShadowDeploymentTests(unittest.TestCase):
         )
         return record
 
+    def _record_frozen_forecast(self, origin_at: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        champion = self._register_champion()
+        data_id = "frozen-lineage"
+        provenance = {
+            "ledger_version": 1,
+            "targets_at": _targets_at(origin_at),
+            "configuration_id": champion["configuration_id"],
+            "row_configuration": configuration_manifest(
+                {"name": champion["name"], "parameters": champion["parameters"]},
+                champion["role"],
+            ),
+            "policy_id": "frozen-policy",
+            "experiment_manifest": {
+                "data_id": data_id,
+                "configuration_id": champion["configuration_id"],
+                "model": {
+                    "id": "model",
+                    "revision": "revision",
+                    "package": "package",
+                    "package_version": "1",
+                },
+                "code": {"git_sha": "code"},
+                "configuration": {"context": 10},
+                "data": {"lineage": data_id},
+            },
+        }
+        self.store.record_forecast(
+            configuration_id=champion["configuration_id"],
+            origin_at=origin_at,
+            latest_close_at=origin_at,
+            latest_close_usd=100.0,
+            regime="range",
+            model_predictions={},
+            model_weights={},
+            predictions=_production_predictions(100.0, 1.0),
+            forecast_sha256="frozen-forecast",
+            data_lineage_id=data_id,
+            provenance=provenance,
+        )
+        return champion, provenance
+
     def _seed_evaluation_origins(self, count: int, *, challenger_mae: float = 0.0) -> None:
         champion = self._register_champion()
         challenger = self._register_challenger()
@@ -173,6 +218,43 @@ class ShadowDeploymentTests(unittest.TestCase):
             )
         self.store.mature_outcomes(_actuals_for(count))
 
+    def test_v5_restore_migrates_to_current_and_retries_maturity_once_at_exact_utc_targets(
+        self,
+    ) -> None:
+        legacy_db = Path(self.tmp.name) / "legacy-v5.sqlite"
+        migrate_database(legacy_db, migrations=MIGRATIONS[:5], target_version=5)
+        archive = Path(self.tmp.name) / "legacy-v5.sqlite.gz"
+        with legacy_db.open("rb") as source, gzip.open(archive, "wb") as target:
+            target.write(source.read())
+
+        restored_db = Path(self.tmp.name) / "restored-shadow.sqlite"
+        restored = restore_shadow_archive(archive, restored_db)
+        self.assertEqual(restored["verification"]["schema_version"], 7)
+        restored_store = ShadowStore(restored_db)
+        production = _production_snapshot(0, price=100.0)
+        actuals = _actuals_for(1)
+        first_run = run_shadow(restored_store, production, actuals, configs=[])
+        retry_run = run_shadow(restored_store, production, actuals, configs=[])
+        self.assertTrue(first_run["shadow_champion"]["persisted"])
+        self.assertFalse(retry_run["shadow_champion"]["persisted"])
+
+        first_maturity = restored_store.mature_outcomes(actuals)
+        duplicate_maturity = restored_store.mature_outcomes(actuals)
+        self.assertEqual(first_maturity["inserted_outcomes"], 4)
+        self.assertEqual(duplicate_maturity["inserted_outcomes"], 0)
+        self.assertEqual(duplicate_maturity["already_matured"], 4)
+        expected_targets = {
+            horizon: _iso(_origin_timestamp(0) + hours * 3600)
+            for horizon, hours in zip(HORIZONS, HOURS)
+        }
+        self.assertEqual(
+            restored_store.load_forecasts()[0]["provenance"]["targets_at"], expected_targets
+        )
+        self.assertEqual(
+            {row["actual_at"] for row in restored_store.load_outcomes()},
+            set(expected_targets.values()),
+        )
+
     # --- shadow run isolation ------------------------------------------------
 
     def test_shadow_run_does_not_change_public_output_and_is_idempotent(self) -> None:
@@ -190,6 +272,14 @@ class ShadowDeploymentTests(unittest.TestCase):
         champion_rows = self.store.load_forecasts(champion_id)
         self.assertEqual(len(champion_rows), 1)
         self.assertEqual(champion_rows[0]["predictions"], production["predictions"])
+        self.assertEqual(
+            champion_rows[0]["provenance"]["targets_at"],
+            {
+                horizon: _iso(_origin_timestamp(0) + hours * 3600)
+                for horizon, hours in zip(HORIZONS, HOURS)
+            },
+        )
+        self.assertEqual(len(self.store.stats()["database_sha256"]), 64)
 
         challenger_id = first["challengers"][0]["configuration_id"]
         self.assertNotEqual(challenger_id, champion_id)
@@ -234,6 +324,7 @@ class ShadowDeploymentTests(unittest.TestCase):
             data_lineage_id="lineage-1",
             provenance={
                 "ledger_version": 1,
+                "targets_at": _targets_at(origin),
                 "configuration_id": champion["configuration_id"],
                 "row_configuration": configuration_manifest(
                     {"name": champion["name"], "parameters": champion["parameters"]},
@@ -334,6 +425,246 @@ class ShadowDeploymentTests(unittest.TestCase):
             )
         report = self.store.evidence_report()
         self.assertEqual(report["matured_pairs"], 3)
+
+    def test_frozen_cohort_requires_utc_contract_and_exact_maturity_boundary(self) -> None:
+        origin = _origin_timestamp(0)
+        run_shadow(self.store, _production_snapshot(0, price=100.0), _actuals_for(1))
+        report = self.store.frozen_cohort_report(
+            origin_cutoff_at=_iso(origin), evaluation_as_of=_iso(origin + 16 * 3600)
+        )
+        self.assertEqual(report["eligible_origins"], 1)
+        self.assertEqual(report["expected_pairs"], 4)
+        self.assertFalse(report["ready"])
+        with self.assertRaisesRegex(ValueError, "16 hours"):
+            self.store.frozen_cohort_report(
+                origin_cutoff_at=_iso(origin), evaluation_as_of=_iso(origin + 15 * 3600)
+            )
+        with self.assertRaisesRegex(ValueError, "timezone"):
+            self.store.frozen_cohort_report(
+                origin_cutoff_at="2026-01-01T12:00:00", evaluation_as_of=_iso(origin + 20 * 3600)
+            )
+
+    def test_frozen_cohort_blocks_legacy_history_and_keeps_new_right_edge_separate(self) -> None:
+        origin = _origin_timestamp(0)
+        origin_at = _iso(origin)
+        as_of = origin + 16 * 3600
+        champion = self._register_champion()
+        legacy_origin = origin_at
+        self.store.record_forecast(
+            configuration_id=champion["configuration_id"],
+            origin_at=legacy_origin,
+            latest_close_at=legacy_origin,
+            latest_close_usd=100.0,
+            regime="range",
+            model_predictions={},
+            model_weights={},
+            predictions=_production_predictions(100.0, 1.0),
+            forecast_sha256="legacy-row",
+            data_lineage_id="legacy-data",
+        )
+        edge_at = _iso(as_of)
+        self.store.record_forecast(
+            configuration_id=champion["configuration_id"],
+            origin_at=edge_at,
+            latest_close_at=edge_at,
+            latest_close_usd=101.0,
+            regime="range",
+            model_predictions={},
+            model_weights={},
+            predictions=_production_predictions(101.0, 1.0),
+            forecast_sha256="new-provenance-right-edge",
+            data_lineage_id="edge-data",
+            provenance={
+                "ledger_version": 1,
+                "targets_at": _targets_at(edge_at),
+                "configuration_id": champion["configuration_id"],
+                "row_configuration": configuration_manifest(
+                    {"name": champion["name"], "parameters": champion["parameters"]},
+                    champion["role"],
+                ),
+                "policy_id": "edge-policy",
+                "experiment_manifest": {
+                    "configuration_id": champion["configuration_id"],
+                    "data_id": "edge-data",
+                    "model": {
+                        "id": "model",
+                        "revision": "revision",
+                        "package": "package",
+                        "package_version": "1",
+                    },
+                    "code": {"git_sha": "code"},
+                    "configuration": {"context": 10},
+                    "data": {"lineage": "edge-data"},
+                },
+            },
+        )
+        report = self.store.frozen_cohort_report(
+            origin_cutoff_at=origin_at, evaluation_as_of=_iso(as_of)
+        )
+        self.assertEqual(report["status"], "blocked")
+        self.assertFalse(report["ready"])
+        self.assertEqual(report["timestamp_eligible_forecasts"], 1)
+        self.assertEqual(report["timestamp_eligible_legacy_excluded"], 1)
+        self.assertEqual(report["timestamp_eligible_versioned_forecasts"], 0)
+        self.assertEqual(report["eligible_origins"], 0)
+        self.assertEqual(report["expected_pairs"], 0)
+        self.assertEqual(report["right_censored_forecasts"], 1)
+        self.assertEqual(report["latest_provenance_complete_origin_at"], edge_at)
+        self.assertFalse(report["latest_provenance_complete_origin_mature_for_cohort"])
+        self.assertIn(
+            "no_confirmatory_versioned_forecasts_in_frozen_cohort", report["blocked_reasons"]
+        )
+        self.assertFalse(report["metrics_computed"])
+        self.assertEqual(len(report["database_sha256"]), 64)
+        self.assertEqual(
+            _frozen_cohort_blocker(report), "no_confirmatory_versioned_forecasts_in_frozen_cohort"
+        )
+
+    def test_frozen_cohort_future_maturity_mutation_is_ineligible_at_as_of(self) -> None:
+        origin = _origin_timestamp(0)
+        origin_at = _iso(origin)
+        self._record_frozen_forecast(origin_at)
+        as_of = origin + 16 * 3600
+        actuals = {origin + hour * 3600: 101.0 for hour in HOURS}
+        self.store.mature_outcomes(actuals, now=_iso(as_of))
+        before = self.store.frozen_cohort_report(
+            origin_cutoff_at=origin_at, evaluation_as_of=_iso(as_of)
+        )
+        self.assertEqual(before["matured_pairs"], 4)
+        self.assertIsNone(_frozen_cohort_blocker(before))
+        with sqlite3.connect(self.db_path) as connection:
+            connection.execute(
+                "UPDATE shadow_outcomes SET matured_at = ? WHERE horizon = '16h'",
+                (_iso(as_of + 1),),
+            )
+        after = self.store.frozen_cohort_report(
+            origin_cutoff_at=origin_at, evaluation_as_of=_iso(as_of)
+        )
+        self.assertEqual(after["matured_pairs"], 3)
+        self.assertEqual(after["pairs_by_horizon"]["16h"]["missing"], 1)
+
+    def test_frozen_cutoff_is_inclusive_and_duplicate_utc_origin_spellings_fail(self) -> None:
+        origin = _origin_timestamp(0)
+        origin_at = _iso(origin)
+        champion, provenance = self._record_frozen_forecast(origin_at)
+        report = self.store.frozen_cohort_report(
+            origin_cutoff_at=origin_at, evaluation_as_of=_iso(origin + 16 * 3600)
+        )
+        self.assertEqual(report["eligible_origins"], 1)
+        alias_origin = datetime.fromtimestamp(origin, tz=timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        alias_provenance = dict(provenance, targets_at=_targets_at(alias_origin))
+        self.store.record_forecast(
+            configuration_id=champion["configuration_id"],
+            origin_at=alias_origin,
+            latest_close_at=alias_origin,
+            latest_close_usd=100.0,
+            regime="range",
+            model_predictions={},
+            model_weights={},
+            predictions=_production_predictions(100.0, 1.0),
+            forecast_sha256="duplicate-utc-spelling",
+            data_lineage_id="frozen-lineage",
+            provenance=alias_provenance,
+        )
+        duplicate_report = self.store.frozen_cohort_report(
+            origin_cutoff_at=origin_at, evaluation_as_of=_iso(origin + 16 * 3600)
+        )
+        self.assertFalse(duplicate_report["ready"])
+        self.assertIn(
+            "duplicate_utc_origin",
+            {item["reason"] for item in duplicate_report["provenance_blockers"]},
+        )
+
+    def test_frozen_cohort_exports_point_prediction_and_actual_source_identity(self) -> None:
+        origin = _origin_timestamp(0)
+        origin_at = _iso(origin)
+        champion, provenance = self._record_frozen_forecast(origin_at)
+        provenance["experiment_manifest"]["data"].update(
+            {"source": "test-exchange", "pair": "BTC/USD", "ohlcv_sha256": "a" * 64}
+        )
+        with sqlite3.connect(self.db_path) as connection:
+            connection.execute(
+                "UPDATE shadow_forecasts SET provenance_json = ?",
+                (json.dumps(provenance),),
+            )
+        as_of = origin + 16 * 3600
+        self.store.mature_outcomes(_actuals_for(1), now=_iso(as_of))
+        report = self.store.frozen_cohort_report(
+            origin_cutoff_at=origin_at, evaluation_as_of=_iso(as_of)
+        )
+        self.assertTrue(report["ready"])
+        pair = next(row for row in report["pairs"] if row["horizon"] == "2h")
+        self.assertEqual(
+            pair["production_final_prediction"], _production_predictions(100.0, 1.0)["2h"]
+        )
+        self.assertIsNotNone(pair["actual_value"])
+        self.assertEqual(len(pair["actual_source_identity"]), 64)
+        self.assertEqual(pair["market_source"], "test-exchange")
+        self.assertEqual(pair["market_pair"], "BTC/USD")
+        self.assertEqual(pair["source_window_sha256"], "a" * 64)
+        self.assertIsNone(_frozen_cohort_blocker(report))
+
+    def test_frozen_missing_horizon_failure_denominator_and_lineage_mismatch(self) -> None:
+        origin = _origin_timestamp(0)
+        origin_at = _iso(origin)
+        champion, _ = self._record_frozen_forecast(origin_at)
+        with sqlite3.connect(self.db_path) as connection:
+            connection.execute(
+                "UPDATE shadow_forecasts SET predictions = ?",
+                (json.dumps({"2h": {"price_usd": 101.0}}),),
+            )
+        report = self.store.frozen_cohort_report(
+            origin_cutoff_at=origin_at, evaluation_as_of=_iso(origin + 16 * 3600)
+        )
+        self.assertEqual(report["pairs_by_horizon"]["16h"]["missing"], 1)
+        self.assertFalse(report["ready"])
+        failure_origin = _iso(origin + 24 * 3600)
+        self.store.record_failure(
+            configuration_id=champion["configuration_id"],
+            origin_at=failure_origin,
+            stage="prediction",
+            error=RuntimeError("expected test failure"),
+            expected_horizons=("2h", "4h"),
+            observed_at=_iso(origin + 40 * 3600),
+        )
+        failed = self.store.frozen_cohort_report(
+            origin_cutoff_at=failure_origin, evaluation_as_of=_iso(origin + 40 * 3600)
+        )
+        self.assertEqual(failed["expected_pairs"], 6)
+        self.assertEqual(
+            failed["failure_only_pairs"],
+            [
+                {
+                    "configuration_id": champion["configuration_id"],
+                    "origin_at": failure_origin,
+                    "horizon": "2h",
+                },
+                {
+                    "configuration_id": champion["configuration_id"],
+                    "origin_at": failure_origin,
+                    "horizon": "4h",
+                },
+            ],
+        )
+        self.assertFalse(failed["ready"])
+        self.assertIsNotNone(_frozen_cohort_blocker(failed))
+        with sqlite3.connect(self.db_path) as connection:
+            row = connection.execute("SELECT provenance_json FROM shadow_forecasts").fetchone()
+            bad = json.loads(row[0])
+            bad["experiment_manifest"]["data_id"] = "other-lineage"
+            connection.execute(
+                "UPDATE shadow_forecasts SET provenance_json = ?", (json.dumps(bad),)
+            )
+        mismatched = self.store.frozen_cohort_report(
+            origin_cutoff_at=origin_at, evaluation_as_of=_iso(origin + 16 * 3600)
+        )
+        self.assertFalse(mismatched["ready"])
+        self.assertIn(
+            "versioned_provenance_mismatch",
+            {item["reason"] for item in mismatched["provenance_blockers"]},
+        )
 
     def test_shadow_forecasts_are_persisted_separately_per_configuration(self) -> None:
         challenger = self._register_challenger(name="longer_history")
@@ -572,7 +903,7 @@ class ShadowDeploymentTests(unittest.TestCase):
 
     def test_migration_backup_and_rollback_preserve_committed_wal_data(self) -> None:
         db_path = Path(self.tmp.name) / "wal-shadow.sqlite"
-        migrate_database(db_path, migrations=MIGRATIONS[:-1], target_version=5)
+        migrate_database(db_path, migrations=MIGRATIONS[:-2], target_version=5)
         connection = sqlite3.connect(db_path)
         try:
             connection.execute("PRAGMA journal_mode = WAL")
@@ -586,9 +917,9 @@ class ShadowDeploymentTests(unittest.TestCase):
         def fail_migration(_connection) -> None:
             raise RuntimeError("intentional migration failure")
 
-        migrations = MIGRATIONS[:-1] + (Migration(6, "intentional_failure", fail_migration),)
+        migrations = MIGRATIONS[:-1] + (Migration(7, "intentional_failure", fail_migration),)
         with self.assertRaisesRegex(RuntimeError, "fail"):
-            migrate_database(db_path, migrations=migrations, target_version=6)
+            migrate_database(db_path, migrations=migrations, target_version=7)
         with sqlite3.connect(db_path) as connection:
             self.assertEqual(
                 connection.execute(
@@ -621,6 +952,7 @@ class ShadowDeploymentTests(unittest.TestCase):
         self.assertIn("failed pairs", summary)
         self.assertIn("Matured outcomes in store", summary)
         self.assertIn("all configurations and horizons", summary)
+        self.assertEqual(status["store_schema_version"], 7)
 
     # --- maturation idempotency ---------------------------------------------
 

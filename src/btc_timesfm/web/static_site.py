@@ -132,6 +132,58 @@ def _accuracy_summary(report: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
+def _history_coverage(rows: list[dict[str, Any]], *, now: datetime) -> dict[str, dict[str, Any]]:
+    """Describe matured ensemble origin coverage separately from requested windows."""
+    windows: dict[str, dict[str, Any]] = {}
+    for label, days in (("7d", 7), ("30d", 30), ("90d", 90), ("all", None)):
+        cutoff = now - timedelta(days=days) if days is not None else None
+        in_window: list[dict[str, Any]] = []
+        for row in rows:
+            if str(row.get("model_name")) != ENSEMBLE_MODEL or not row.get("origin_at"):
+                continue
+            origin = _parse_timestamp(row["origin_at"])
+            if origin > now or (cutoff is not None and origin < cutoff):
+                continue
+            in_window.append(row)
+
+        matured: list[dict[str, Any]] = []
+        pending: list[dict[str, Any]] = []
+        unscored: list[dict[str, Any]] = []
+        for row in in_window:
+            target = _parse_timestamp(row["target_at"]) if row.get("target_at") else None
+            if target is not None and target > now:
+                pending.append(row)
+            elif target is not None and row.get("actual_target_price_usd") is not None:
+                matured.append(row)
+            else:
+                unscored.append(row)
+
+        origins = [_parse_timestamp(row["origin_at"]) for row in matured]
+
+        def counts(selected: list[dict[str, Any]]) -> dict[str, int]:
+            result: dict[str, int] = {}
+            for row in selected:
+                horizon = f"{int(row['horizon_hours'])}h"
+                result[horizon] = result.get(horizon, 0) + 1
+            return dict(sorted(result.items(), key=lambda item: int(item[0][:-1])))
+
+        windows[label] = {
+            "requested_days": days,
+            "earliest_origin_at": min(origins).isoformat() if origins else None,
+            "latest_origin_at": max(origins).isoformat() if origins else None,
+            "covered_hours": (
+                (max(origins) - min(origins)).total_seconds() / 3600 if origins else None
+            ),
+            "matured_rows": len(matured),
+            "matured_by_horizon": counts(matured),
+            "pending_rows": len(pending),
+            "pending_by_horizon": counts(pending),
+            "unscored_rows": len(unscored),
+            "unscored_by_horizon": counts(unscored),
+        }
+    return windows
+
+
 def _edge_summary(
     rows: list[dict[str, Any]], *, now: datetime, low_sample_threshold: int
 ) -> dict[str, Any]:
@@ -155,9 +207,15 @@ def _edge_summary(
             "days": days,
             "matured_rows": report["matured_rows"],
             "paired_samples": report["paired_samples"],
+            "pairing_diagnostics": report["pairing_diagnostics"],
             "by_horizon": report["by_dimension"]["horizon"],
-            "by_regime": report["by_dimension"]["regime"],
-            "by_volatility_bucket": report["by_dimension"]["volatility_bucket"],
+            "by_regime_by_horizon": report["by_dimension"]["regime_by_horizon"],
+            "by_volatility_bucket_by_horizon": report["by_dimension"][
+                "volatility_bucket_by_horizon"
+            ],
+            "by_origin_time_stratum_by_horizon": report["by_dimension"][
+                "origin_time_stratum_by_horizon"
+            ],
         }
     return {
         "low_sample_threshold": low_sample_threshold,
@@ -234,6 +292,7 @@ def build_site_data(
         "latest": latest,
         "latest_age_hours": round(latest_age_hours, 2) if latest_age_hours is not None else None,
         "accuracy": _accuracy_summary(report),
+        "history_coverage": _history_coverage(rows, now=current_time),
         "persistence_edge": _edge_summary(
             rows, now=current_time, low_sample_threshold=report["low_sample_threshold"]
         ),
@@ -481,6 +540,7 @@ def _render_accuracy(data: dict[str, Any]) -> str:
             f"""
             <details {"open" if window == "30d" else ""}>
               <summary>{labels[window]}</summary>
+              {_render_window_coverage(data, window)}
               <div class="table-wrap" role="region" aria-label="Scrollable accuracy results" tabindex="0">
                 <table>
                   <thead><tr><th scope="col">Horizon</th><th scope="col">Sample count (n)</th><th scope="col">MAE %</th><th scope="col">Direction accuracy</th><th scope="col">q10–q90 coverage</th><th scope="col">Forecast records</th></tr></thead>
@@ -493,11 +553,60 @@ def _render_accuracy(data: dict[str, Any]) -> str:
     return "".join(blocks)
 
 
+def _render_window_coverage(data: dict[str, Any], window: str) -> str:
+    coverage = data.get("history_coverage", {}).get(window)
+    if not isinstance(coverage, dict):
+        return ""
+    days = coverage.get("requested_days")
+    requested = f"Last {days} days" if days is not None else "All retained history"
+    earliest = coverage.get("earliest_origin_at")
+    latest = coverage.get("latest_origin_at")
+    if earliest is None or latest is None:
+        origin_span = "No eligible matured origins"
+    else:
+        origin_span = (
+            f"Matured forecast origins: {_utc_label(earliest)} to {_utc_label(latest)}"
+            f" ({float(coverage.get('covered_hours') or 0):.1f} hours covered)"
+        )
+    matured = int(coverage.get("matured_rows") or 0)
+    pending = int(coverage.get("pending_rows") or 0)
+    horizon_counts = coverage.get("matured_by_horizon", {})
+    counts = (
+        ", ".join(
+            f"{html.escape(str(horizon))}: {int(count)}"
+            for horizon, count in horizon_counts.items()
+        )
+        or "none"
+    )
+    pending_counts = coverage.get("pending_by_horizon", {})
+    pending_detail = (
+        ", ".join(
+            f"{html.escape(str(horizon))}: {int(count)}"
+            for horizon, count in pending_counts.items()
+        )
+        or "none"
+    )
+    unscored = int(coverage.get("unscored_rows") or 0)
+    generated = _utc_label(data.get("generated_at"))
+    return (
+        f'<p class="sub"><strong>{requested} requested.</strong> {origin_span}. '
+        f"{matured} eligible matured records (exact horizon counts: {counts}). "
+        f"{pending} records are pending maturity (by horizon: {pending_detail}). "
+        f"{unscored} target-matured or undated records have no eligible outcome. "
+        f"Origin span is based on forecast issuance times; pending status is assessed at "
+        f"page generation ({generated}). Longer requested windows can have the same available "
+        f"records when the retained ledger is younger than the requested span. No history is "
+        f"filled or extrapolated.</p>"
+    )
+
+
 def _render_edge_metrics(metrics: dict[str, Any]) -> str:
     delta = _safe_float(metrics.get("mae_delta_pct_points"))
     ci = metrics.get("confidence_interval")
     lower = _safe_float(ci.get("lower")) if isinstance(ci, dict) else None
     upper = _safe_float(ci.get("upper")) if isinstance(ci, dict) else None
+    bootstrap_value = metrics.get("bootstrap")
+    bootstrap: dict[str, Any] = bootstrap_value if isinstance(bootstrap_value, dict) else {}
     sign = (
         "positive"
         if delta is not None and delta > 0
@@ -507,6 +616,9 @@ def _render_edge_metrics(metrics: dict[str, Any]) -> str:
     )
     return (
         f"<td>{int(metrics.get('samples') or 0)}</td>"
+        f"<td>{html.escape(str(bootstrap.get('bootstrap_method') or '—'))} / "
+        f"{html.escape(str(bootstrap.get('block_length') or '—'))}; "
+        f"{html.escape(str(bootstrap.get('effective_block_count_proxy', '—')))} effective</td>"
         f'<td class="{sign}">{_pct(delta)}</td>'
         f"<td>[{_pct(lower)}, {_pct(upper)}]</td>"
         f"<td>{html.escape(str(metrics.get('conclusion') or 'inconclusive'))}</td>"
@@ -519,7 +631,15 @@ def _render_edge_rows(segments: dict[str, Any]) -> str:
         if not isinstance(metrics, dict):
             continue
         warning = bool(metrics.get("unstable_or_low_sample"))
-        status = "Inconclusive" if warning else ""
+        status = (
+            "Unavailable · inconclusive"
+            if metrics.get("availability") == "unavailable"
+            else "Inconclusive"
+            if warning
+            else str(metrics.get("reason") or "")
+        )
+        if warning and metrics.get("reason"):
+            status += f" · {metrics['reason']}"
         rows.append(
             f'<tr class="{"low-sample" if warning else ""}">'
             f"<td><strong>{html.escape(str(segment))}</strong></td>"
@@ -537,16 +657,34 @@ def _render_persistence_edge(data: dict[str, Any]) -> str:
     for window in ("7d", "30d", "90d", "all"):
         summary = edge["windows"].get(window, {})
         sections = [("Per horizon", summary.get("by_horizon", {}))]
-        for label, key in (("By regime", "by_regime"), ("By volatility", "by_volatility_bucket")):
-            segments = summary.get(key, {})
-            if segments:
-                sections.append((label, segments))
+        for label, key in (
+            ("Regime by horizon", "by_regime_by_horizon"),
+            ("Volatility by horizon", "by_volatility_bucket_by_horizon"),
+            ("Origin-time stratum by horizon", "by_origin_time_stratum_by_horizon"),
+        ):
+            for horizon, segments in summary.get(key, {}).items():
+                sections.append((f"{label} · {horizon}", segments))
         tables = []
         for label, segments in sections:
+            is_16h = "16h" in label or "16h" in segments
+            low_effective = any(
+                isinstance(metrics, dict)
+                and ("16h" in label or segment == "16h")
+                and float((metrics.get("bootstrap") or {}).get("effective_block_count_proxy") or 0)
+                < float((metrics.get("bootstrap") or {}).get("minimum_effective_samples") or 8)
+                for segment, metrics in segments.items()
+            )
+            point_warning = (
+                '<p class="note" role="note">D2 16h MAE edge is a descriptive point estimate; '
+                "the effective block count is below the bootstrap minimum, so the comparison is "
+                "inconclusive.</p>"
+                if is_16h and low_effective
+                else ""
+            )
             tables.append(
-                f"<h3>{html.escape(label)}</h3>"
+                f"<h3>{html.escape(label)}</h3>{point_warning}"
                 '<div class="table-wrap edge-table" role="region" aria-label="Scrollable persistence comparison results" tabindex="0"><table><thead><tr>'
-                '<th scope="col">Segment</th><th scope="col">Paired samples</th><th scope="col">MAE edge</th><th scope="col">95% CI</th>'
+                '<th scope="col">Segment</th><th scope="col">Paired samples</th><th scope="col">Bootstrap / block length / effective blocks</th><th scope="col">MAE edge</th><th scope="col">95% CI</th>'
                 '<th scope="col">Result</th><th scope="col">Evidence</th></tr></thead>'
                 f"<tbody>{_render_edge_rows(segments)}</tbody></table></div>"
             )
@@ -557,8 +695,46 @@ def _render_persistence_edge(data: dict[str, Any]) -> str:
     return (
         "<p>Positive MAE edge means lower ensemble error than persistence. "
         f"Cells with fewer than {threshold} paired forecasts or an inconclusive confidence interval "
-        "are marked inconclusive.</p>" + "".join(windows)
+        "are marked inconclusive.</p>"
+        + _render_pairing_diagnostics(
+            edge.get("windows", {}).get("all", {}).get("pairing_diagnostics", {})
+        )
+        + "".join(windows)
     )
+
+
+def _render_pairing_diagnostics(diagnostics: dict[str, Any]) -> str:
+    if not diagnostics:
+        return ""
+    rows = (
+        ("Pending outcome rows excluded", diagnostics.get("pending_rows_excluded", 0)),
+        (
+            "Matured keys missing ensemble or persistence row",
+            diagnostics.get("matured_pair_keys_missing_ensemble_or_persistence", 0),
+        ),
+        (
+            "Matured keys missing persistence",
+            diagnostics.get("matured_pair_keys_missing_persistence", 0),
+        ),
+        (
+            "Matured keys with different actuals",
+            diagnostics.get("matured_pair_keys_actual_mismatch", 0),
+        ),
+        (
+            "Matured keys missing error metrics",
+            diagnostics.get("matured_pair_keys_missing_error_metrics", 0),
+        ),
+    )
+    rendered = "".join(f"<li>{html.escape(label)}: {int(value or 0)}</li>" for label, value in rows)
+    per_model = diagnostics.get("matured_rows_missing_error_metrics_by_model", {})
+    if isinstance(per_model, dict):
+        rendered += "".join(
+            f"<li>Matured {html.escape(str(model))} rows missing error metrics: "
+            f"{int(count or 0)}</li>"
+            for model, count in sorted(per_model.items())
+        )
+    note = html.escape(str(diagnostics.get("failed_attempts_note") or ""))
+    return f"<details><summary>Pairing exclusions and failures</summary><ul>{rendered}</ul><p>{note}</p></details>"
 
 
 def _render_recent(data: dict[str, Any]) -> str:
@@ -613,6 +789,7 @@ def _render_accuracy_table(data: dict[str, Any], window: str, label: str) -> str
     return (
         f"<details {'open' if window == '30d' else ''}>"
         f"<summary>{html.escape(label)}</summary>"
+        f"{_render_window_coverage(data, window)}"
         '<div class="table-wrap">'
         f"<table><caption>Forecast accuracy for {html.escape(label)}</caption>"
         '<thead><tr><th scope="col">Horizon</th><th scope="col">Samples</th>'

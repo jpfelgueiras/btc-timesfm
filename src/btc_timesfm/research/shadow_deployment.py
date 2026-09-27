@@ -21,11 +21,14 @@ rollback backups on migration, and bounded append-only tables keyed by
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import math
+import os
 import sqlite3
 import sys
+import tempfile
 import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
@@ -35,6 +38,7 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, TextIO
 
 import numpy as np
 
+from btc_timesfm.forecasting.forecast_engine import MarketData
 from btc_timesfm.forecasting import adaptive_weighting as aw
 from btc_timesfm.forecasting.statistical_significance import (
     DEFAULT_CONFIDENCE,
@@ -42,9 +46,10 @@ from btc_timesfm.forecasting.statistical_significance import (
     paired_bootstrap_comparison,
 )
 from btc_timesfm.research.champion_challenger import configuration_manifest
+from btc_timesfm.research.parity_baselines import BENCHMARK_NAMES, build_baseline_attempts
 
 
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 7
 SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 SHADOW_REPORT_VERSION = 1
 SHADOW_POLICY_VERSION = 1
@@ -124,6 +129,13 @@ def _failure_attempt_id(configuration_id: Any, origin_at: Any, stage: str) -> st
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _targets_at(origin_at: str) -> dict[str, str]:
+    origin = _parse_utc(origin_at)
+    return {
+        horizon: (origin + timedelta(hours=int(horizon[:-1]))).isoformat() for horizon in HORIZONS
+    }
 
 
 def _parse_utc(value: str) -> datetime:
@@ -356,6 +368,41 @@ def _migration_6_failure_attempt_key(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migration_7_parity_baseline_attempts(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS parity_baseline_attempts (
+            attempt_id TEXT PRIMARY KEY,
+            configuration_id TEXT NOT NULL,
+            origin_at TEXT NOT NULL,
+            target_at TEXT NOT NULL,
+            horizon TEXT NOT NULL CHECK (horizon IN ('2h', '4h', '8h', '16h')),
+            benchmark_id TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('scored', 'failed')),
+            raw_prediction_json TEXT,
+            final_prediction_json TEXT,
+            market_pair TEXT NOT NULL,
+            market_source TEXT NOT NULL,
+            data_lineage_id TEXT NOT NULL,
+            source_window_sha256 TEXT NOT NULL,
+            policy_id TEXT NOT NULL,
+            production_policy_sha256 TEXT NOT NULL,
+            code_sha TEXT NOT NULL,
+            model_identity_json TEXT NOT NULL,
+            failure_type TEXT,
+            failure_message TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (configuration_id)
+                REFERENCES configurations(configuration_id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_parity_baselines_exact_pair "
+        "ON parity_baseline_attempts(configuration_id, origin_at, target_at, horizon)"
+    )
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial_shadow_store", _migration_1_initial_shadow_store),
     Migration(2, "monitoring_audit", _migration_2_monitoring_audit),
@@ -363,6 +410,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(4, "failure_attempt_coverage", _migration_4_failure_attempts),
     Migration(5, "distinct_legacy_failure_attempts", _migration_5_distinct_legacy_attempts),
     Migration(6, "failure_attempt_primary_key", _migration_6_failure_attempt_key),
+    Migration(7, "parity_baseline_attempts", _migration_7_parity_baseline_attempts),
 )
 
 
@@ -502,6 +550,8 @@ def validate_database(
         "shadow_outcomes",
         "shadow_failures",
     }
+    if expected_version >= 7:
+        required_tables.add("parity_baseline_attempts")
     missing = sorted(required_tables - tables)
     if missing:
         raise RuntimeError(f"Shadow store is missing required tables: {', '.join(missing)}")
@@ -577,6 +627,35 @@ def migrate_database(
             db_path.unlink()
             _remove_sqlite_sidecars(db_path)
         raise
+
+
+def restore_shadow_archive(archive_path: Path | str, database_path: Path | str) -> dict[str, Any]:
+    """Restore and migrate a compressed shadow ledger without replacing it on failure."""
+    archive = Path(archive_path)
+    database = Path(database_path)
+    if not archive.is_file():
+        raise FileNotFoundError(f"established shadow evidence archive is missing: {archive}")
+    database.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="shadow-evidence-restore-", dir=database.parent) as tmp:
+        staged = Path(tmp) / database.name
+        try:
+            with gzip.open(archive, "rb") as source, staged.open("wb") as target:
+                while chunk := source.read(1024 * 1024):
+                    target.write(chunk)
+        except (OSError, EOFError) as exc:
+            raise RuntimeError("shadow evidence archive cannot be decompressed") from exc
+        migration = migrate_database(staged)
+        verification = validate_database(staged)
+        os.replace(staged, database)
+    return {"restored_to": str(database), "migration": migration, "verification": verification}
+
+
+def initialize_first_shadow_store(database_path: Path | str) -> dict[str, Any]:
+    """Create the shadow ledger only when the caller established this is first-ever state."""
+    database = Path(database_path)
+    if database.exists():
+        raise RuntimeError("refusing first-ever shadow initialization over existing database")
+    return ShadowStore(database).verify()
 
 
 class ShadowStore:
@@ -782,6 +861,165 @@ class ShadowStore:
             ).fetchone()
         return self._decode_forecast(row), created_flag
 
+    def record_parity_baseline_attempts(
+        self, attempts: Iterable[Mapping[str, Any]], *, created_at: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Append write-once registered baseline attempts; retries use distinct attempt IDs."""
+        now = created_at or _utc_now_iso()
+        stored: list[dict[str, Any]] = []
+        with self._connect() as connection:
+            for attempt in attempts:
+                fields = (
+                    "attempt_id",
+                    "configuration_id",
+                    "origin_at",
+                    "target_at",
+                    "horizon",
+                    "benchmark_id",
+                    "status",
+                    "market_pair",
+                    "market_source",
+                    "data_lineage_id",
+                    "source_window_sha256",
+                    "policy_id",
+                    "production_policy_sha256",
+                    "code_sha",
+                )
+                if any(
+                    not isinstance(attempt.get(field), str) or not attempt[field]
+                    for field in fields
+                ):
+                    raise ValueError("baseline attempt identity and provenance fields are required")
+                if attempt["status"] not in {"scored", "failed"}:
+                    raise ValueError("baseline attempt status must be scored or failed")
+                if (
+                    attempt["benchmark_id"] not in BENCHMARK_NAMES
+                    or attempt["horizon"] not in HORIZONS
+                ):
+                    raise ValueError("baseline attempt has an unregistered model or horizon")
+                origin = _parse_utc(str(attempt["origin_at"]))
+                target = _parse_utc(str(attempt["target_at"]))
+                if target != origin + timedelta(hours=int(str(attempt["horizon"])[:-1])):
+                    raise ValueError(
+                        "baseline attempt target must exactly match origin and horizon"
+                    )
+                window_hash = str(attempt["source_window_sha256"])
+                if len(window_hash) != 64 or any(
+                    char not in "0123456789abcdef" for char in window_hash
+                ):
+                    raise ValueError("source_window_sha256 must be a lowercase SHA-256 digest")
+                policy_hash = str(attempt["production_policy_sha256"])
+                if len(policy_hash) != 64 or any(
+                    char not in "0123456789abcdef" for char in policy_hash
+                ):
+                    raise ValueError("production_policy_sha256 must be a lowercase SHA-256 digest")
+                registered = connection.execute(
+                    "SELECT 1 FROM configurations WHERE configuration_id = ?",
+                    (attempt["configuration_id"],),
+                ).fetchone()
+                if registered is None:
+                    raise KeyError(f"unknown configuration_id: {attempt['configuration_id']}")
+                raw = attempt.get("raw_prediction")
+                final = attempt.get("final_prediction")
+                identity = attempt.get("model_identity")
+                if not isinstance(identity, Mapping):
+                    raise ValueError("baseline attempt model_identity must be an object")
+                if any(
+                    not isinstance(identity.get(key), str) or not identity[key]
+                    for key in ("id", "revision", "package", "package_version")
+                ):
+                    raise ValueError("baseline attempt model_identity is incomplete")
+                if attempt["status"] == "scored" and not isinstance(final, Mapping):
+                    raise ValueError("scored baseline attempts require final_prediction")
+                values = (
+                    str(attempt["attempt_id"]),
+                    str(attempt["configuration_id"]),
+                    str(attempt["origin_at"]),
+                    str(attempt["target_at"]),
+                    str(attempt["horizon"]),
+                    str(attempt["benchmark_id"]),
+                    str(attempt["status"]),
+                    _canonical_json(raw) if raw is not None else None,
+                    _canonical_json(final) if final is not None else None,
+                    str(attempt["market_pair"]),
+                    str(attempt["market_source"]),
+                    str(attempt["data_lineage_id"]),
+                    str(attempt["source_window_sha256"]),
+                    str(attempt["policy_id"]),
+                    str(attempt["production_policy_sha256"]),
+                    str(attempt["code_sha"]),
+                    _canonical_json(dict(identity)),
+                    attempt.get("failure_type"),
+                    attempt.get("failure_message"),
+                    now,
+                )
+                connection.execute(
+                    """INSERT OR IGNORE INTO parity_baseline_attempts(
+                        attempt_id, configuration_id, origin_at, target_at, horizon,
+                        benchmark_id, status, raw_prediction_json, final_prediction_json,
+                        market_pair, market_source, data_lineage_id, source_window_sha256, policy_id,
+                        production_policy_sha256,
+                        code_sha, model_identity_json, failure_type, failure_message, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    values,
+                )
+                row = connection.execute(
+                    "SELECT * FROM parity_baseline_attempts WHERE attempt_id = ?",
+                    (attempt["attempt_id"],),
+                ).fetchone()
+                expected = tuple(
+                    row[key]
+                    for key in (
+                        "attempt_id",
+                        "configuration_id",
+                        "origin_at",
+                        "target_at",
+                        "horizon",
+                        "benchmark_id",
+                        "status",
+                        "raw_prediction_json",
+                        "final_prediction_json",
+                        "market_pair",
+                        "market_source",
+                        "data_lineage_id",
+                        "source_window_sha256",
+                        "policy_id",
+                        "production_policy_sha256",
+                        "code_sha",
+                        "model_identity_json",
+                        "failure_type",
+                        "failure_message",
+                    )
+                )
+                if expected != values[:-1]:
+                    raise ValueError("baseline attempt ID already exists with different content")
+                record = dict(row)
+                for column, key in (
+                    ("raw_prediction_json", "raw_prediction"),
+                    ("final_prediction_json", "final_prediction"),
+                    ("model_identity_json", "model_identity"),
+                ):
+                    record[key] = _loads_optional(record.pop(column))
+                stored.append(record)
+        return stored
+
+    def load_parity_baseline_attempts(self) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM parity_baseline_attempts ORDER BY origin_at, benchmark_id, horizon, created_at"
+            ).fetchall()
+        result = []
+        for item in rows:
+            record = dict(item)
+            for column, key in (
+                ("raw_prediction_json", "raw_prediction"),
+                ("final_prediction_json", "final_prediction"),
+                ("model_identity_json", "model_identity"),
+            ):
+                record[key] = _loads_optional(record.pop(column))
+            result.append(record)
+        return result
+
     def evidence_report(self) -> dict[str, Any]:
         """Summarize prospective coverage; legacy rows without provenance are excluded."""
         forecasts = self.load_forecasts()
@@ -819,6 +1057,7 @@ class ShadowStore:
             valid_provenance = (
                 isinstance(provenance, dict)
                 and provenance.get("ledger_version") == 1
+                and provenance.get("targets_at") == _targets_at(str(forecast["origin_at"]))
                 and bool(str(forecast.get("data_lineage_id") or "").strip())
                 and isinstance(data, dict)
                 and manifest.get("data_id") == forecast.get("data_lineage_id")
@@ -895,6 +1134,15 @@ class ShadowStore:
                 expected += 1
                 failed_pairs += 1
                 missing_by_horizon[horizon] += 1
+        baseline_rows = self.load_parity_baseline_attempts()
+        baseline_coverage = {
+            name: {"attempted": 0, "scored": 0, "failed": 0} for name in BENCHMARK_NAMES
+        }
+        for row in baseline_rows:
+            name = str(row["benchmark_id"])
+            if name in baseline_coverage:
+                baseline_coverage[name]["attempted"] += 1
+                baseline_coverage[name][str(row["status"])] += 1
         return {
             "schema_version": CURRENT_SCHEMA_VERSION,
             "forecast_schema_version": 1,
@@ -908,6 +1156,538 @@ class ShadowStore:
             "failures": failures,
             "failed_attempt_pairs": failed_pairs,
             "forecast_versions": versions,
+            "parity_baseline_attempts": len(baseline_rows),
+            "parity_baseline_coverage_by_model": baseline_coverage,
+        }
+
+    def frozen_cohort_report(
+        self, *, origin_cutoff_at: str, evaluation_as_of: str
+    ) -> dict[str, Any]:
+        """Build immutable, exact-target evidence for a preregistered mature cohort.
+
+        Origins at or before the cutoff are included only when all supported targets
+        could have been observed by ``evaluation_as_of``. The source ledger is read-only.
+        """
+        cutoff = _parse_utc(origin_cutoff_at)
+        as_of = _parse_utc(evaluation_as_of)
+        if cutoff > as_of - timedelta(hours=16):
+            raise ValueError("origin_cutoff_at must be at least 16 hours before evaluation_as_of")
+        if datetime.fromisoformat(origin_cutoff_at.replace("Z", "+00:00")).tzinfo is None:
+            raise ValueError("origin_cutoff_at must include a timezone")
+        if datetime.fromisoformat(evaluation_as_of.replace("Z", "+00:00")).tzinfo is None:
+            raise ValueError("evaluation_as_of must include a timezone")
+        # SQLite backup gives all reads one transactionally consistent, read-only view.
+        source = sqlite3.connect(f"file:{self.path.resolve()}?mode=ro", uri=True)
+        snapshot = sqlite3.connect(":memory:")
+        try:
+            source.execute("BEGIN")
+            source.backup(snapshot)
+            snapshot_bytes = snapshot.serialize()
+            snapshot.row_factory = sqlite3.Row
+            forecasts = [
+                self._decode_forecast(row)
+                for row in snapshot.execute(
+                    "SELECT * FROM shadow_forecasts ORDER BY origin_at, configuration_id"
+                )
+            ]
+            outcomes = [
+                self._decode_outcome(row)
+                for row in snapshot.execute(
+                    "SELECT * FROM shadow_outcomes ORDER BY origin_at, horizon"
+                )
+            ]
+            configurations = {
+                row["configuration_id"]: self._decode_configuration(row)
+                for row in snapshot.execute("SELECT * FROM configurations")
+            }
+            failure_rows = [
+                dict(row)
+                for row in snapshot.execute(
+                    "SELECT * FROM shadow_failures ORDER BY observed_at, rowid"
+                )
+            ]
+        finally:
+            snapshot.close()
+            source.close()
+        timestamp_eligible = [
+            row
+            for row in forecasts
+            if _parse_utc(row["origin_at"]) <= cutoff
+            and _parse_utc(row["origin_at"]) <= as_of - timedelta(hours=16)
+        ]
+        censored = [
+            row
+            for row in forecasts
+            if _parse_utc(row["origin_at"]) > cutoff
+            or _parse_utc(row["origin_at"]) + timedelta(hours=16) > as_of
+        ]
+
+        def is_legacy(forecast: Mapping[str, Any]) -> bool:
+            provenance = forecast.get("provenance") or {}
+            if not isinstance(provenance, dict):
+                return True
+            v6_markers = (
+                "experiment_manifest",
+                "configuration_id",
+                "targets_at",
+                "policy_id",
+                "row_configuration",
+            )
+            # Early ledger rows sometimes carried only ledger_version=1. They predate
+            # the complete v6 lineage contract and remain legacy exclusions.
+            return not any(marker in provenance for marker in v6_markers) and provenance.get(
+                "ledger_version"
+            ) in (None, 1)
+
+        def provenance_issue(forecast: Mapping[str, Any]) -> str | None:
+            provenance = forecast.get("provenance") or {}
+            if is_legacy(forecast):
+                return None  # Legacy/unversioned rows are exclusions, never reclassified.
+            origin_value = datetime.fromisoformat(str(forecast["origin_at"]).replace("Z", "+00:00"))
+            if origin_value.tzinfo is None:
+                return "origin_timezone_missing"
+            if provenance.get("ledger_version") != 1:
+                return "unsupported_ledger_version"
+            manifest = provenance.get("experiment_manifest")
+            model = manifest.get("model") if isinstance(manifest, dict) else None
+            registered = configurations.get(forecast["configuration_id"])
+            expected_configuration = (
+                configuration_manifest(
+                    {"name": registered["name"], "parameters": registered["parameters"]},
+                    str(registered["role"]),
+                )
+                if registered is not None
+                else None
+            )
+            row_configuration = provenance.get("row_configuration")
+            valid = (
+                isinstance(manifest, dict)
+                and manifest.get("data_id") == forecast.get("data_lineage_id")
+                and provenance.get("configuration_id") == forecast["configuration_id"]
+                and provenance.get("targets_at") == _targets_at(str(forecast["origin_at"]))
+                and row_configuration == expected_configuration
+                and bool(str(provenance.get("policy_id") or "").strip())
+                and bool(str(manifest.get("configuration_id") or "").strip())
+                and isinstance(manifest.get("configuration"), dict)
+                and bool(manifest["configuration"])
+                and isinstance(manifest.get("data"), dict)
+                and isinstance(manifest.get("code"), dict)
+                and bool(str(manifest["code"].get("git_sha") or "").strip())
+                and isinstance(model, dict)
+                and all(
+                    isinstance(model.get(key), str) and model[key]
+                    for key in ("id", "revision", "package", "package_version")
+                )
+                and bool(str(forecast.get("data_lineage_id") or "").strip())
+                and bool(str(forecast.get("forecast_sha256") or "").strip())
+            )
+            return None if valid else "versioned_provenance_mismatch"
+
+        provenance_complete_by_origin: list[tuple[datetime, dict[str, Any]]] = []
+        provenance_blockers: list[dict[str, str]] = []
+        legacy_timestamp_eligible = 0
+        for forecast in forecasts:
+            raw_origin = datetime.fromisoformat(str(forecast["origin_at"]).replace("Z", "+00:00"))
+            if raw_origin.tzinfo is None:
+                if _parse_utc(str(forecast["origin_at"])) <= as_of:
+                    provenance_blockers.append(
+                        {
+                            "configuration_id": str(forecast["configuration_id"]),
+                            "origin_at": str(forecast["origin_at"]),
+                            "reason": "origin_timezone_missing",
+                        }
+                    )
+                continue
+            origin = raw_origin.astimezone(timezone.utc)
+            if origin > as_of:
+                continue
+            issue = provenance_issue(forecast)
+            if issue is not None:
+                provenance_blockers.append(
+                    {
+                        "configuration_id": str(forecast["configuration_id"]),
+                        "origin_at": origin.isoformat(),
+                        "reason": issue,
+                    }
+                )
+            elif not is_legacy(forecast):
+                provenance_complete_by_origin.append((origin, forecast))
+            elif forecast in timestamp_eligible:
+                legacy_timestamp_eligible += 1
+        latest_provenance_complete = max(
+            provenance_complete_by_origin, key=lambda item: item[0], default=None
+        )
+        eligible: list[dict[str, Any]] = []
+        for forecast in timestamp_eligible:
+            origin_value = datetime.fromisoformat(str(forecast["origin_at"]).replace("Z", "+00:00"))
+            if origin_value.tzinfo is None:
+                continue
+            issue = provenance_issue(forecast)
+            if issue is None and not is_legacy(forecast):
+                eligible.append(forecast)
+            elif issue is not None:
+                origin = _parse_utc(str(forecast["origin_at"]))
+                if not any(
+                    item["configuration_id"] == str(forecast["configuration_id"])
+                    and item["origin_at"] == origin.isoformat()
+                    for item in provenance_blockers
+                ):
+                    provenance_blockers.append(
+                        {
+                            "configuration_id": str(forecast["configuration_id"]),
+                            "origin_at": origin.isoformat(),
+                            "reason": issue,
+                        }
+                    )
+        unique_eligible: list[dict[str, Any]] = []
+        unique_origin_keys: set[tuple[str, datetime]] = set()
+        for forecast in eligible:
+            origin = datetime.fromisoformat(
+                str(forecast["origin_at"]).replace("Z", "+00:00")
+            ).astimezone(timezone.utc)
+            key = (str(forecast["configuration_id"]), origin)
+            if key in unique_origin_keys:
+                provenance_blockers.append(
+                    {
+                        "configuration_id": key[0],
+                        "origin_at": origin.isoformat(),
+                        "reason": "duplicate_utc_origin",
+                    }
+                )
+                continue
+            unique_origin_keys.add(key)
+            unique_eligible.append(forecast)
+        eligible = unique_eligible
+        keys: dict[tuple[str, datetime, str], dict[str, Any]] = {}
+        for outcome in outcomes:
+            try:
+                actual_timestamp = datetime.fromisoformat(
+                    str(outcome["actual_at"]).replace("Z", "+00:00")
+                )
+                outcome_matured_at = datetime.fromisoformat(
+                    str(outcome["matured_at"]).replace("Z", "+00:00")
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError("malformed outcome timestamps in frozen snapshot") from exc
+            if actual_timestamp.tzinfo is None or outcome_matured_at.tzinfo is None:
+                raise ValueError("outcome timestamps must be timezone-aware")
+            # Future target/maturity rows are outside this as-of view, including rows
+            # whose target was subsequently revised beyond the frozen evaluation time.
+            if (
+                actual_timestamp.astimezone(timezone.utc) > as_of
+                or outcome_matured_at.astimezone(timezone.utc) > as_of
+            ):
+                continue
+            if outcome["horizon"] not in HORIZONS:
+                raise ValueError("unsupported horizon in frozen outcome snapshot")
+            outcome_origin_raw = datetime.fromisoformat(
+                str(outcome["origin_at"]).replace("Z", "+00:00")
+            )
+            if outcome_origin_raw.tzinfo is None:
+                raise ValueError("outcome origin must be timezone-aware")
+            key = (
+                outcome["configuration_id"],
+                outcome_origin_raw.astimezone(timezone.utc),
+                outcome["horizon"],
+            )
+            if key in keys:
+                raise ValueError("duplicate outcome identity in frozen evidence")
+            keys[key] = outcome
+        by_horizon = {horizon: {"expected": 0, "matured": 0, "missing": 0} for horizon in HORIZONS}
+        failures: list[dict[str, Any]] = []
+        failure_only_pairs: dict[tuple[str, datetime, str], dict[str, str]] = {}
+        rows = []
+        identity_set: set[tuple[str, ...]] = set()
+        origin_keys: set[tuple[str, datetime]] = set()
+        policy_by_configuration: dict[str, str] = {}
+        for forecast in eligible:
+            raw_origin = datetime.fromisoformat(str(forecast["origin_at"]).replace("Z", "+00:00"))
+            if raw_origin.tzinfo is None:
+                raise ValueError("origin_at must be timezone-aware")
+            origin = raw_origin.astimezone(timezone.utc)
+            origin_key = (forecast["configuration_id"], origin)
+            if origin_key in origin_keys:
+                provenance_blockers.append(
+                    {
+                        "configuration_id": str(forecast["configuration_id"]),
+                        "origin_at": origin.isoformat(),
+                        "reason": "duplicate_utc_origin",
+                    }
+                )
+                continue
+            origin_keys.add(origin_key)
+            provenance = forecast.get("provenance") or {}
+            if not isinstance(provenance, dict):
+                raise ValueError("missing forecast lineage")
+            manifest = provenance.get("experiment_manifest")
+            model = manifest.get("model") if isinstance(manifest, dict) else None
+            if (
+                not isinstance(manifest, dict)
+                or manifest.get("data_id") != forecast.get("data_lineage_id")
+                or provenance.get("configuration_id") != forecast["configuration_id"]
+                or provenance.get("targets_at") != _targets_at(str(forecast["origin_at"]))
+                or not isinstance(model, dict)
+                or any(
+                    not isinstance(model.get(key), str) or not model[key]
+                    for key in ("id", "revision", "package", "package_version")
+                )
+            ):
+                raise ValueError(
+                    "forecast lineage does not match configuration, data, or target identity"
+                )
+            identity = (
+                forecast["configuration_id"],
+                str(provenance.get("policy_id") or ""),
+                str(forecast.get("data_lineage_id") or ""),
+                str(forecast.get("forecast_sha256") or ""),
+            )
+            if not all(identity[1:]) or identity[0] not in configurations:
+                raise ValueError("incomplete forecast lineage identity")
+            previous_policy = policy_by_configuration.setdefault(identity[0], identity[1])
+            if previous_policy != identity[1]:
+                raise ValueError("policy lineage changed within frozen configuration cohort")
+            model_identity = tuple(
+                str(model[key]) for key in ("id", "revision", "package", "package_version")
+            )
+            identity_set.add((*identity, *model_identity))
+            for horizon in HORIZONS:
+                bucket = by_horizon[horizon]
+                bucket["expected"] += 1
+                outcome = keys.get((forecast["configuration_id"], origin, horizon))
+                target = origin + timedelta(hours=int(horizon[:-1]))
+                prediction = (forecast.get("predictions") or {}).get(horizon)
+                exact = False
+                eligible_as_of = False
+                if outcome is not None:
+                    try:
+                        actual_raw = datetime.fromisoformat(
+                            str(outcome["actual_at"]).replace("Z", "+00:00")
+                        )
+                        matured_raw = datetime.fromisoformat(
+                            str(outcome["matured_at"]).replace("Z", "+00:00")
+                        )
+                        exact = (
+                            actual_raw.tzinfo is not None
+                            and matured_raw.tzinfo is not None
+                            and actual_raw.astimezone(timezone.utc) == target
+                        )
+                        eligible_as_of = (
+                            exact
+                            and actual_raw.astimezone(timezone.utc) <= as_of
+                            and matured_raw.astimezone(timezone.utc) <= as_of
+                        )
+                    except (TypeError, ValueError):
+                        exact = False
+                if outcome is not None and not exact:
+                    raise ValueError("outcome target does not match exact UTC origin/horizon")
+                if (
+                    eligible_as_of
+                    and isinstance(prediction, dict)
+                    and prediction.get("price_usd") is not None
+                ):
+                    bucket["matured"] += 1
+                else:
+                    bucket["missing"] += 1
+                forecast_manifest = (forecast.get("provenance") or {}).get(
+                    "experiment_manifest", {}
+                )
+                data_identity = (
+                    forecast_manifest.get("data", {}) if isinstance(forecast_manifest, dict) else {}
+                )
+                actual_value = (
+                    float(outcome["actual_price_usd"])
+                    if eligible_as_of and outcome is not None
+                    else None
+                )
+                actual_source_identity = (
+                    _sha256_text(
+                        _canonical_json(
+                            {
+                                "source": data_identity.get("source"),
+                                "pair": data_identity.get("pair"),
+                                "target_at": target.isoformat(),
+                                "actual_price_usd": actual_value,
+                            }
+                        )
+                    )
+                    if actual_value is not None
+                    else None
+                )
+                rows.append(
+                    {
+                        "configuration_id": identity[0],
+                        "origin_at": origin.isoformat(),
+                        "target_at": target.isoformat(),
+                        "horizon": horizon,
+                        "policy_id": identity[1],
+                        "data_lineage_id": identity[2],
+                        "forecast_sha256": identity[3],
+                        "code_sha": str((forecast_manifest.get("code") or {}).get("git_sha") or ""),
+                        "market_source": data_identity.get("source"),
+                        "market_pair": data_identity.get("pair"),
+                        "source_window_sha256": data_identity.get("ohlcv_sha256"),
+                        "production_policy_sha256": _sha256_text(
+                            _canonical_json(
+                                (forecast_manifest.get("configuration") or {}).get("policy", {})
+                            )
+                        ),
+                        "production_raw_prediction": (forecast.get("model_predictions") or {}),
+                        "production_final_prediction": prediction,
+                        "actual_value": actual_value,
+                        "actual_source_identity": actual_source_identity,
+                        "model_identity": {
+                            key: model[key]
+                            for key in ("id", "revision", "package", "package_version")
+                        },
+                        "matured": bool(eligible_as_of and prediction),
+                    }
+                )
+        eligible_ids = {(row["configuration_id"], _parse_utc(row["origin_at"])) for row in eligible}
+        failed_pairs_by_horizon = {horizon: 0 for horizon in HORIZONS}
+        counted_failed_pairs: set[tuple[str, datetime, str]] = set()
+        for failure in failure_rows:
+            try:
+                failure_origin_raw = datetime.fromisoformat(
+                    str(failure["origin_at"]).replace("Z", "+00:00")
+                )
+                if failure_origin_raw.tzinfo is None:
+                    raise ValueError("failure origin must be timezone-aware")
+                failure_origin = failure_origin_raw.astimezone(timezone.utc)
+                observed_raw = datetime.fromisoformat(
+                    str(failure["observed_at"]).replace("Z", "+00:00")
+                )
+                if observed_raw.tzinfo is None:
+                    raise ValueError("failure observed_at must be timezone-aware")
+                if observed_raw.astimezone(timezone.utc) > as_of:
+                    continue
+                failure_key = (failure["configuration_id"], failure_origin)
+                inside = (
+                    failure_origin <= cutoff
+                    and failure_origin <= as_of - timedelta(hours=16)
+                    and failure["configuration_id"] in configurations
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError("invalid failure origin/configuration in frozen snapshot") from exc
+            if inside:
+                normalized_failure = dict(failure)
+                normalized_failure["origin_at"] = failure_origin.isoformat()
+                failures.append(normalized_failure)
+                try:
+                    failed_horizons = json.loads(failure.get("expected_horizons_json") or "null")
+                except (TypeError, json.JSONDecodeError) as exc:
+                    raise ValueError("invalid failure horizon list") from exc
+                if not isinstance(failed_horizons, list) or not failed_horizons:
+                    raise ValueError("failure must declare expected horizons")
+                if any(horizon not in HORIZONS for horizon in failed_horizons):
+                    raise ValueError("failure contains unsupported expected horizon")
+                for horizon in sorted(set(failed_horizons)):
+                    failed_key = (failure["configuration_id"], failure_origin, horizon)
+                    if failed_key not in counted_failed_pairs:
+                        counted_failed_pairs.add(failed_key)
+                        failed_pairs_by_horizon[horizon] += 1
+                        if failure_key not in eligible_ids:
+                            failure_only_pairs[failed_key] = {
+                                "configuration_id": failed_key[0],
+                                "origin_at": failed_key[1].isoformat(),
+                                "horizon": failed_key[2],
+                            }
+                            by_horizon[horizon]["expected"] += 1
+                            by_horizon[horizon]["missing"] += 1
+        expected = sum(item["expected"] for item in by_horizon.values())
+        matured = sum(item["matured"] for item in by_horizon.values())
+        blocked_reasons = sorted({item["reason"] for item in provenance_blockers})
+        if not eligible:
+            blocked_reasons.append("no_confirmatory_versioned_forecasts_in_frozen_cohort")
+        if failures:
+            blocked_reasons.append("in_cohort_failures_present")
+        if eligible and matured != expected:
+            blocked_reasons.append("incomplete_exact_target_pairs")
+        latest_origin = latest_provenance_complete[0] if latest_provenance_complete else None
+        ready = bool(eligible and matured == expected and not failures and not provenance_blockers)
+        snapshot_hash = hashlib.sha256(snapshot_bytes).hexdigest()
+        cohort = {
+            "origin_cutoff_at": cutoff.isoformat(),
+            "evaluation_as_of": as_of.isoformat(),
+            "horizons": list(HORIZONS),
+            "maximum_horizon_hours": 16,
+            "rule": "origin <= cutoff and origin + 16h <= evaluation_as_of; exact UTC targets",
+        }
+        cohort_hash = _sha256_text(
+            _canonical_json(
+                {
+                    "cohort": cohort,
+                    "rows": rows,
+                    "failures": failures,
+                    "provenance_blockers": provenance_blockers,
+                    "blocked_reasons": blocked_reasons,
+                    "failed_pairs_by_horizon": failed_pairs_by_horizon,
+                    "failure_only_pairs": list(failure_only_pairs.values()),
+                    "failed_pair_identities": [
+                        {
+                            "configuration_id": config_id,
+                            "origin_at": origin.isoformat(),
+                            "horizon": h,
+                        }
+                        for config_id, origin, h in sorted(counted_failed_pairs)
+                    ],
+                    "snapshot_sha256": snapshot_hash,
+                }
+            )
+        )
+        return {
+            "schema_version": 1,
+            "status": "ready" if ready else "blocked",
+            "cohort": cohort,
+            "cohort_sha256": cohort_hash,
+            "database_sha256": snapshot_hash,
+            "code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "eligible_origins": len(eligible),
+            "timestamp_eligible_forecasts": len(timestamp_eligible),
+            "timestamp_eligible_legacy_excluded": legacy_timestamp_eligible,
+            "timestamp_eligible_versioned_forecasts": len(eligible)
+            + sum(
+                1
+                for item in provenance_blockers
+                if _parse_utc(item["origin_at"]) <= cutoff
+                and _parse_utc(item["origin_at"]) <= as_of - timedelta(hours=16)
+            ),
+            "provenance_blockers": provenance_blockers,
+            "blocked_reasons": blocked_reasons,
+            "latest_provenance_complete_origin_at": (
+                latest_origin.isoformat() if latest_origin is not None else None
+            ),
+            "latest_provenance_complete_origin_mature_for_cohort": bool(
+                latest_origin is not None
+                and latest_origin <= cutoff
+                and latest_origin <= as_of - timedelta(hours=16)
+            ),
+            "expected_pairs": expected,
+            "matured_pairs": matured,
+            "missing_pairs_by_horizon": {h: by_horizon[h]["missing"] for h in HORIZONS},
+            "pairs_by_horizon": by_horizon,
+            "failures": failures,
+            "failed_pairs_by_horizon": failed_pairs_by_horizon,
+            "failure_only_pairs": list(failure_only_pairs.values()),
+            "failed_pair_identities": [
+                {"configuration_id": config_id, "origin_at": origin.isoformat(), "horizon": h}
+                for config_id, origin, h in sorted(counted_failed_pairs)
+            ],
+            "pairs": rows,
+            "right_censored_forecasts": len(censored),
+            "post_cutoff_forecasts": sum(
+                _parse_utc(row["origin_at"]) > cutoff for row in forecasts
+            ),
+            "right_censored_pairs_by_horizon": {
+                h: sum(
+                    1
+                    for row in censored
+                    if _parse_utc(row["origin_at"]) + timedelta(hours=int(h[:-1])) > as_of
+                )
+                for h in HORIZONS
+            },
+            "lineage_identities": sorted([list(item) for item in identity_set]),
+            "ready": ready,
+            "metrics_computed": False,
         }
 
     def load_forecasts(self, configuration_id: str | None = None) -> list[dict[str, Any]]:
@@ -1242,6 +2022,8 @@ class ShadowStore:
             ).fetchall():
                 by_role[str(row["role"])] = int(row["n"])
         diagnostics = schema_diagnostics(self.path)
+        database_sha256 = hashlib.sha256(self.path.read_bytes()).hexdigest()
+        evidence = self.evidence_report()
         return {
             "schema_version": diagnostics["schema_version"],
             "supported_schema_version": diagnostics["supported_schema_version"],
@@ -1254,6 +2036,8 @@ class ShadowStore:
             "first_shadow_origin_at": first_last[0],
             "latest_shadow_origin_at": first_last[1],
             "database_bytes": self.path.stat().st_size if self.path.exists() else 0,
+            "database_sha256": database_sha256,
+            "evidence": evidence,
         }
 
     def verify(self) -> dict[str, Any]:
@@ -1690,6 +2474,7 @@ def run_shadow(
     *,
     configs: Iterable[Mapping[str, Any]] | None = None,
     generated_at: str | None = None,
+    market_data: MarketData | None = None,
 ) -> dict[str, Any]:
     """Persist champion and approved challenger shadow forecasts idempotently.
 
@@ -1736,6 +2521,7 @@ def run_shadow(
         data_lineage_id=data_lineage_id,
         provenance={
             "ledger_version": 1,
+            "targets_at": _targets_at(origin_at),
             "experiment_manifest": manifest,
             "configuration_id": champion_configuration_id,
             "row_configuration": configuration_manifest(
@@ -1746,6 +2532,42 @@ def run_shadow(
         },
         created_at=generated_at,
     )
+
+    baseline_counts = {"attempted": 0, "scored": 0, "failed": 0}
+    if market_data is not None:
+        model_identity = manifest.get("model")
+        code_identity = manifest.get("code")
+        configuration_identity = manifest.get("configuration")
+        if (
+            not isinstance(model_identity, dict)
+            or not isinstance(code_identity, dict)
+            or not isinstance(configuration_identity, dict)
+            or not isinstance(configuration_identity.get("policy"), dict)
+        ):
+            raise ValueError(
+                "production manifest is missing model/code identity for baseline capture"
+            )
+        baseline_attempts = build_baseline_attempts(
+            market_data,
+            origin_at=origin_at,
+            configuration_id=champion_configuration_id,
+            data_lineage_id=data_lineage_id,
+            market_source=str((manifest.get("data") or {}).get("source") or ""),
+            market_pair=str((manifest.get("data") or {}).get("pair") or ""),
+            policy_id=shadow_policy_identity(ShadowPolicy()),
+            production_policy_sha256=_sha256_text(
+                _canonical_json(configuration_identity["policy"])
+            ),
+            code_sha=str(code_identity.get("git_sha") or ""),
+            model_identity=model_identity,
+            capture_id=f"{manifest.get('run_id') or origin_at}:{uuid.uuid4().hex}",
+        )
+        store.record_parity_baseline_attempts(baseline_attempts, created_at=generated_at)
+        baseline_counts = {
+            "attempted": len(baseline_attempts),
+            "scored": sum(row["status"] == "scored" for row in baseline_attempts),
+            "failed": sum(row["status"] == "failed" for row in baseline_attempts),
+        }
 
     challenger_results: list[dict[str, Any]] = []
     if configs is not None:
@@ -1796,6 +2618,7 @@ def run_shadow(
                 data_lineage_id=data_lineage_id,
                 provenance={
                     "ledger_version": 1,
+                    "targets_at": _targets_at(origin_at),
                     "experiment_manifest": manifest,
                     "configuration_id": configuration_id,
                     "row_configuration": configuration_manifest(
@@ -1838,6 +2661,9 @@ def run_shadow(
 
     return {
         "schema_version": SHADOW_REPORT_VERSION,
+        "store_schema_version": CURRENT_SCHEMA_VERSION,
+        "forecast_schema_version": 1,
+        "parity_baseline_coverage": baseline_counts,
         "generated_at": generated_at or _utc_now_iso(),
         "origin_at": origin_at,
         "shadow_champion": {
@@ -1890,6 +2716,8 @@ def build_shadow_status(
         champion = None
     return {
         "schema_version": SHADOW_REPORT_VERSION,
+        "store_schema_version": CURRENT_SCHEMA_VERSION,
+        "forecast_schema_version": 1,
         "generated_at": generated_at or _utc_now_iso(),
         "policy_id": shadow_policy_identity(active),
         "policy": asdict(active),
@@ -1935,6 +2763,8 @@ def render_summary(status: Mapping[str, Any]) -> str:
                 "",
                 "## Prospective evidence ledger",
                 "",
+                f"- Store schema: **{_fmt(evidence.get('schema_version'), 0)}**; database SHA-256: "
+                f"`{status.get('statistics', {}).get('database_sha256', 'unavailable')}`",
                 f"- Confirmatory forecasts: **{_fmt(evidence.get('confirmatory_forecasts'), 0)}**; "
                 f"legacy/unversioned excluded: **{_fmt(evidence.get('legacy_or_unversioned_forecasts_excluded'), 0)}**",
                 f"- Matured target pairs: **{_fmt(evidence.get('matured_pairs'), 0)} / "
@@ -1943,6 +2773,9 @@ def render_summary(status: Mapping[str, Any]) -> str:
                 f"failures: **{_fmt(evidence.get('failures'), 0)}** "
                 f"({_fmt(evidence.get('failed_attempt_pairs'), 0)} failed pairs)",
                 f"- Forecast schema versions: `{_canonical_json(evidence.get('forecast_versions', {}))}`",
+                f"- First/latest persisted origins: "
+                f"`{status.get('statistics', {}).get('first_shadow_origin_at')}` / "
+                f"`{status.get('statistics', {}).get('latest_shadow_origin_at')}`",
                 "",
             ]
         )
@@ -2009,8 +2842,13 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("init")
+    subparsers.add_parser("init-first-run")
     subparsers.add_parser("verify")
     subparsers.add_parser("stats")
+    export_baselines = subparsers.add_parser("export-baselines")
+    export_baselines.add_argument("--out", type=Path, required=True)
+    restore = subparsers.add_parser("restore")
+    restore.add_argument("--archive", type=Path, required=True)
 
     approve = subparsers.add_parser("approve")
     approve.add_argument("--name", required=True)
@@ -2048,6 +2886,12 @@ def main() -> None:
     report.add_argument("--summary", type=Path, default=DEFAULT_SUMMARY_PATH)
 
     args = parser.parse_args()
+    if args.command == "restore":
+        _write_json(restore_shadow_archive(args.archive, args.db))
+        return
+    if args.command == "init-first-run":
+        _write_json(initialize_first_shadow_store(args.db))
+        return
     store = ShadowStore(args.db)
 
     if args.command == "init":
@@ -2056,6 +2900,14 @@ def main() -> None:
         _write_json(store.verify())
     elif args.command == "stats":
         _write_json(store.stats())
+    elif args.command == "export-baselines":
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "attempts": store.load_parity_baseline_attempts(),
+        }
+        args.out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        _write_json({"path": str(args.out), "attempts": len(payload["attempts"])})
     elif args.command == "approve":
         parameters = _read_json(args.parameters) if args.parameters else {}
         if not isinstance(parameters, dict):

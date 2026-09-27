@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "issue": 417,
+  "status": "blocked",
+  "disposition": "no_qualifying_candidate_d3_not_launched",
+  "as_of": "2026-09-27",
+  "candidate": null,
+  "champion": null,
+  "candidate_champion_pair": null,
+  "d3": {
+    "launched": false,
+    "origins": 0,
+    "pairs": 0,
+    "pairs_by_horizon": {
+      "2h": 0,
+      "4h": 0,
+      "8h": 0,
+      "16h": 0
+    },
+    "metrics": null,
+    "accuracy_peeks": 0,
+    "outcomes_accessed": false
+  },
+  "production_mutated": false,
+  "reason": "Issue #416 records zero candidates and no winner. Issue #417 explicitly requires recording this outcome without starting D3.",
+  "evidence": [
+    {
+      "issue": 411,
+      "path": "docs/research/ISSUE_411_PARITY_BASELINES_BLOCKED.json",
+      "sha256": "c1b3471495c0c32bcb8a5a90ae7fe5a4e20a6bdcb5d4d617e8d83e8be18202a7",
+      "facts": {
+        "status": "blocked",
+        "confirmatory_forecasts": 0,
+        "matured_pairs": 0,
+        "metrics": null
+      }
+    },
+    {
+      "issue": 416,
+      "path": "docs/research/ISSUE_416_BLOCKED_FAMILY_CLOSEOUT.json",
+      "sha256": "46f379cf874d46889f067dfcf9154a2f04549d3cb26ea234466845f5bb74b70b",
+      "facts": {
+        "status": "blocked",
+        "actual_candidate_attempts": 0,
+        "actual_candidate_scores": 0,
+        "candidate_count": 0,
+        "winner": null,
+        "metrics": null,
+        "d3_used": false
+      }
+    },
+    {
+      "issue": 410,
+      "path": "docs/research/ISSUE_410_SCORING_PROTOCOL.json",
+      "sha256": "1b8c6705d53882a66c0ab1277cf2a63c845d00c2c7d0cc978c0c75d8121efd18",
+      "protocol_sha256": "4da936d505df9a15cbd073ee85ee0e4ed2db483e6058f6b81ce163f4724bb4f0",
+      "protocol_version": "v11-prospective-1.0.1"
+    }
+  ],
+  "reopening_contract": {
+    "pre_frozen_before_any_d3_score": [
+      "#416 selects exactly one candidate that passes its frozen selection contract; freeze the candidate/champion pair, model/checkpoint, policy, code, data/source/vintage lineage, boundaries, cutoff, stopping rule, practical effect, and D3 metrics/criteria; hash the complete preregistration.",
+      "D3 origins/outcomes are disjoint from candidate development, inner/outer folds, and final holdout.",
+      "Use exact UTC (origin_at, target_at, horizon) pairs with shared source vintage, targets, and scoring rules for candidate, champion, persistence, and strongest naive.",
+      "Collect at least 30 calendar days and at least 200 exact mature pairs at each of 2h, 4h, 8h, and 16h; report dependence/effective sample size and remain blocked if unmet.",
+      "Retain every forecast, failure, retry, and exact maturity status; apply frozen family-adjusted uncertainty and primary-effect, baseline-skill, per-horizon-regression, directional-loss, and interval-safety criteria.",
+      "Use only predeclared health/operational checks before final analysis; no repeated accuracy testing or favorable early stopping. Report interruptions and data-vintage changes under the frozen plan.",
+      "Report blocked, inconclusive, negative, or eligible for human review with artifacts/hashes; no automatic promotion, public output change, or configuration mutation."
+    ]
+  },
+  "limitations": [
+    "No D3 accuracy evaluation was run; all metrics are null.",
+    "No D3 accuracy peeks or outcome access occurred.",
+    "No production change occurred.",
+    "Issue #418 remains open and is not resolved by this blocked disposition."
+  ]
+}

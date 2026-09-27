@@ -157,6 +157,12 @@ forecasts.
 
 ## Current evidence and limits
 
+The prospective v11 scoring contract is frozen in
+[the versioned, hashed issue #410 protocol](research/ISSUE_410_SCORING_PROTOCOL.md).
+It defines the point and interval estimands, exact pairing, baselines, sample
+and failure accounting, and inference before v11 evaluation. A valid hash does
+not imply that canonical market data or replay prerequisites are available.
+
 The canonical same-venue BTC/USD benchmark gate remains blocked: **0 of 32,136
 required target bars and 0 of 4,320 required warm-up bars** are available in the
 current checkout. Consequently there is no eligible canonical replay or
