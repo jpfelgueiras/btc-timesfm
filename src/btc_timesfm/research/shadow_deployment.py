@@ -966,24 +966,84 @@ class ShadowStore:
             raise ValueError("origin_cutoff_at must include a timezone")
         if datetime.fromisoformat(evaluation_as_of.replace("Z", "+00:00")).tzinfo is None:
             raise ValueError("evaluation_as_of must include a timezone")
-        forecasts = self.load_forecasts()
-        outcomes = self.load_outcomes()
-        configurations = {row["configuration_id"]: row for row in self.list_configurations()}
+        # SQLite backup gives all reads one transactionally consistent, read-only view.
+        source = sqlite3.connect(f"file:{self.path.resolve()}?mode=ro", uri=True)
+        snapshot = sqlite3.connect(":memory:")
+        try:
+            source.execute("BEGIN")
+            source.backup(snapshot)
+            snapshot_bytes = snapshot.serialize()
+            snapshot.row_factory = sqlite3.Row
+            forecasts = [
+                self._decode_forecast(row)
+                for row in snapshot.execute(
+                    "SELECT * FROM shadow_forecasts ORDER BY origin_at, configuration_id"
+                )
+            ]
+            outcomes = [
+                self._decode_outcome(row)
+                for row in snapshot.execute(
+                    "SELECT * FROM shadow_outcomes ORDER BY origin_at, horizon"
+                )
+            ]
+            configurations = {
+                row["configuration_id"]: self._decode_configuration(row)
+                for row in snapshot.execute("SELECT * FROM configurations")
+            }
+            failure_rows = [
+                dict(row)
+                for row in snapshot.execute(
+                    "SELECT * FROM shadow_failures ORDER BY observed_at, rowid"
+                )
+            ]
+        finally:
+            snapshot.close()
+            source.close()
         matching = [row for row in forecasts if _parse_utc(row["origin_at"]) <= cutoff]
         eligible = [
             row for row in matching if _parse_utc(row["origin_at"]) <= as_of - timedelta(hours=16)
         ]
         censored = [row for row in forecasts if row not in eligible]
-        keys: dict[tuple[str, str, str], dict[str, Any]] = {}
+        keys: dict[tuple[str, datetime, str], dict[str, Any]] = {}
         for outcome in outcomes:
-            key = (outcome["configuration_id"], outcome["origin_at"], outcome["horizon"])
+            try:
+                actual_timestamp = datetime.fromisoformat(
+                    str(outcome["actual_at"]).replace("Z", "+00:00")
+                )
+                outcome_matured_at = datetime.fromisoformat(
+                    str(outcome["matured_at"]).replace("Z", "+00:00")
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError("malformed outcome timestamps in frozen snapshot") from exc
+            if actual_timestamp.tzinfo is None or outcome_matured_at.tzinfo is None:
+                raise ValueError("outcome timestamps must be timezone-aware")
+            # Future target/maturity rows are outside this as-of view, including rows
+            # whose target was subsequently revised beyond the frozen evaluation time.
+            if (
+                actual_timestamp.astimezone(timezone.utc) > as_of
+                or outcome_matured_at.astimezone(timezone.utc) > as_of
+            ):
+                continue
+            if outcome["horizon"] not in HORIZONS:
+                raise ValueError("unsupported horizon in frozen outcome snapshot")
+            outcome_origin_raw = datetime.fromisoformat(
+                str(outcome["origin_at"]).replace("Z", "+00:00")
+            )
+            if outcome_origin_raw.tzinfo is None:
+                raise ValueError("outcome origin must be timezone-aware")
+            key = (
+                outcome["configuration_id"],
+                outcome_origin_raw.astimezone(timezone.utc),
+                outcome["horizon"],
+            )
             if key in keys:
                 raise ValueError("duplicate outcome identity in frozen evidence")
             keys[key] = outcome
         by_horizon = {horizon: {"expected": 0, "matured": 0, "missing": 0} for horizon in HORIZONS}
         failures: list[dict[str, Any]] = []
+        failure_only_pairs: dict[tuple[str, datetime, str], dict[str, str]] = {}
         rows = []
-        identity_set: set[tuple[str, str, str, str]] = set()
+        identity_set: set[tuple[str, ...]] = set()
         origin_keys: set[tuple[str, datetime]] = set()
         policy_by_configuration: dict[str, str] = {}
         for forecast in eligible:
@@ -999,13 +1059,21 @@ class ShadowStore:
             if not isinstance(provenance, dict):
                 raise ValueError("missing forecast lineage")
             manifest = provenance.get("experiment_manifest")
+            model = manifest.get("model") if isinstance(manifest, dict) else None
             if (
                 not isinstance(manifest, dict)
                 or manifest.get("data_id") != forecast.get("data_lineage_id")
                 or provenance.get("configuration_id") != forecast["configuration_id"]
                 or provenance.get("targets_at") != _targets_at(str(forecast["origin_at"]))
+                or not isinstance(model, dict)
+                or any(
+                    not isinstance(model.get(key), str) or not model[key]
+                    for key in ("id", "revision", "package", "package_version")
+                )
             ):
-                raise ValueError("forecast lineage does not match configuration, data, or target identity")
+                raise ValueError(
+                    "forecast lineage does not match configuration, data, or target identity"
+                )
             identity = (
                 forecast["configuration_id"],
                 str(provenance.get("policy_id") or ""),
@@ -1017,23 +1085,42 @@ class ShadowStore:
             previous_policy = policy_by_configuration.setdefault(identity[0], identity[1])
             if previous_policy != identity[1]:
                 raise ValueError("policy lineage changed within frozen configuration cohort")
-            identity_set.add(identity)
+            model_identity = tuple(
+                str(model[key]) for key in ("id", "revision", "package", "package_version")
+            )
+            identity_set.add((*identity, *model_identity))
             for horizon in HORIZONS:
                 bucket = by_horizon[horizon]
                 bucket["expected"] += 1
-                outcome = keys.get((forecast["configuration_id"], forecast["origin_at"], horizon))
+                outcome = keys.get((forecast["configuration_id"], origin, horizon))
                 target = origin + timedelta(hours=int(horizon[:-1]))
                 prediction = (forecast.get("predictions") or {}).get(horizon)
                 exact = False
+                eligible_as_of = False
                 if outcome is not None:
                     try:
-                        exact = _parse_utc(outcome["actual_at"]) == target
+                        actual_raw = datetime.fromisoformat(
+                            str(outcome["actual_at"]).replace("Z", "+00:00")
+                        )
+                        matured_raw = datetime.fromisoformat(
+                            str(outcome["matured_at"]).replace("Z", "+00:00")
+                        )
+                        exact = (
+                            actual_raw.tzinfo is not None
+                            and matured_raw.tzinfo is not None
+                            and actual_raw.astimezone(timezone.utc) == target
+                        )
+                        eligible_as_of = (
+                            exact
+                            and actual_raw.astimezone(timezone.utc) <= as_of
+                            and matured_raw.astimezone(timezone.utc) <= as_of
+                        )
                     except (TypeError, ValueError):
                         exact = False
                 if outcome is not None and not exact:
                     raise ValueError("outcome target does not match exact UTC origin/horizon")
                 if (
-                    exact
+                    eligible_as_of
                     and isinstance(prediction, dict)
                     and prediction.get("price_usd") is not None
                 ):
@@ -1049,36 +1136,65 @@ class ShadowStore:
                         "policy_id": identity[1],
                         "data_lineage_id": identity[2],
                         "forecast_sha256": identity[3],
-                        "matured": bool(exact and prediction),
+                        "model_identity": {
+                            key: model[key]
+                            for key in ("id", "revision", "package", "package_version")
+                        },
+                        "matured": bool(eligible_as_of and prediction),
                     }
                 )
-        eligible_ids = {(row["configuration_id"], row["origin_at"]) for row in eligible}
-        for failure in self.load_failures():
+        eligible_ids = {(row["configuration_id"], _parse_utc(row["origin_at"])) for row in eligible}
+        failed_pairs_by_horizon = {horizon: 0 for horizon in HORIZONS}
+        counted_failed_pairs: set[tuple[str, datetime, str]] = set()
+        for failure in failure_rows:
             try:
-                failure_origin = _parse_utc(failure["origin_at"])
-                failure_key = (failure["configuration_id"], failure["origin_at"])
+                failure_origin_raw = datetime.fromisoformat(
+                    str(failure["origin_at"]).replace("Z", "+00:00")
+                )
+                if failure_origin_raw.tzinfo is None:
+                    raise ValueError("failure origin must be timezone-aware")
+                failure_origin = failure_origin_raw.astimezone(timezone.utc)
+                observed_raw = datetime.fromisoformat(
+                    str(failure["observed_at"]).replace("Z", "+00:00")
+                )
+                if observed_raw.tzinfo is None:
+                    raise ValueError("failure observed_at must be timezone-aware")
+                if observed_raw.astimezone(timezone.utc) > as_of:
+                    continue
+                failure_key = (failure["configuration_id"], failure_origin)
                 inside = (
                     failure_origin <= cutoff
                     and failure_origin <= as_of - timedelta(hours=16)
                     and failure["configuration_id"] in configurations
                 )
-            except (KeyError, TypeError, ValueError):
-                inside = False
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError("invalid failure origin/configuration in frozen snapshot") from exc
             if inside:
-                failures.append(failure)
-                if failure_key not in eligible_ids:
-                    try:
-                        failed_horizons = json.loads(
-                            failure.get("expected_horizons_json") or "null"
-                        )
-                    except (TypeError, json.JSONDecodeError):
-                        failed_horizons = None
-                    if not isinstance(failed_horizons, list):
-                        failed_horizons = list(HORIZONS)
-                    for horizon in set(failed_horizons).intersection(HORIZONS):
-                        by_horizon[horizon]["expected"] += 1
-                        by_horizon[horizon]["missing"] += 1
-        snapshot_hash = hashlib.sha256(self.path.read_bytes()).hexdigest()
+                normalized_failure = dict(failure)
+                normalized_failure["origin_at"] = failure_origin.isoformat()
+                failures.append(normalized_failure)
+                try:
+                    failed_horizons = json.loads(failure.get("expected_horizons_json") or "null")
+                except (TypeError, json.JSONDecodeError) as exc:
+                    raise ValueError("invalid failure horizon list") from exc
+                if not isinstance(failed_horizons, list) or not failed_horizons:
+                    raise ValueError("failure must declare expected horizons")
+                if any(horizon not in HORIZONS for horizon in failed_horizons):
+                    raise ValueError("failure contains unsupported expected horizon")
+                for horizon in sorted(set(failed_horizons)):
+                    failed_key = (failure["configuration_id"], failure_origin, horizon)
+                    if failed_key not in counted_failed_pairs:
+                        counted_failed_pairs.add(failed_key)
+                        failed_pairs_by_horizon[horizon] += 1
+                        if failure_key not in eligible_ids:
+                            failure_only_pairs[failed_key] = {
+                                "configuration_id": failed_key[0],
+                                "origin_at": failed_key[1].isoformat(),
+                                "horizon": failed_key[2],
+                            }
+                            by_horizon[horizon]["expected"] += 1
+                            by_horizon[horizon]["missing"] += 1
+        snapshot_hash = hashlib.sha256(snapshot_bytes).hexdigest()
         cohort = {
             "origin_cutoff_at": cutoff.isoformat(),
             "evaluation_as_of": as_of.isoformat(),
@@ -1092,6 +1208,16 @@ class ShadowStore:
                     "cohort": cohort,
                     "rows": rows,
                     "failures": failures,
+                    "failed_pairs_by_horizon": failed_pairs_by_horizon,
+                    "failure_only_pairs": list(failure_only_pairs.values()),
+                    "failed_pair_identities": [
+                        {
+                            "configuration_id": config_id,
+                            "origin_at": origin.isoformat(),
+                            "horizon": h,
+                        }
+                        for config_id, origin, h in sorted(counted_failed_pairs)
+                    ],
                     "snapshot_sha256": snapshot_hash,
                 }
             )
@@ -1110,6 +1236,13 @@ class ShadowStore:
             "missing_pairs_by_horizon": {h: by_horizon[h]["missing"] for h in HORIZONS},
             "pairs_by_horizon": by_horizon,
             "failures": failures,
+            "failed_pairs_by_horizon": failed_pairs_by_horizon,
+            "failure_only_pairs": list(failure_only_pairs.values()),
+            "failed_pair_identities": [
+                {"configuration_id": config_id, "origin_at": origin.isoformat(), "horizon": h}
+                for config_id, origin, h in sorted(counted_failed_pairs)
+            ],
+            "pairs": rows,
             "right_censored_forecasts": len(censored),
             "post_cutoff_forecasts": sum(
                 _parse_utc(row["origin_at"]) > cutoff for row in forecasts

@@ -5,8 +5,11 @@ builds a read-only cohort summary from the current shadow ledger. Both timestamp
 must be timezone-aware. The origin cutoff must be at least 16 hours before the
 evaluation-as-of time; every included origin must also be at least 16 hours old.
 Pairs use the stored configuration/origin/horizon identity and exact UTC target
-candle, and carry the forecast, policy, and data-lineage identities into the
-cohort hash. Failures at eligible origins remain in the denominator. Newer and
+candle, and carry the champion configuration, policy, model revision/package,
+forecast, and data-lineage identities into the cohort hash. The report is read
+from one consistent SQLite backup serialization; `database_sha256` hashes those
+exact snapshot bytes. Outcomes and failures observed after `evaluation_as_of`
+are ineligible. Failures at eligible origins remain in the denominator. Newer and
 otherwise right-censored forecasts are reported separately.
 
 The report records database, code, and cohort hashes. Preserve the report as an

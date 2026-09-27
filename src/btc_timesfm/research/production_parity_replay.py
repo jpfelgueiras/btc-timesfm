@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import math
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -25,43 +26,244 @@ SHADOW_HORIZONS = ("2h", "4h", "8h", "16h")
 
 
 def _frozen_cohort_blocker(cohort: Mapping[str, Any] | None) -> str | None:
-    """Fail closed on frozen prospective-cohort evidence; does not establish skill."""
-    if not isinstance(cohort, Mapping) or cohort.get("schema_version") != 1:
+    """Validate every frozen-cohort identity, count, and content hash; no skill inference."""
+    if (
+        not isinstance(cohort, Mapping)
+        or type(cohort.get("schema_version")) is not int
+        or cohort.get("schema_version") != 1
+    ):
         return "Frozen prospective cohort report is missing or has an unsupported schema."
     contract = cohort.get("cohort")
     if not isinstance(contract, Mapping):
         return "Frozen cohort contract is missing."
     try:
-        from datetime import datetime, timedelta
-
         cutoff = datetime.fromisoformat(str(contract["origin_cutoff_at"]).replace("Z", "+00:00"))
         as_of = datetime.fromisoformat(str(contract["evaluation_as_of"]).replace("Z", "+00:00"))
-        if cutoff.tzinfo is None or as_of.tzinfo is None or cutoff > as_of - timedelta(hours=16):
-            return (
-                "Frozen cohort timestamps must be timezone-aware with a 16-hour maturity boundary."
-            )
+        if (
+            cutoff.tzinfo is None
+            or as_of.tzinfo is None
+            or cutoff.utcoffset() != timedelta(0)
+            or as_of.utcoffset() != timedelta(0)
+            or cutoff > as_of - timedelta(hours=16)
+            or contract.get("horizons") != list(SHADOW_HORIZONS)
+            or contract.get("maximum_horizon_hours") != 16
+            or contract.get("rule")
+            != "origin <= cutoff and origin + 16h <= evaluation_as_of; exact UTC targets"
+        ):
+            return "Frozen cohort timestamps must be UTC with a 16-hour maturity boundary."
     except (KeyError, TypeError, ValueError):
         return "Frozen cohort timestamps are invalid."
     counts = cohort.get("pairs_by_horizon")
     if not isinstance(counts, Mapping) or set(counts) != set(SHADOW_HORIZONS):
         return "Frozen cohort must report exact per-horizon pair counts."
-    expected = matured = 0
-    for horizon in SHADOW_HORIZONS:
-        bucket = counts[horizon]
-        if not isinstance(bucket, Mapping) or any(
-            not _exact_int(bucket.get(key)) for key in ("expected", "matured", "missing")
-        ):
-            return "Frozen cohort pair counts are invalid."
-        if bucket["matured"] + bucket["missing"] != bucket["expected"]:
-            return "Frozen cohort pair counts do not reconcile."
-        expected += bucket["expected"]
-        matured += bucket["matured"]
+    pairs = cohort.get("pairs")
+    failures = cohort.get("failures")
+    failure_only_pairs = cohort.get("failure_only_pairs")
+    failed_pair_identities = cohort.get("failed_pair_identities")
+    identities = cohort.get("lineage_identities")
+    if not isinstance(pairs, list) or not pairs or not isinstance(failures, list):
+        return "Frozen cohort must include non-empty exact pairs and a failure list."
     if (
-        not expected
-        or matured != expected
-        or cohort.get("failures") != []
-        or cohort.get("ready") is not True
+        not isinstance(failure_only_pairs, list)
+        or not isinstance(failed_pair_identities, list)
+        or not isinstance(identities, list)
     ):
+        return "Frozen cohort pair/failure lineage records are missing."
+    seen_pairs: set[tuple[str, datetime, str]] = set()
+    derived_identities: set[tuple[str, ...]] = set()
+    forecast_origins: set[tuple[str, datetime]] = set()
+    horizons_by_origin: dict[tuple[str, datetime], set[str]] = {}
+    pair_counts = {horizon: {"expected": 0, "matured": 0} for horizon in SHADOW_HORIZONS}
+    try:
+        for pair in pairs:
+            if not isinstance(pair, Mapping):
+                return "Frozen cohort contains a malformed pair."
+            origin = datetime.fromisoformat(str(pair["origin_at"]).replace("Z", "+00:00"))
+            target = datetime.fromisoformat(str(pair["target_at"]).replace("Z", "+00:00"))
+            if (
+                origin.tzinfo is None
+                or target.tzinfo is None
+                or origin.utcoffset() != timedelta(0)
+                or target.utcoffset() != timedelta(0)
+            ):
+                return "Frozen cohort pair timestamps must be explicit UTC."
+            origin = origin.astimezone(timezone.utc)
+            target = target.astimezone(timezone.utc)
+            if origin > cutoff or origin > as_of - timedelta(hours=16):
+                return "Frozen cohort pair violates its cutoff or 16-hour maturity boundary."
+            horizon = pair.get("horizon")
+            if horizon not in SHADOW_HORIZONS:
+                return "Frozen cohort contains an unsupported horizon."
+            if target != origin + timedelta(hours=int(horizon[:-1])):
+                return "Frozen cohort pair target does not match its exact origin/horizon."
+            config_id = pair.get("configuration_id")
+            policy_id = pair.get("policy_id")
+            data_id = pair.get("data_lineage_id")
+            forecast_sha = pair.get("forecast_sha256")
+            model_identity = pair.get("model_identity")
+            if (
+                not all(
+                    isinstance(value, str) and value
+                    for value in (config_id, policy_id, data_id, forecast_sha)
+                )
+                or not isinstance(model_identity, Mapping)
+                or any(
+                    not isinstance(model_identity.get(key), str) or not model_identity[key]
+                    for key in ("id", "revision", "package", "package_version")
+                )
+            ):
+                return "Frozen cohort pair lineage identity is incomplete."
+            key = (config_id, origin, horizon)
+            if key in seen_pairs:
+                return "Frozen cohort contains a duplicate UTC forecast/horizon identity."
+            seen_pairs.add(key)
+            forecast_origins.add((config_id, origin))
+            horizons_by_origin.setdefault((config_id, origin), set()).add(horizon)
+            policy_previous = next(
+                (identity[1] for identity in derived_identities if identity[0] == config_id),
+                policy_id,
+            )
+            if policy_previous != policy_id:
+                return "Frozen cohort changes policy identity within one configuration."
+            derived_identities.add(
+                (
+                    config_id,
+                    policy_id,
+                    data_id,
+                    forecast_sha,
+                    *(
+                        model_identity[key]
+                        for key in ("id", "revision", "package", "package_version")
+                    ),
+                )
+            )
+            pair_counts[horizon]["expected"] += 1
+            if type(pair.get("matured")) is not bool:
+                return "Frozen cohort maturity flags must be booleans."
+            if pair["matured"]:
+                pair_counts[horizon]["matured"] += 1
+        failure_only_keys: set[tuple[str, datetime, str]] = set()
+        for failed_pair in failure_only_pairs:
+            if not isinstance(failed_pair, Mapping):
+                return "Frozen cohort contains a malformed failed-pair identity."
+            origin = datetime.fromisoformat(str(failed_pair["origin_at"]).replace("Z", "+00:00"))
+            horizon = failed_pair["horizon"]
+            if (
+                origin.tzinfo is None
+                or origin.utcoffset() != timedelta(0)
+                or horizon not in SHADOW_HORIZONS
+                or not isinstance(failed_pair.get("configuration_id"), str)
+                or not failed_pair["configuration_id"]
+            ):
+                return "Frozen cohort failed-pair identity is invalid."
+            key = (
+                failed_pair["configuration_id"],
+                origin.astimezone(timezone.utc),
+                horizon,
+            )
+            if key in failure_only_keys or (key[0], key[1]) in forecast_origins:
+                return "Frozen cohort failed-pair denominator is duplicated or overlaps a forecast."
+            failure_only_keys.add(key)
+            pair_counts[horizon]["expected"] += 1
+        reported_failed_keys: set[tuple[str, datetime, str]] = set()
+        for failed_pair in failed_pair_identities:
+            if not isinstance(failed_pair, Mapping):
+                return "Frozen cohort contains a malformed failed-pair identity."
+            origin = datetime.fromisoformat(str(failed_pair["origin_at"]).replace("Z", "+00:00"))
+            config_id, horizon = failed_pair.get("configuration_id"), failed_pair.get("horizon")
+            if (
+                origin.tzinfo is None
+                or origin.utcoffset() != timedelta(0)
+                or not isinstance(config_id, str)
+                or not config_id
+                or horizon not in SHADOW_HORIZONS
+            ):
+                return "Frozen cohort failed-pair identity is invalid."
+            failed_key = (config_id, origin.astimezone(timezone.utc), horizon)
+            if failed_key in reported_failed_keys:
+                return "Frozen cohort failed-pair identities contain duplicates."
+            reported_failed_keys.add(failed_key)
+        failure_derived_keys: set[tuple[str, datetime, str]] = set()
+        for failure in failures:
+            if not isinstance(failure, Mapping):
+                return "Frozen cohort contains a malformed failure row."
+            origin = datetime.fromisoformat(str(failure["origin_at"]).replace("Z", "+00:00"))
+            observed_at = datetime.fromisoformat(str(failure["observed_at"]).replace("Z", "+00:00"))
+            horizons = json.loads(str(failure.get("expected_horizons_json") or "null"))
+            config_id = failure.get("configuration_id")
+            if (
+                origin.tzinfo is None
+                or origin.utcoffset() != timedelta(0)
+                or observed_at.tzinfo is None
+                or observed_at.utcoffset() != timedelta(0)
+                or origin > cutoff
+                or origin > as_of - timedelta(hours=16)
+                or observed_at > as_of
+                or not isinstance(config_id, str)
+                or not config_id
+                or not isinstance(failure.get("stage"), str)
+                or not failure["stage"]
+                or not isinstance(horizons, list)
+                or not horizons
+                or any(horizon not in SHADOW_HORIZONS for horizon in horizons)
+            ):
+                return "Frozen cohort failure content is invalid."
+            failure_derived_keys.update(
+                (config_id, origin.astimezone(timezone.utc), horizon) for horizon in horizons
+            )
+        if failure_derived_keys != reported_failed_keys:
+            return "Frozen cohort failed-pair identities do not reconcile to failure rows."
+        if any(
+            horizons_by_origin[origin_key] != set(SHADOW_HORIZONS)
+            for origin_key in forecast_origins
+        ):
+            return "Frozen cohort forecast origin is missing a supported horizon."
+        if failure_only_keys != {
+            key for key in reported_failed_keys if (key[0], key[1]) not in forecast_origins
+        }:
+            return "Frozen cohort failure-only denominator does not reconcile to forecast origins."
+        expected = matured = 0
+        for horizon in SHADOW_HORIZONS:
+            bucket = counts[horizon]
+            if not isinstance(bucket, Mapping) or any(
+                not _exact_int(bucket.get(key)) for key in ("expected", "matured", "missing")
+            ):
+                return "Frozen cohort pair counts are invalid."
+            derived_expected = pair_counts[horizon]["expected"]
+            derived_matured = pair_counts[horizon]["matured"]
+            if (
+                bucket["expected"] != derived_expected
+                or bucket["matured"] != derived_matured
+                or bucket["missing"] != derived_expected - derived_matured
+            ):
+                return "Frozen cohort per-horizon counts do not match its exact pair identities."
+            expected += bucket["expected"]
+            matured += bucket["matured"]
+        if (
+            not _exact_int(cohort.get("expected_pairs"))
+            or not _exact_int(cohort.get("matured_pairs"))
+            or cohort.get("expected_pairs") != expected
+            or cohort.get("matured_pairs") != matured
+        ):
+            return "Frozen cohort aggregate pair counts do not reconcile."
+        if not _exact_int(cohort.get("eligible_origins")) or cohort.get("eligible_origins") != len(
+            forecast_origins
+        ):
+            return "Frozen cohort eligible-origin count does not reconcile."
+        missing_by_horizon = cohort.get("missing_pairs_by_horizon")
+        if (
+            not isinstance(missing_by_horizon, Mapping)
+            or set(missing_by_horizon) != set(SHADOW_HORIZONS)
+            or any(not _exact_int(missing_by_horizon.get(h)) for h in SHADOW_HORIZONS)
+            or dict(missing_by_horizon)
+            != {h: pair_counts[h]["expected"] - pair_counts[h]["matured"] for h in SHADOW_HORIZONS}
+        ):
+            return "Frozen cohort missing-horizon counts do not reconcile."
+        if sorted([list(identity) for identity in derived_identities]) != identities:
+            return "Frozen cohort lineage identity list does not reconcile to its pairs."
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return "Frozen cohort pair or failure identities are malformed."
+    if not expected or matured != expected or failures or cohort.get("ready") is not True:
         return "Frozen cohort is incomplete or contains in-cohort failures."
     for key in ("database_sha256", "code_sha256", "cohort_sha256"):
         digest = cohort.get(key)
@@ -71,6 +273,40 @@ def _frozen_cohort_blocker(cohort: Mapping[str, Any] | None) -> str | None:
             or any(c not in "0123456789abcdef" for c in digest)
         ):
             return f"Frozen cohort {key} is missing or invalid."
+    if not _exact_int(cohort.get("post_cutoff_forecasts")) or not _exact_int(
+        cohort.get("right_censored_forecasts")
+    ):
+        return "Frozen cohort censored-forecast counts are invalid."
+    if cohort["post_cutoff_forecasts"] > cohort["right_censored_forecasts"]:
+        return "Frozen cohort post-cutoff forecasts exceed the right-censored forecast total."
+    censored_pairs = cohort.get("right_censored_pairs_by_horizon")
+    failed_counts = cohort.get("failed_pairs_by_horizon")
+    if (
+        not isinstance(censored_pairs, Mapping)
+        or set(censored_pairs) != set(SHADOW_HORIZONS)
+        or any(not _exact_int(censored_pairs.get(h)) for h in SHADOW_HORIZONS)
+        or any(censored_pairs[h] > cohort["right_censored_forecasts"] for h in SHADOW_HORIZONS)
+        or not isinstance(failed_counts, Mapping)
+        or set(failed_counts) != set(SHADOW_HORIZONS)
+        or any(not _exact_int(failed_counts.get(h)) for h in SHADOW_HORIZONS)
+        or dict(failed_counts)
+        != {h: sum(1 for key in reported_failed_keys if key[2] == h) for h in SHADOW_HORIZONS}
+    ):
+        return "Frozen cohort failure/censored counts do not reconcile."
+    hash_payload = {
+        "cohort": contract,
+        "rows": pairs,
+        "failures": failures,
+        "failed_pairs_by_horizon": failed_counts,
+        "failure_only_pairs": failure_only_pairs,
+        "failed_pair_identities": failed_pair_identities,
+        "snapshot_sha256": cohort["database_sha256"],
+    }
+    expected_cohort_hash = hashlib.sha256(
+        json.dumps(hash_payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    if cohort.get("cohort_sha256") != expected_cohort_hash:
+        return "Frozen cohort content does not match cohort_sha256."
     return None
 
 
