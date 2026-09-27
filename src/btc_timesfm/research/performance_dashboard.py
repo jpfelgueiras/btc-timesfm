@@ -280,7 +280,7 @@ def _volatility_audit(rows: list[dict[str, Any]]) -> dict[str, Any]:
             features = {}
         raw = features.get("volatility_24h_pct") if isinstance(features, dict) else None
         try:
-            value = float(raw)
+            value = float(raw) if isinstance(raw, (int, float, str)) else math.nan
         except (TypeError, ValueError):
             value = math.nan
         manifest_raw = row.get("experiment_manifest_json")
@@ -354,10 +354,14 @@ def _volatility_audit(rows: list[dict[str, Any]]) -> dict[str, Any]:
         ):
             continue
         try:
-            key = (int(row["horizon_hours"]), str(row["origin_at"]), row.get("target_at"))
+            pair_key = (
+                int(row["horizon_hours"]),
+                str(row["origin_at"]),
+                row.get("target_at"),
+            )
         except (KeyError, TypeError, ValueError):
             continue
-        grouped[key][str(row.get("model_name"))] = row
+        grouped[pair_key][str(row.get("model_name"))] = row
     pair_keys: set[tuple[int, str]] = set()
     for (horizon, origin, _), models in grouped.items():
         ensemble = models.get(ENSEMBLE_MODEL)
