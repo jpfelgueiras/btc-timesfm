@@ -1,0 +1,69 @@
+{
+  "issue": 415,
+  "schema_version": 1,
+  "status": "blocked",
+  "decision": "No optional data-source family was audited, scored, or added.",
+  "metrics": null,
+  "winner": null,
+  "families": [],
+  "evidence": {
+    "upstream_diagnosis": {
+      "issue": 411,
+      "path": "docs/research/ISSUE_411_PARITY_BASELINES_BLOCKED.json",
+      "status": "blocked_no_diagnosis",
+      "timestamp_eligible_forecasts": 48,
+      "timestamp_eligible_legacy_excluded": 48,
+      "eligible_scored_origins": 0,
+      "eligible_scored_pairs": 0,
+      "newest_versioned_forecast_mature": false,
+      "input_related_error_diagnosed": false,
+      "btc_usd_point_in_time_corpus_available": false
+    }
+  },
+  "blockers": [
+    "Issue #411 has zero eligible scored origins and zero eligible scored pairs; all 48 timestamp-eligible rows are legacy-excluded.",
+    "The newest versioned forecast is immature, so it cannot establish a scored comparison.",
+    "Issue #411 has no diagnosis and has not established an input-related error that optional data could address.",
+    "No licensed BTC/USD point-in-time corpus is available for historically valid feature reconstruction."
+  ],
+  "reopen_gates": [
+    {
+      "gate": "diagnosed_input_failure",
+      "requirement": "Complete #411 with a reproducible input-related error diagnosis tied to eligible production evidence; timestamp eligibility alone is insufficient."
+    },
+    {
+      "gate": "source_manifest",
+      "requirement": "For each proposed source, freeze exact source/vendor, venue, instrument/pair, field definitions, units, interval, timezone, and transformation manifest."
+    },
+    {
+      "gate": "point_in_time_availability",
+      "requirement": "Provide event-time and first-publication/availability-time semantics, plus immutable revision history/original values sufficient to reconstruct the value knowable at every forecast origin."
+    },
+    {
+      "gate": "licensing",
+      "requirement": "Document authorized acquisition, research use, storage, retention, and derived-output rights for the exact source and fields."
+    },
+    {
+      "gate": "operations",
+      "requirement": "Measure and document source outage/fallback behavior, freshness, recurring and one-time cost, and end-to-end fetch/feature latency."
+    },
+    {
+      "gate": "frozen_ablation",
+      "requirement": "Predeclare and freeze the candidate family, feature construction, missingness/fallback handling, forecast integration, evaluation window, and scoring protocol before outcomes are examined."
+    },
+    {
+      "gate": "exact_pairs_and_multiplicity",
+      "requirement": "Score only exact shared (origin_at, target_at, horizon) pairs with mature outcomes and report exclusions/failures; predeclare dependence-aware uncertainty and family-wise multiplicity correction over every candidate, comparison, and stratum."
+    }
+  ],
+  "claim_scope": {
+    "optional_families_audited": false,
+    "optional_families_scored": false,
+    "optional_families_added": false,
+    "all_metrics_null": true,
+    "winner_null": true,
+    "vendor_contacted": false,
+    "unsupported_data_used": false
+  },
+  "next_action": "Reopen only after the upstream diagnosis and every applicable source, provenance, licensing, operational, and frozen-evaluation gate is evidenced."
+}

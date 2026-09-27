@@ -11,5 +11,6 @@ explicit implementation and review.
 - [Issue #409 point-in-time corpus comparison](ISSUE_409_PIT_CORPUS_COMPARISON.md) records a documentation-based institutional/archive channel comparison and blocked procurement decision; machine-readable details are in [JSON](ISSUE_409_PIT_CORPUS_COMPARISON.json).
 - [Issue #399 production-parity replay status](ISSUE_399_PRODUCTION_PARITY_REPLAY.md) documents the blocked readiness gates, machine-readable report, and reproducible rerun procedure.
 - [Issue #400 bounded candidate confirmation](ISSUE_400_CANDIDATE_CONFIRMATION.md) records the blocked, no-scoring disposition, freeze-before-scoring protocol, and disjoint prospective D3 shadow prerequisites.
+- [Issue #412 TimesFM context/target evaluation](ISSUE_412_TIMESFM_CONTEXT_BLOCKED.md) records the diagnosis-gated blocked outcome, source hashes, and exact reopening requirements.
 - [Experiment catalog](../EXPERIMENTS.md)
 - [Statistical evidence](../STATISTICAL_EVIDENCE.md)
