@@ -15,7 +15,7 @@ parameters automatically.
 `src/btc_timesfm/research/shadow_deployment.py` provides:
 
 - `ShadowStore` — a durable SQLite store (same migration/rollback conventions as
-  `experiment_registry.py`) holding three bounded tables keyed by
+  `experiment_registry.py`) holding four bounded tables keyed by
   `configuration_id`:
   - `configurations` — approved challengers and the production champion
     (`role`, `approval_status`, stable `configuration_id`);
