@@ -1,4 +1,4 @@
-# Issue #399 — production-parity replay readiness
+# Issue #399 / #411 — production-parity replay readiness
 
 ## Current outcome: blocked
 
@@ -62,3 +62,22 @@ Do not infer missing values, stitch venues, substitute BTCUSDT for BTC/USD,
 reuse immature outcomes, or call a blocked result a canonical skill estimate.
 Once evidence is available, rerun the readiness command, validate each gate,
 then execute and separately archive the frozen replay and its complete manifest.
+
+## Issue #411 capture/readiness path
+
+The #411 report uses the same audit implementation, validates the frozen #410
+protocol schema and digest before readiness, and keeps canonical historical
+corpus evidence separate from the frozen #419 prospective cohort. Generate it
+with `--output docs/research/ISSUE_411_PARITY_BASELINES_BLOCKED.json`; provide
+the immutable #419 report with `--frozen-cohort PATH` when available. A missing,
+invalid, or blocked cohort is an explicit blocker. Passing readiness computes no
+metrics and does not itself execute any models.
+
+At the 2026-09-27 #419 snapshot, the prospective cohort had 48 timestamp-eligible
+pre-cutoff forecasts, all 48 legacy/unversioned, zero confirmatory origins and
+zero eligible pairs. The provenance-complete 11:00 UTC origin was not mature at
+the frozen as-of time. It is excluded under #419; older mixed-version forecasts
+must not be scored. The historical canonical source gate also remains blocked.
+Keep metrics null until exact registered production captures and point-in-time
+inputs satisfy the frozen protocol; prospective results never become canonical
+historical results.

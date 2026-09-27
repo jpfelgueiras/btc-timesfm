@@ -183,7 +183,9 @@ class ProductionParityReplayTests(unittest.TestCase):
             if ledger is not None:
                 ledger_path = root / "ledger.json"
                 ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
-            return build_report(corpus_path, ledger_path)
+            cohort_path = root / "cohort.json"
+            cohort_path.write_text(json.dumps(frozen_cohort_report()), encoding="utf-8")
+            return build_report(corpus_path, ledger_path, cohort_path)
 
     def test_current_blocked_issue_397_audit_stays_blocked(self) -> None:
         current = Path("docs/research/ISSUE_397_CANONICAL_BENCHMARK_AUDIT.json")
@@ -236,6 +238,34 @@ class ProductionParityReplayTests(unittest.TestCase):
         self.assertEqual(report["blockers"][0]["code"], "corpus_audit_unreadable")
         self.assertIsNone(report["evidence"]["corpus_audit"]["sha256"])
 
+    def test_frozen_protocol_hash_is_required_and_recorded(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            corpus_path = root / "corpus.json"
+            corpus_path.write_text(json.dumps(corpus_audit()), encoding="utf-8")
+            protocol_path = root / "protocol.json"
+            protocol_path.write_text("{}", encoding="utf-8")
+            report = build_report(corpus_path, None, None, protocol_path)
+        self.assertEqual(report["gates"]["frozen_protocol"], "blocked")
+        self.assertIn("frozen_protocol_invalid", [item["code"] for item in report["blockers"]])
+        self.assertIsNone(report["metrics"])
+
+    def test_historical_and_prospective_tracks_remain_distinct(self) -> None:
+        report = self._report(corpus_audit(), shadow_status())
+        self.assertEqual(report["issue"], 411)
+        self.assertEqual(report["gates"]["frozen_protocol"], "passed")
+        self.assertEqual(
+            report["evidence_tracks"]["historical_canonical"]["status"], "replay_not_run"
+        )
+        self.assertEqual(
+            report["evidence_tracks"]["prospective"]["status"], "ready_for_capture_replay"
+        )
+        self.assertIsNone(report["evidence_tracks"]["prospective"]["metrics"])
+        snapshot = report["last_verified_prospective_snapshot"]
+        self.assertEqual(snapshot["confirmatory_forecasts"], 0)
+        self.assertEqual(snapshot["timestamp_eligible_legacy_excluded"], 48)
+        self.assertIsNone(snapshot["metrics"])
+
     def test_hash_matches_exact_bytes_parsed_even_if_file_changes_after_read(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "corpus.json"
@@ -245,7 +275,8 @@ class ProductionParityReplayTests(unittest.TestCase):
 
             def read_then_replace(instance: Path) -> bytes:
                 content = read_bytes(instance)
-                instance.write_bytes(b'{"status":"changed"}')
+                if instance == path:
+                    instance.write_bytes(b'{"status":"changed"}')
                 return content
 
             with patch.object(Path, "read_bytes", read_then_replace):
