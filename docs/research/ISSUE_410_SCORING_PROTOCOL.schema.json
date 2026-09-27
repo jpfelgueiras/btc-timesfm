@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://btc-timesfm.example/schemas/issue-410-scoring-protocol-v1.json",
+  "title": "Frozen v11 Prospective Scoring Protocol",
+  "type": "object",
+  "required": ["schema_version", "protocol_version", "issue", "status", "market", "pairing", "horizons_hours", "estimands", "sampling", "design", "uncertainty", "immutability", "protocol_sha256"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "protocol_version": {"type": "string", "minLength": 1},
+    "issue": {"const": 410},
+    "status": {"const": "frozen_before_evaluation"},
+    "protocol_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "horizons_hours": {"const": [2, 4, 8, 16]},
+    "market": {"type": "object", "required": ["instrument", "bar_interval_hours", "outcome", "vintage_identity"]},
+    "pairing": {"type": "object", "required": ["key", "timestamps", "target_rule", "same_vintage_and_outcome_required", "forecast_information_cutoff", "statuses", "failure_denominator"]},
+    "estimands": {"type": "object", "required": ["point", "interval"]},
+    "sampling": {"type": "object", "required": ["strata", "minimum_effective_sample"]},
+    "design": {"type": "object", "required": ["selection", "holdout", "d3", "cutoff", "stopping", "practical_effect_floor", "limits", "disposition", "promotion"]},
+    "uncertainty": {"type": "object", "required": ["paired", "method", "block_length_origins", "overlap_rule", "replicates", "interval", "multiplicity", "seed"]},
+    "immutability": {"type": "object", "required": ["no_peeking", "changes", "post_hoc_changes", "score_inspection_during_protocol_design"]}
+  },
+  "additionalProperties": true
+}
