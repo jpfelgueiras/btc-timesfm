@@ -155,10 +155,14 @@ def _edge_summary(
             "days": days,
             "matured_rows": report["matured_rows"],
             "paired_samples": report["paired_samples"],
+            "pairing_diagnostics": report["pairing_diagnostics"],
             "by_horizon": report["by_dimension"]["horizon"],
             "by_regime_by_horizon": report["by_dimension"]["regime_by_horizon"],
             "by_volatility_bucket_by_horizon": report["by_dimension"][
                 "volatility_bucket_by_horizon"
+            ],
+            "by_origin_time_stratum_by_horizon": report["by_dimension"][
+                "origin_time_stratum_by_horizon"
             ],
         }
     return {
@@ -500,7 +504,8 @@ def _render_edge_metrics(metrics: dict[str, Any]) -> str:
     ci = metrics.get("confidence_interval")
     lower = _safe_float(ci.get("lower")) if isinstance(ci, dict) else None
     upper = _safe_float(ci.get("upper")) if isinstance(ci, dict) else None
-    bootstrap = metrics.get("bootstrap") if isinstance(metrics.get("bootstrap"), dict) else {}
+    bootstrap_value = metrics.get("bootstrap")
+    bootstrap: dict[str, Any] = bootstrap_value if isinstance(bootstrap_value, dict) else {}
     sign = (
         "positive"
         if delta is not None and delta > 0
@@ -548,13 +553,29 @@ def _render_persistence_edge(data: dict[str, Any]) -> str:
         for label, key in (
             ("Regime by horizon", "by_regime_by_horizon"),
             ("Volatility by horizon", "by_volatility_bucket_by_horizon"),
+            ("Origin-time stratum by horizon", "by_origin_time_stratum_by_horizon"),
         ):
             for horizon, segments in summary.get(key, {}).items():
                 sections.append((f"{label} · {horizon}", segments))
         tables = []
         for label, segments in sections:
+            is_16h = "16h" in label or "16h" in segments
+            low_effective = any(
+                isinstance(metrics, dict)
+                and ("16h" in label or segment == "16h")
+                and float((metrics.get("bootstrap") or {}).get("effective_block_count_proxy") or 0)
+                < float((metrics.get("bootstrap") or {}).get("minimum_effective_samples") or 8)
+                for segment, metrics in segments.items()
+            )
+            point_warning = (
+                '<p class="note" role="note">D2 16h MAE edge is a descriptive point estimate; '
+                "the effective block count is below the bootstrap minimum, so the comparison is "
+                "inconclusive.</p>"
+                if is_16h and low_effective
+                else ""
+            )
             tables.append(
-                f"<h3>{html.escape(label)}</h3>"
+                f"<h3>{html.escape(label)}</h3>{point_warning}"
                 '<div class="table-wrap edge-table" role="region" aria-label="Scrollable persistence comparison results" tabindex="0"><table><thead><tr>'
                 '<th scope="col">Segment</th><th scope="col">Paired samples</th><th scope="col">Bootstrap / block length / effective blocks</th><th scope="col">MAE edge</th><th scope="col">95% CI</th>'
                 '<th scope="col">Result</th><th scope="col">Evidence</th></tr></thead>'
@@ -567,8 +588,39 @@ def _render_persistence_edge(data: dict[str, Any]) -> str:
     return (
         "<p>Positive MAE edge means lower ensemble error than persistence. "
         f"Cells with fewer than {threshold} paired forecasts or an inconclusive confidence interval "
-        "are marked inconclusive.</p>" + "".join(windows)
+        "are marked inconclusive.</p>"
+        + _render_pairing_diagnostics(
+            edge.get("windows", {}).get("all", {}).get("pairing_diagnostics", {})
+        )
+        + "".join(windows)
     )
+
+
+def _render_pairing_diagnostics(diagnostics: dict[str, Any]) -> str:
+    if not diagnostics:
+        return ""
+    rows = (
+        ("Pending outcome rows excluded", diagnostics.get("pending_rows_excluded", 0)),
+        (
+            "Matured keys missing ensemble or persistence row",
+            diagnostics.get("matured_pair_keys_missing_ensemble_or_persistence", 0),
+        ),
+        (
+            "Matured keys missing persistence",
+            diagnostics.get("matured_pair_keys_missing_persistence", 0),
+        ),
+        (
+            "Matured keys with different actuals",
+            diagnostics.get("matured_pair_keys_actual_mismatch", 0),
+        ),
+        (
+            "Matured keys missing error metrics",
+            diagnostics.get("matured_pair_keys_missing_error_metrics", 0),
+        ),
+    )
+    rendered = "".join(f"<li>{html.escape(label)}: {int(value or 0)}</li>" for label, value in rows)
+    note = html.escape(str(diagnostics.get("failed_attempts_note") or ""))
+    return f"<details><summary>Pairing exclusions and failures</summary><ul>{rendered}</ul><p>{note}</p></details>"
 
 
 def _render_recent(data: dict[str, Any]) -> str:

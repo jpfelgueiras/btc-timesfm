@@ -155,6 +155,7 @@ def _segment_values(pair: dict[str, Any]) -> dict[str, str]:
             ("low", "medium", "high"),
         ),
         "time_of_day": _time_of_day(hour),
+        "origin_time_stratum": _time_of_day(origin.hour if origin is not None else hour),
         "day_of_week": _weekday(weekday),
         "confidence_bucket": _confidence_bucket(row),
         "feature_set_version": _feature_set_version(row),
@@ -308,6 +309,63 @@ def _horizon_segment_report(
     }
 
 
+def _pairing_diagnostics(rows: list[dict[str, Any]], current_time: datetime) -> dict[str, Any]:
+    """Count excluded observations without inventing failure records absent from history."""
+    pending = [row for row in rows if not _is_matured(row, current_time)]
+    matured = [row for row in rows if _is_matured(row, current_time)]
+    grouped: dict[tuple[Any, Any, Any], list[dict[str, Any]]] = defaultdict(list)
+    for row in matured:
+        grouped[(row.get("origin_at"), row.get("target_at"), row.get("horizon_hours"))].append(row)
+    missing_comparison = 0
+    missing_ensemble = 0
+    missing_persistence = 0
+    unusable_metrics = 0
+    actual_mismatch = 0
+    unusable_by_model: dict[str, int] = defaultdict(int)
+    for key_rows in grouped.values():
+        by_model = {str(row.get("model_name")): row for row in key_rows}
+        ensemble = by_model.get(ENSEMBLE_MODEL)
+        persistence = by_model.get(PERSISTENCE_MODEL)
+        if ensemble is None or persistence is None:
+            missing_comparison += 1
+            missing_ensemble += ensemble is None
+            missing_persistence += persistence is None
+            continue
+        if _safe_float(ensemble.get("actual_target_price_usd")) != _safe_float(
+            persistence.get("actual_target_price_usd")
+        ):
+            actual_mismatch += 1
+            continue
+        if (
+            _safe_float(ensemble.get("absolute_error_pct")) is None
+            or _safe_float(persistence.get("absolute_error_pct")) is None
+        ):
+            unusable_metrics += 1
+            for model in (ENSEMBLE_MODEL, PERSISTENCE_MODEL):
+                if _safe_float(by_model[model].get("absolute_error_pct")) is None:
+                    unusable_by_model[model] += 1
+    return {
+        "pending_rows_excluded": len(pending),
+        "matured_pair_keys_missing_ensemble_or_persistence": missing_comparison,
+        "matured_pair_keys_missing_ensemble": missing_ensemble,
+        "matured_pair_keys_missing_persistence": missing_persistence,
+        "matured_pair_keys_actual_mismatch": actual_mismatch,
+        "matured_pair_keys_missing_error_metrics": unusable_metrics,
+        "matured_rows_missing_error_metrics_by_model": dict(sorted(unusable_by_model.items())),
+        "failed_attempts": None,
+        "failed_attempts_note": "The durable forecast history export has no attempt/failure ledger.",
+    }
+
+
+def _is_matured(row: dict[str, Any], current_time: datetime) -> bool:
+    target = _parse_timestamp(row.get("target_at"))
+    return (
+        row.get("actual_target_price_usd") is not None
+        and target is not None
+        and target <= current_time
+    )
+
+
 def _monthly_stability(
     pairs: list[dict[str, Any]],
     *,
@@ -359,7 +417,7 @@ def build_report(
         raise ValueError("bootstrap_iterations must be >= 100")
 
     current_time = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    matured_rows = [row for row in rows if row.get("actual_target_price_usd") is not None]
+    matured_rows = [row for row in rows if _is_matured(row, current_time)]
     pairs = _build_pairs(matured_rows)
     matured_keys: dict[tuple[Any, Any, Any], set[str]] = defaultdict(set)
     for row in matured_rows:
@@ -380,6 +438,7 @@ def build_report(
         "volatility_bucket",
         "trend_strength",
         "time_of_day",
+        "origin_time_stratum",
         "day_of_week",
         "confidence_bucket",
         "feature_set_version",
@@ -409,6 +468,13 @@ def build_report(
         min_paired_samples=min_paired_samples,
         bootstrap_iterations=bootstrap_iterations,
     )
+    by_dimension["origin_time_stratum_by_horizon"] = _horizon_segment_report(
+        pairs,
+        "origin_time_stratum",
+        low_sample_threshold=low_sample_threshold,
+        min_paired_samples=min_paired_samples,
+        bootstrap_iterations=bootstrap_iterations,
+    )
     for horizon in horizons:
         by_dimension["horizon"].setdefault(
             horizon,
@@ -426,6 +492,7 @@ def build_report(
         "baseline_model": PERSISTENCE_MODEL,
         "matured_rows": len(matured_rows),
         "paired_samples": len(pairs),
+        "pairing_diagnostics": _pairing_diagnostics(rows, current_time),
         "unmatched_matured_pair_keys": unmatched_pair_keys,
         "low_sample_threshold": low_sample_threshold,
         "min_paired_samples": min_paired_samples,
@@ -473,6 +540,18 @@ def render_markdown(report: dict[str, Any]) -> str:
         "Positive MAE delta means the ensemble beat persistence. Low-sample or inconclusive "
         "segments are marked as unstable.",
         "",
+        "## Pairing exclusions",
+        "",
+        f"- Pending outcome rows excluded: {report['pairing_diagnostics']['pending_rows_excluded']}",
+        "- Matured keys missing ensemble or persistence row: "
+        f"{report['pairing_diagnostics']['matured_pair_keys_missing_ensemble_or_persistence']}",
+        f"- Matured keys missing persistence: {report['pairing_diagnostics']['matured_pair_keys_missing_persistence']}",
+        "- Matured keys with different actuals: "
+        f"{report['pairing_diagnostics']['matured_pair_keys_actual_mismatch']}",
+        "- Matured keys missing error metrics: "
+        f"{report['pairing_diagnostics']['matured_pair_keys_missing_error_metrics']}",
+        "- Failed attempts: unavailable; durable forecast history does not retain an attempt ledger.",
+        "",
         "## Overall",
         "",
         "| Samples | Ensemble MAE | Persistence MAE | MAE delta | 95% CI | Direction delta | Conclusion | Reason |",
@@ -498,7 +577,40 @@ def render_markdown(report: dict[str, Any]) -> str:
     )
 
     for dimension, segments in report["by_dimension"].items():
-        if dimension in {"regime_by_horizon", "volatility_bucket_by_horizon"}:
+        if dimension in {
+            "regime_by_horizon",
+            "volatility_bucket_by_horizon",
+            "origin_time_stratum_by_horizon",
+        }:
+            for horizon, horizon_segments in segments.items():
+                lines.extend(
+                    [
+                        "",
+                        f"## {dimension.replace('_', ' ')} · {horizon}",
+                        "",
+                        "| Segment | n | Estimate | 95% CI | Bootstrap / block / effective blocks | Conclusion | Reason |",
+                        "| --- | ---: | ---: | --- | --- | --- | --- |",
+                    ]
+                )
+                for segment, metrics in horizon_segments.items():
+                    bootstrap = metrics["bootstrap"]
+                    ci = metrics["confidence_interval"]
+                    lines.append(
+                        "| "
+                        + " | ".join(
+                            [
+                                str(segment),
+                                str(metrics["samples"]),
+                                _fmt(metrics["mae_delta_pct_points"]),
+                                f"[{_fmt(ci['lower'])}, {_fmt(ci['upper'])}]",
+                                f"{bootstrap['bootstrap_method']} / {bootstrap['block_length']} / "
+                                f"{_fmt(bootstrap['effective_block_count_proxy'])}",
+                                str(metrics["conclusion"]),
+                                str(metrics["reason"]),
+                            ]
+                        )
+                        + " |"
+                    )
             continue
         lines.extend(
             [

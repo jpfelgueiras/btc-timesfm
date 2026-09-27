@@ -11,6 +11,7 @@ from btc_timesfm.web.static_site import (
     _render_accuracy,
     _render_explorer,
     _render_recent,
+    _render_persistence_edge,
     _utc_label,
     build_site_data,
     explorer_query,
@@ -21,6 +22,50 @@ from btc_timesfm.web.static_site import (
 
 
 class StaticSiteTests(unittest.TestCase):
+    def test_persistence_edge_renders_d2_16h_caveat_and_accessible_diagnostics(self) -> None:
+        evidence = {
+            "samples": 32,
+            "mae_delta_pct_points": 1.0,
+            "confidence_interval": {"lower": -1.0, "upper": 2.0},
+            "conclusion": "inconclusive",
+            "reason": "insufficient_effective_samples",
+            "unstable_or_low_sample": True,
+            "bootstrap": {
+                "bootstrap_method": "moving_block",
+                "block_length": 24,
+                "effective_block_count_proxy": 1.333,
+                "minimum_effective_samples": 8,
+            },
+        }
+        html = _render_persistence_edge(
+            {
+                "persistence_edge": {
+                    "low_sample_threshold": 20,
+                    "windows": {
+                        window: {
+                            "by_horizon": {"16h": evidence},
+                            "by_regime_by_horizon": {},
+                            "by_volatility_bucket_by_horizon": {},
+                            "pairing_diagnostics": {
+                                "pending_rows_excluded": 3,
+                                "matured_pair_keys_missing_ensemble_or_persistence": 1,
+                                "matured_pair_keys_actual_mismatch": 0,
+                                "matured_pair_keys_missing_error_metrics": 0,
+                                "failed_attempts": None,
+                                "failed_attempts_note": "No attempt ledger available.",
+                            },
+                        }
+                        for window in ("7d", "30d", "90d", "all")
+                    },
+                }
+            }
+        )
+        self.assertIn("D2 16h MAE edge is a descriptive point estimate", html)
+        self.assertIn("below the bootstrap minimum", html)
+        self.assertIn("Pending outcome rows excluded: 3", html)
+        self.assertIn('role="region"', html)
+        self.assertIn("effective", html)
+
     def test_uncertainty_and_performance_copy_is_qualified(self) -> None:
         latest_html = _render_latest(
             {
@@ -309,7 +354,7 @@ class StaticSiteTests(unittest.TestCase):
                 volatility=3.0,
             ),
         ]
-        data = build_site_data(rows, now=datetime(2026, 9, 7, 13, tzinfo=timezone.utc))
+        data = build_site_data(rows, now=datetime(2026, 9, 7, 17, tzinfo=timezone.utc))
 
         windows = data["persistence_edge"]["windows"]
         self.assertEqual(tuple(windows), ("7d", "30d", "90d", "all"))
@@ -324,6 +369,9 @@ class StaticSiteTests(unittest.TestCase):
             self.assertEqual(
                 window["by_volatility_bucket_by_horizon"]["2h"]["high"]["mae_delta_pct_points"],
                 2.0,
+            )
+            self.assertEqual(
+                window["by_origin_time_stratum_by_horizon"]["2h"]["06-12"]["samples"], 1
             )
             self.assertEqual(
                 window["by_regime_by_horizon"]["2h"]["trending"]["bootstrap"]["bootstrap_method"],
@@ -361,7 +409,7 @@ class StaticSiteTests(unittest.TestCase):
                     ),
                 ]
             )
-        data = build_site_data(rows, now=datetime(2026, 9, 7, 13, tzinfo=timezone.utc))
+        data = build_site_data(rows, now=datetime(2026, 9, 7, 17, tzinfo=timezone.utc))
         windows = data["persistence_edge"]["windows"]
 
         self.assertEqual(windows["7d"]["by_horizon"]["2h"]["samples"], 1)
