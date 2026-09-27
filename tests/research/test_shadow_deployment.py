@@ -382,6 +382,25 @@ class ShadowDeploymentTests(unittest.TestCase):
         report = self.store.evidence_report()
         self.assertEqual(report["matured_pairs"], 3)
 
+    def test_frozen_cohort_requires_utc_contract_and_exact_maturity_boundary(self) -> None:
+        origin = _origin_timestamp(0)
+        run_shadow(self.store, _production_snapshot(0, price=100.0), _actuals_for(1))
+        report = self.store.frozen_cohort_report(
+            origin_cutoff_at=_iso(origin), evaluation_as_of=_iso(origin + 16 * 3600)
+        )
+        self.assertEqual(report["eligible_origins"], 1)
+        self.assertEqual(report["expected_pairs"], 4)
+        self.assertEqual(report["expected_pairs"], 4)
+        self.assertFalse(report["ready"])
+        with self.assertRaisesRegex(ValueError, "16 hours"):
+            self.store.frozen_cohort_report(
+                origin_cutoff_at=_iso(origin), evaluation_as_of=_iso(origin + 15 * 3600)
+            )
+        with self.assertRaisesRegex(ValueError, "timezone"):
+            self.store.frozen_cohort_report(
+                origin_cutoff_at="2026-01-01T12:00:00", evaluation_as_of=_iso(origin + 20 * 3600)
+            )
+
     def test_shadow_forecasts_are_persisted_separately_per_configuration(self) -> None:
         challenger = self._register_challenger(name="longer_history")
         for index in range(2):

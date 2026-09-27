@@ -950,6 +950,182 @@ class ShadowStore:
             "forecast_versions": versions,
         }
 
+    def frozen_cohort_report(
+        self, *, origin_cutoff_at: str, evaluation_as_of: str
+    ) -> dict[str, Any]:
+        """Build immutable, exact-target evidence for a preregistered mature cohort.
+
+        Origins at or before the cutoff are included only when all supported targets
+        could have been observed by ``evaluation_as_of``. The source ledger is read-only.
+        """
+        cutoff = _parse_utc(origin_cutoff_at)
+        as_of = _parse_utc(evaluation_as_of)
+        if cutoff > as_of - timedelta(hours=16):
+            raise ValueError("origin_cutoff_at must be at least 16 hours before evaluation_as_of")
+        if datetime.fromisoformat(origin_cutoff_at.replace("Z", "+00:00")).tzinfo is None:
+            raise ValueError("origin_cutoff_at must include a timezone")
+        if datetime.fromisoformat(evaluation_as_of.replace("Z", "+00:00")).tzinfo is None:
+            raise ValueError("evaluation_as_of must include a timezone")
+        forecasts = self.load_forecasts()
+        outcomes = self.load_outcomes()
+        configurations = {row["configuration_id"]: row for row in self.list_configurations()}
+        matching = [row for row in forecasts if _parse_utc(row["origin_at"]) <= cutoff]
+        eligible = [
+            row for row in matching if _parse_utc(row["origin_at"]) <= as_of - timedelta(hours=16)
+        ]
+        censored = [row for row in forecasts if row not in eligible]
+        keys: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for outcome in outcomes:
+            key = (outcome["configuration_id"], outcome["origin_at"], outcome["horizon"])
+            if key in keys:
+                raise ValueError("duplicate outcome identity in frozen evidence")
+            keys[key] = outcome
+        by_horizon = {horizon: {"expected": 0, "matured": 0, "missing": 0} for horizon in HORIZONS}
+        failures: list[dict[str, Any]] = []
+        rows = []
+        identity_set: set[tuple[str, str, str, str]] = set()
+        origin_keys: set[tuple[str, datetime]] = set()
+        policy_by_configuration: dict[str, str] = {}
+        for forecast in eligible:
+            raw_origin = datetime.fromisoformat(str(forecast["origin_at"]).replace("Z", "+00:00"))
+            if raw_origin.tzinfo is None:
+                raise ValueError("origin_at must be timezone-aware")
+            origin = raw_origin.astimezone(timezone.utc)
+            origin_key = (forecast["configuration_id"], origin)
+            if origin_key in origin_keys:
+                raise ValueError("duplicate UTC origin for configuration in frozen cohort")
+            origin_keys.add(origin_key)
+            provenance = forecast.get("provenance") or {}
+            if not isinstance(provenance, dict):
+                raise ValueError("missing forecast lineage")
+            manifest = provenance.get("experiment_manifest")
+            if (
+                not isinstance(manifest, dict)
+                or manifest.get("data_id") != forecast.get("data_lineage_id")
+                or provenance.get("configuration_id") != forecast["configuration_id"]
+                or provenance.get("targets_at") != _targets_at(str(forecast["origin_at"]))
+            ):
+                raise ValueError("forecast lineage does not match configuration, data, or target identity")
+            identity = (
+                forecast["configuration_id"],
+                str(provenance.get("policy_id") or ""),
+                str(forecast.get("data_lineage_id") or ""),
+                str(forecast.get("forecast_sha256") or ""),
+            )
+            if not all(identity[1:]) or identity[0] not in configurations:
+                raise ValueError("incomplete forecast lineage identity")
+            previous_policy = policy_by_configuration.setdefault(identity[0], identity[1])
+            if previous_policy != identity[1]:
+                raise ValueError("policy lineage changed within frozen configuration cohort")
+            identity_set.add(identity)
+            for horizon in HORIZONS:
+                bucket = by_horizon[horizon]
+                bucket["expected"] += 1
+                outcome = keys.get((forecast["configuration_id"], forecast["origin_at"], horizon))
+                target = origin + timedelta(hours=int(horizon[:-1]))
+                prediction = (forecast.get("predictions") or {}).get(horizon)
+                exact = False
+                if outcome is not None:
+                    try:
+                        exact = _parse_utc(outcome["actual_at"]) == target
+                    except (TypeError, ValueError):
+                        exact = False
+                if outcome is not None and not exact:
+                    raise ValueError("outcome target does not match exact UTC origin/horizon")
+                if (
+                    exact
+                    and isinstance(prediction, dict)
+                    and prediction.get("price_usd") is not None
+                ):
+                    bucket["matured"] += 1
+                else:
+                    bucket["missing"] += 1
+                rows.append(
+                    {
+                        "configuration_id": identity[0],
+                        "origin_at": origin.isoformat(),
+                        "target_at": target.isoformat(),
+                        "horizon": horizon,
+                        "policy_id": identity[1],
+                        "data_lineage_id": identity[2],
+                        "forecast_sha256": identity[3],
+                        "matured": bool(exact and prediction),
+                    }
+                )
+        eligible_ids = {(row["configuration_id"], row["origin_at"]) for row in eligible}
+        for failure in self.load_failures():
+            try:
+                failure_origin = _parse_utc(failure["origin_at"])
+                failure_key = (failure["configuration_id"], failure["origin_at"])
+                inside = (
+                    failure_origin <= cutoff
+                    and failure_origin <= as_of - timedelta(hours=16)
+                    and failure["configuration_id"] in configurations
+                )
+            except (KeyError, TypeError, ValueError):
+                inside = False
+            if inside:
+                failures.append(failure)
+                if failure_key not in eligible_ids:
+                    try:
+                        failed_horizons = json.loads(
+                            failure.get("expected_horizons_json") or "null"
+                        )
+                    except (TypeError, json.JSONDecodeError):
+                        failed_horizons = None
+                    if not isinstance(failed_horizons, list):
+                        failed_horizons = list(HORIZONS)
+                    for horizon in set(failed_horizons).intersection(HORIZONS):
+                        by_horizon[horizon]["expected"] += 1
+                        by_horizon[horizon]["missing"] += 1
+        snapshot_hash = hashlib.sha256(self.path.read_bytes()).hexdigest()
+        cohort = {
+            "origin_cutoff_at": cutoff.isoformat(),
+            "evaluation_as_of": as_of.isoformat(),
+            "horizons": list(HORIZONS),
+            "maximum_horizon_hours": 16,
+            "rule": "origin <= cutoff and origin + 16h <= evaluation_as_of; exact UTC targets",
+        }
+        cohort_hash = _sha256_text(
+            _canonical_json(
+                {
+                    "cohort": cohort,
+                    "rows": rows,
+                    "failures": failures,
+                    "snapshot_sha256": snapshot_hash,
+                }
+            )
+        )
+        expected = sum(item["expected"] for item in by_horizon.values())
+        matured = sum(item["matured"] for item in by_horizon.values())
+        return {
+            "schema_version": 1,
+            "cohort": cohort,
+            "cohort_sha256": cohort_hash,
+            "database_sha256": snapshot_hash,
+            "code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "eligible_origins": len(eligible),
+            "expected_pairs": expected,
+            "matured_pairs": matured,
+            "missing_pairs_by_horizon": {h: by_horizon[h]["missing"] for h in HORIZONS},
+            "pairs_by_horizon": by_horizon,
+            "failures": failures,
+            "right_censored_forecasts": len(censored),
+            "post_cutoff_forecasts": sum(
+                _parse_utc(row["origin_at"]) > cutoff for row in forecasts
+            ),
+            "right_censored_pairs_by_horizon": {
+                h: sum(
+                    1
+                    for row in censored
+                    if _parse_utc(row["origin_at"]) + timedelta(hours=int(h[:-1])) > as_of
+                )
+                for h in HORIZONS
+            },
+            "lineage_identities": sorted([list(item) for item in identity_set]),
+            "ready": bool(eligible and matured == expected and not failures),
+        }
+
     def load_forecasts(self, configuration_id: str | None = None) -> list[dict[str, Any]]:
         if configuration_id is None:
             with self._connect() as connection:

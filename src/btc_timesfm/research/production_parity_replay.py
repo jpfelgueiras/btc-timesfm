@@ -24,6 +24,56 @@ SHADOW_FORECAST_SCHEMA_VERSION = 1
 SHADOW_HORIZONS = ("2h", "4h", "8h", "16h")
 
 
+def _frozen_cohort_blocker(cohort: Mapping[str, Any] | None) -> str | None:
+    """Fail closed on frozen prospective-cohort evidence; does not establish skill."""
+    if not isinstance(cohort, Mapping) or cohort.get("schema_version") != 1:
+        return "Frozen prospective cohort report is missing or has an unsupported schema."
+    contract = cohort.get("cohort")
+    if not isinstance(contract, Mapping):
+        return "Frozen cohort contract is missing."
+    try:
+        from datetime import datetime, timedelta
+
+        cutoff = datetime.fromisoformat(str(contract["origin_cutoff_at"]).replace("Z", "+00:00"))
+        as_of = datetime.fromisoformat(str(contract["evaluation_as_of"]).replace("Z", "+00:00"))
+        if cutoff.tzinfo is None or as_of.tzinfo is None or cutoff > as_of - timedelta(hours=16):
+            return (
+                "Frozen cohort timestamps must be timezone-aware with a 16-hour maturity boundary."
+            )
+    except (KeyError, TypeError, ValueError):
+        return "Frozen cohort timestamps are invalid."
+    counts = cohort.get("pairs_by_horizon")
+    if not isinstance(counts, Mapping) or set(counts) != set(SHADOW_HORIZONS):
+        return "Frozen cohort must report exact per-horizon pair counts."
+    expected = matured = 0
+    for horizon in SHADOW_HORIZONS:
+        bucket = counts[horizon]
+        if not isinstance(bucket, Mapping) or any(
+            not _exact_int(bucket.get(key)) for key in ("expected", "matured", "missing")
+        ):
+            return "Frozen cohort pair counts are invalid."
+        if bucket["matured"] + bucket["missing"] != bucket["expected"]:
+            return "Frozen cohort pair counts do not reconcile."
+        expected += bucket["expected"]
+        matured += bucket["matured"]
+    if (
+        not expected
+        or matured != expected
+        or cohort.get("failures") != []
+        or cohort.get("ready") is not True
+    ):
+        return "Frozen cohort is incomplete or contains in-cohort failures."
+    for key in ("database_sha256", "code_sha256", "cohort_sha256"):
+        digest = cohort.get(key)
+        if (
+            not isinstance(digest, str)
+            or len(digest) != 64
+            or any(c not in "0123456789abcdef" for c in digest)
+        ):
+            return f"Frozen cohort {key} is missing or invalid."
+    return None
+
+
 def _load(path: Path | None) -> tuple[Mapping[str, Any] | None, str | None, str | None]:
     if path is None:
         return None, None, None
@@ -173,10 +223,13 @@ def _ledger_blocker(ledger: Mapping[str, Any] | None) -> str | None:
     return None
 
 
-def build_report(corpus_path: Path, ledger_path: Path | None) -> dict[str, Any]:
+def build_report(
+    corpus_path: Path, ledger_path: Path | None, frozen_cohort_path: Path | None = None
+) -> dict[str, Any]:
     """Build a reproducible machine-readable readiness report from evidence files."""
     corpus, corpus_error, corpus_hash = _load(corpus_path)
     ledger, ledger_error, ledger_hash = _load(ledger_path)
+    frozen_cohort, frozen_error, frozen_hash = _load(frozen_cohort_path)
     blockers: list[dict[str, str]] = []
     corpus_ready = _corpus_ready(corpus)
     if corpus_error:
@@ -204,6 +257,13 @@ def build_report(corpus_path: Path, ledger_path: Path | None) -> dict[str, Any]:
                 "detail": ledger_problem,
             }
         )
+    frozen_problem = (
+        frozen_error
+        if frozen_error
+        else _frozen_cohort_blocker(frozen_cohort)
+        if frozen_cohort_path is not None
+        else None
+    )
 
     ready = not blockers
     return {
@@ -242,6 +302,21 @@ def build_report(corpus_path: Path, ledger_path: Path | None) -> dict[str, Any]:
                     else None
                 ),
             },
+            "frozen_prospective_cohort": {
+                "path": str(frozen_cohort_path) if frozen_cohort_path else None,
+                "sha256": frozen_hash,
+                "ready": frozen_cohort is not None
+                and _frozen_cohort_blocker(frozen_cohort) is None,
+                "canonical_skill_claim": False,
+            },
+        },
+        "frozen_cohort_readiness": {
+            "status": "not_requested"
+            if frozen_cohort_path is None
+            else "ready"
+            if frozen_problem is None
+            else "blocked",
+            "blocker": frozen_problem,
         },
         "blockers": blockers,
         "required_comparisons": [
@@ -274,9 +349,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--corpus-audit", type=Path, default=DEFAULT_CORPUS_AUDIT)
     parser.add_argument("--ledger", type=Path, help="#398 mature prospective ledger evidence JSON")
+    parser.add_argument(
+        "--frozen-cohort", type=Path, help="immutable #419 frozen prospective cohort report JSON"
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
-    report = build_report(args.corpus_audit, args.ledger)
+    report = build_report(args.corpus_audit, args.ledger, args.frozen_cohort)
     rendered = json.dumps(report, indent=2, sort_keys=True) + "\n"
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(rendered, encoding="utf-8")

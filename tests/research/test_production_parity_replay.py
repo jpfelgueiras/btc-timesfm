@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from btc_timesfm.research.production_parity_replay import build_report
+from btc_timesfm.research.production_parity_replay import (
+    SHADOW_HORIZONS,
+    _frozen_cohort_blocker,
+    build_report,
+)
 
 
 def corpus_audit(**updates: Any) -> dict[str, Any]:
@@ -59,6 +63,53 @@ def shadow_status(**evidence_updates: Any) -> dict[str, Any]:
 
 
 class ProductionParityReplayTests(unittest.TestCase):
+    def test_frozen_cohort_readiness_is_fail_closed(self) -> None:
+        cohort: dict[str, Any] = {
+            "schema_version": 1,
+            "cohort": {
+                "origin_cutoff_at": "2026-01-01T00:00:00+00:00",
+                "evaluation_as_of": "2026-01-01T16:00:00+00:00",
+            },
+            "pairs_by_horizon": {
+                horizon: {"expected": 1, "matured": 1, "missing": 0} for horizon in SHADOW_HORIZONS
+            },
+            "failures": [],
+            "ready": True,
+            "database_sha256": "a" * 64,
+            "code_sha256": "b" * 64,
+            "cohort_sha256": "c" * 64,
+        }
+        self.assertIsNone(_frozen_cohort_blocker(cohort))
+        cohort["failures"] = [{"stage": "forecast"}]
+        self.assertIsNotNone(_frozen_cohort_blocker(cohort))
+
+    def test_frozen_cohort_readiness_is_reported_separately_from_historical_corpus(self) -> None:
+        cohort = {
+            "schema_version": 1,
+            "cohort": {
+                "origin_cutoff_at": "2026-01-01T00:00:00+00:00",
+                "evaluation_as_of": "2026-01-01T16:00:00+00:00",
+            },
+            "pairs_by_horizon": {
+                horizon: {"expected": 1, "matured": 1, "missing": 0} for horizon in SHADOW_HORIZONS
+            },
+            "failures": [],
+            "ready": True,
+            "database_sha256": "a" * 64,
+            "code_sha256": "b" * 64,
+            "cohort_sha256": "c" * 64,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            corpus_path = root / "corpus.json"
+            cohort_path = root / "cohort.json"
+            corpus_path.write_text(json.dumps({"status": "blocked"}), encoding="utf-8")
+            cohort_path.write_text(json.dumps(cohort), encoding="utf-8")
+            report = build_report(corpus_path, None, cohort_path)
+        self.assertEqual(report["frozen_cohort_readiness"]["status"], "ready")
+        self.assertEqual(report["status"], "blocked")
+        self.assertFalse(report["evidence"]["frozen_prospective_cohort"]["canonical_skill_claim"])
+
     def _report(
         self, corpus: dict[str, Any], ledger: dict[str, Any] | None = None
     ) -> dict[str, Any]:
