@@ -49,6 +49,15 @@ and adequate #410 sample/block minima. The historical canonical path separately
 requires an eligible licensed point-in-time corpus. No metric should be
 backfilled from legacy rows.
 
+The current machine-readable issue report is
+[`ISSUE_411_BASELINE_CAPTURE_BLOCKED.json`](ISSUE_411_BASELINE_CAPTURE_BLOCKED.json).
+Regenerate it with:
+
+```bash
+PYTHONPATH=src python -m btc_timesfm.research.production_parity_replay \
+  --output docs/research/ISSUE_411_BASELINE_CAPTURE_BLOCKED.json
+```
+
 Capture rows can be exported and replayed (the example remains blocked until
 eligible origins and matured actual evidence are present):
 
