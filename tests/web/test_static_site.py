@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from btc_timesfm.web.historical_explorer import build_explorer_data, render_explorer
 from btc_timesfm.web.static_site import (
@@ -256,6 +256,74 @@ class StaticSiteTests(unittest.TestCase):
         self.assertEqual(data["latest_age_hours"], 1.0)
         self.assertEqual(data["accuracy"]["all"]["2h"]["samples"], 1)
         self.assertAlmostEqual(data["accuracy"]["all"]["2h"]["direction_accuracy"], 1.0)
+
+    def test_history_coverage_reports_requested_windows_maturity_and_utc_origin_span(self) -> None:
+        now = datetime(2026, 9, 30, 12, tzinfo=timezone.utc)
+        rows: list[dict[str, object]] = []
+        for age_days in (3, 7, 29, 30, 89, 90, 120):
+            origin = now - timedelta(days=age_days)
+            # An offset timestamp verifies that coverage comparisons normalize to UTC.
+            origin_text = origin.astimezone(timezone(timedelta(hours=2))).isoformat()
+            for horizon, actual in ((2, 101.0), (16, None)):
+                row = self._row(
+                    origin=origin_text,
+                    horizon=horizon,
+                    predicted=100.0,
+                    change=1.0,
+                    actual=actual,
+                    error=1.0 if actual is not None else None,
+                    direction=1 if actual is not None else None,
+                )
+                row["target_at"] = (origin + timedelta(hours=horizon)).isoformat()
+                rows.append(row)
+        recent_origin = now - timedelta(hours=3)
+        for horizon in (2, 16):
+            row = self._row(
+                origin=recent_origin.isoformat(),
+                horizon=horizon,
+                predicted=100.0,
+                change=1.0,
+                actual=101.0 if horizon == 2 else None,
+                error=1.0 if horizon == 2 else None,
+                direction=1 if horizon == 2 else None,
+            )
+            row["target_at"] = (recent_origin + timedelta(hours=horizon)).isoformat()
+            rows.append(row)
+
+        data = build_site_data(rows, now=now)
+        coverage = data["history_coverage"]
+        self.assertEqual(coverage["7d"]["requested_days"], 7)
+        self.assertEqual(
+            coverage["7d"]["earliest_origin_at"], (now - timedelta(days=7)).isoformat()
+        )
+        self.assertEqual(coverage["7d"]["latest_origin_at"], (now - timedelta(hours=3)).isoformat())
+        self.assertEqual(coverage["7d"]["matured_by_horizon"], {"2h": 3})
+        self.assertEqual(coverage["7d"]["pending_by_horizon"], {"16h": 1})
+        self.assertEqual(coverage["30d"]["matured_rows"], 5)
+        self.assertEqual(coverage["90d"]["matured_rows"], 7)
+        self.assertEqual(coverage["all"]["matured_rows"], 8)
+        self.assertNotEqual(
+            coverage["90d"]["earliest_origin_at"], coverage["all"]["earliest_origin_at"]
+        )
+
+        rendered = render_html(data)
+        self.assertIn("Last 7 days requested", rendered)
+        self.assertIn("Matured forecast origins:", rendered)
+        self.assertIn("pending maturity", rendered)
+        self.assertIn("page generation", rendered)
+        self.assertIn("No history is filled or extrapolated", rendered)
+        self.assertIn("2026-09-23 12:00 UTC", rendered)
+
+    def test_history_coverage_is_empty_without_eligible_matured_history(self) -> None:
+        now = datetime(2026, 9, 30, 12, tzinfo=timezone.utc)
+        data = build_site_data([], now=now)
+        for window in ("7d", "30d", "90d", "all"):
+            coverage = data["history_coverage"][window]
+            self.assertIsNone(coverage["earliest_origin_at"])
+            self.assertIsNone(coverage["latest_origin_at"])
+            self.assertEqual(coverage["matured_by_horizon"], {})
+            self.assertEqual(coverage["pending_rows"], 0)
+            self.assertEqual(coverage["unscored_rows"], 0)
 
     def test_build_site_data_exposes_latest_coherence_diagnostics(self) -> None:
         snapshot = {
