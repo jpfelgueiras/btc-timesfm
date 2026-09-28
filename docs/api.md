@@ -11,6 +11,11 @@ and [service guide](FORECAST_API_SERVICE.md). The corresponding contract and
 service behavior are exercised in `tests/api/test_forecast_contract.py` and
 `tests/api/test_forecast_service.py`.
 
+The [Swagger UI](https://jpfelgueiras.github.io/btc-timesfm/swagger/) supports
+trying GET requests against a selected API host. No public API server is deployed by this project; use a server you
+control and configure its CORS origin for the Swagger page. See the [service
+guide](FORECAST_API_SERVICE.md#trying-requests-from-swagger-ui) for local setup.
+
 ## Base behavior
 
 All application API routes accept `GET` only. API calls use a bearer API key

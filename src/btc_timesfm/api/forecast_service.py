@@ -80,6 +80,7 @@ class ServiceConfig:
     audit_max_bytes: int = 10_000_000
     audit_backups: int = 3
     audit_max_age_days: int = 30
+    cors_origins: frozenset[str] = frozenset()
 
     @classmethod
     def from_env(cls) -> "ServiceConfig":
@@ -101,6 +102,11 @@ class ServiceConfig:
             audit_max_bytes=int(os.getenv("BTC_FORECAST_API_AUDIT_MAX_BYTES", "10000000")),
             audit_backups=int(os.getenv("BTC_FORECAST_API_AUDIT_BACKUPS", "3")),
             audit_max_age_days=int(os.getenv("BTC_FORECAST_API_AUDIT_MAX_AGE_DAYS", "30")),
+            cors_origins=frozenset(
+                origin.strip()
+                for origin in os.getenv("BTC_FORECAST_API_CORS_ORIGINS", "").split(",")
+                if origin.strip()
+            ),
         )
 
 
@@ -171,6 +177,9 @@ class ForecastService:
     ) -> list[bytes]:
         started = time.perf_counter()
         path = str(environ.get("PATH_INFO", ""))
+        origin = str(environ.get("HTTP_ORIGIN", ""))
+        if str(environ.get("REQUEST_METHOD", "GET")).upper() == "OPTIONS":
+            return self._preflight(environ, start_response, origin)
         if path == "/livez":
             return self._plain(start_response, "200 OK", "ok\n", "text/plain; charset=utf-8")
         if path == "/readyz":
@@ -194,11 +203,48 @@ class ForecastService:
             # Audit persistence is best-effort; it must not turn a completed read into a 500.
             pass
         headers = [("Content-Type", MEDIA_TYPE), ("Cache-Control", "no-store"), *headers]
+        if origin and origin in self.config.cors_origins:
+            headers.extend((("Access-Control-Allow-Origin", origin), ("Vary", "Origin")))
         body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
         start_response(
             f"{status} {self._status_text(status)}", [*headers, ("Content-Length", str(len(body)))]
         )
         return [body]
+
+    def _preflight(
+        self,
+        environ: Mapping[str, Any],
+        start_response: Callable[..., Any],
+        origin: str,
+    ) -> list[bytes]:
+        requested_method = str(environ.get("HTTP_ACCESS_CONTROL_REQUEST_METHOD", "")).upper()
+        requested_headers = {
+            header.strip().lower()
+            for header in str(environ.get("HTTP_ACCESS_CONTROL_REQUEST_HEADERS", "")).split(",")
+            if header.strip()
+        }
+        allowed_headers = {"accept", "authorization", "content-type"}
+        if (
+            not origin
+            or origin not in self.config.cors_origins
+            or requested_method != "GET"
+            or not requested_headers.issubset(allowed_headers)
+        ):
+            return self._plain(start_response, "403 Forbidden", "forbidden\n", "text/plain")
+        encoded = b""
+        start_response(
+            "204 No Content",
+            [
+                ("Access-Control-Allow-Origin", origin),
+                ("Access-Control-Allow-Methods", "GET, OPTIONS"),
+                ("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type"),
+                ("Access-Control-Max-Age", "600"),
+                ("Vary", "Origin"),
+                ("Content-Length", str(len(encoded))),
+                ("Cache-Control", "no-store"),
+            ],
+        )
+        return [encoded]
 
     @staticmethod
     def _plain(

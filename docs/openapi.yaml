@@ -3,9 +3,20 @@ info:
   title: BTC TimesFM Forecast API
   version: 1.0.0
   description: >-
-    Read-only API contract for an optional self-hosted service. This project
-    does not provide a deployed public API endpoint.
-servers: []
+    Read-only API contract for an optional self-hosted service. Select the
+    scheme and API host for your deployment before sending a request. GitHub
+    Pages hosts this documentation, not the API.
+servers:
+  - url: '{scheme}://{host}'
+    description: Your forecast API deployment
+    variables:
+      scheme:
+        default: https
+        enum: [https, http]
+        description: Use https for deployed services; http is intended for localhost testing.
+      host:
+        default: localhost:8000
+        description: API hostname and optional port, without a path.
 security:
   - bearerAuth: []
 paths:
