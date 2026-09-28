@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>BTC TimesFM API — Swagger UI</title>
     <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
-    <style>body { margin: 0; } .notice { margin: 1rem auto; max-width: 900px; padding: 0 1rem; font: 1rem/1.5 sans-serif; }</style>
+    <style>body { margin: 0; } .notice { margin: 1rem auto; max-width: 1000px; padding: 0 1rem; font: 1rem/1.5 sans-serif; }</style>
   </head>
   <body>
-    <p class="notice">This repository documents an optional authenticated API. No public API server is deployed, so “Try it out” is disabled.</p>
+    <p class="notice">Choose your API host above, select <strong>Try it out</strong>, authorize with your bearer API key, and execute a GET request. This Pages site hosts the documentation only; it does not host a public API. For local testing, run the WSGI service and allow this page's origin in <code>BTC_FORECAST_API_CORS_ORIGINS</code>.</p>
     <div id="swagger-ui"></div>
     <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
     <script>
@@ -16,7 +16,7 @@
         url: "../openapi.yaml",
         dom_id: "#swagger-ui",
         deepLinking: true,
-        supportedSubmitMethods: [],
+        supportedSubmitMethods: ["get"],
         presets: [SwaggerUIBundle.presets.apis],
         layout: "BaseLayout"
       });

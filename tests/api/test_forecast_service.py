@@ -83,8 +83,11 @@ class TestForecastService(unittest.TestCase):
         auth: str | None = "Bearer secret",
         query: str = "",
         accept: str | None = None,
+        origin: str | None = None,
     ) -> tuple[int, dict[str, str], dict[str, Any]]:
-        return self._request_service(self.service, path, auth=auth, query=query, accept=accept)
+        return self._request_service(
+            self.service, path, auth=auth, query=query, accept=accept, origin=origin
+        )
 
     def _request_service(
         self,
@@ -95,6 +98,7 @@ class TestForecastService(unittest.TestCase):
         query: str = "",
         accept: str | None = None,
         method: str = "GET",
+        origin: str | None = None,
     ) -> tuple[int, dict[str, str], dict[str, Any]]:
         captured: dict[str, Any] = {}
         headers = {
@@ -108,6 +112,8 @@ class TestForecastService(unittest.TestCase):
             headers["HTTP_AUTHORIZATION"] = auth
         if accept is not None:
             headers["HTTP_ACCEPT"] = accept
+        if origin is not None:
+            headers["HTTP_ORIGIN"] = origin
         body = b"".join(
             service(
                 headers,
@@ -117,6 +123,49 @@ class TestForecastService(unittest.TestCase):
             )
         )
         return int(captured["status"].split()[0]), dict(captured["headers"]), json.loads(body)
+
+    def test_swagger_cors_preflight_and_allowed_origin(self) -> None:
+        origin = "https://jpfelgueiras.github.io"
+        service = ForecastService(
+            ServiceConfig(
+                self.database,
+                frozenset({"secret"}),
+                self.health,
+                self.audit,
+                cors_origins=frozenset({origin}),
+            ),
+            clock=lambda: NOW,
+        )
+        captured: dict[str, Any] = {}
+        preflight = {
+            "REQUEST_METHOD": "OPTIONS",
+            "PATH_INFO": "/v1/forecasts/latest",
+            "HTTP_ORIGIN": origin,
+            "HTTP_ACCESS_CONTROL_REQUEST_METHOD": "GET",
+            "HTTP_ACCESS_CONTROL_REQUEST_HEADERS": "authorization,accept",
+        }
+        body = b"".join(
+            service(
+                preflight,
+                lambda status, headers: captured.update(status=status, headers=headers),
+            )
+        )
+        self.assertEqual(body, b"")
+        self.assertEqual(captured["status"], "204 No Content")
+        self.assertIn(("Access-Control-Allow-Origin", origin), captured["headers"])
+        self.assertIn(("Access-Control-Allow-Methods", "GET, OPTIONS"), captured["headers"])
+
+        status, headers, _ = self._request_service(service, "/v1/health", origin=origin)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Access-Control-Allow-Origin"], origin)
+
+        captured.clear()
+        preflight["HTTP_ORIGIN"] = "https://untrusted.example"
+        service(
+            preflight,
+            lambda status, headers: captured.update(status=status, headers=headers),
+        )
+        self.assertEqual(captured["status"], "403 Forbidden")
 
     def test_authentication_media_type_and_rate_limit_are_enforced(self) -> None:
         status, _, body = self.request("/v1/forecasts/latest", auth=None)

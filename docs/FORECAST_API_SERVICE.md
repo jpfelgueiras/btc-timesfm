@@ -4,7 +4,29 @@
 
 ## Configuration
 
-Set `BTC_FORECAST_API_KEYS` to a comma-separated list of bearer tokens before creating the application. It refuses to start without a key. Optional configuration is `BTC_FORECAST_HISTORY_DB`, `BTC_PIPELINE_HEALTH_STATE`, `BTC_FORECAST_API_AUDIT_LOG`, `BTC_FORECAST_API_RATE_LIMIT` (default `60`), `BTC_FORECAST_API_RATE_WINDOW_SECONDS` (default `60`), `BTC_FORECAST_API_STALE_AFTER_SECONDS` (default `10800`), `BTC_FORECAST_API_AUDIT_MAX_BYTES` (default `10000000`), `BTC_FORECAST_API_AUDIT_BACKUPS` (default `3`), and `BTC_FORECAST_API_AUDIT_MAX_AGE_DAYS` (default `30`).
+Set `BTC_FORECAST_API_KEYS` to a comma-separated list of bearer tokens before creating the application. It refuses to start without a key. Optional configuration is `BTC_FORECAST_HISTORY_DB`, `BTC_PIPELINE_HEALTH_STATE`, `BTC_FORECAST_API_AUDIT_LOG`, `BTC_FORECAST_API_RATE_LIMIT` (default `60`), `BTC_FORECAST_API_RATE_WINDOW_SECONDS` (default `60`), `BTC_FORECAST_API_STALE_AFTER_SECONDS` (default `10800`), `BTC_FORECAST_API_AUDIT_MAX_BYTES` (default `10000000`), `BTC_FORECAST_API_AUDIT_BACKUPS` (default `3`), `BTC_FORECAST_API_AUDIT_MAX_AGE_DAYS` (default `30`), and `BTC_FORECAST_API_CORS_ORIGINS` (comma-separated exact browser origins; empty by default).
+
+### Trying requests from Swagger UI
+
+The [Swagger UI](https://jpfelgueiras.github.io/btc-timesfm/swagger/) can send the API's GET requests to a server you control. The GitHub Pages site does not run the API. Select the API scheme and host in Swagger, choose **Authorize** to enter your bearer key, then use **Try it out** on an endpoint. The API server must allow the Swagger page's browser origin with CORS; set `BTC_FORECAST_API_CORS_ORIGINS=https://jpfelgueiras.github.io` for the published UI. CORS is an origin allowlist, not authentication; endpoints still require a valid API key.
+
+For local development, point the Swagger server selector at `http://localhost:8000`, configure local history and health-state files, and run the WSGI app bound only to loopback:
+
+```bash
+export BTC_FORECAST_API_KEYS=local-development-key
+export BTC_FORECAST_API_CORS_ORIGINS=https://jpfelgueiras.github.io
+export BTC_FORECAST_HISTORY_DB=.state/forecast_history.sqlite
+export BTC_PIPELINE_HEALTH_STATE=.state/pipeline_health.json
+PYTHONPATH=src python - <<'PY'
+from wsgiref.simple_server import make_server
+from btc_timesfm.api.forecast_service import create_app
+
+with make_server("127.0.0.1", 8000, create_app()) as server:
+    server.serve_forever()
+PY
+```
+
+This `wsgiref` server is for local testing only. Do not use it as a production server or expose it to the network. Never enter a production key in a shared/public Swagger page; browser requests send the key to the selected API host.
 
 ### Supported production topology
 
