@@ -59,10 +59,15 @@ jobs:
             --db .state/forecast_history.sqlite \
             --output-dir build/forecasts
 
+      - name: Set forecast as the Pages landing page
+        run: cp scripts/pages-home.html build/index.html
+
       - name: Validate site output contract
         run: |
           PYTHONPATH=src python -m btc_timesfm.web.contract_validation build/forecasts
           test -f build/index.html
+          test -f build/openapi.yaml
+          test -f build/swagger/index.html
           touch build/.nojekyll
 
       - name: Configure Pages

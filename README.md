@@ -13,8 +13,10 @@ model setup.
 
 ## Project links
 
-- [Documentation portal](https://jpfelgueiras.github.io/btc-timesfm/)
+- [Forecast landing page](https://jpfelgueiras.github.io/btc-timesfm/)
 - [Forecast dashboard](https://jpfelgueiras.github.io/btc-timesfm/forecasts/)
+- [Documentation portal](https://jpfelgueiras.github.io/btc-timesfm/getting-started/)
+- [API Swagger UI](https://jpfelgueiras.github.io/btc-timesfm/swagger/)
 - [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Code of conduct](CODE_OF_CONDUCT.md)
 - [Repository guidance](AGENTS.md)
 - [License](LICENSE)
