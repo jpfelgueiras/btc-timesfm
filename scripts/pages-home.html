@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Published BTC/USD forecasts with documentation and API reference.">
+    <title>BTC TimesFM — Forecast</title>
+    <style>
+      :root { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; }
+      body { margin: 0; background: #f5f7fb; color: #172033; }
+      header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem max(1rem, calc((100% - 1200px) / 2)); background: #fff; border-bottom: 1px solid #dce2ec; }
+      h1 { margin: 0; font-size: 1.35rem; }
+      nav { display: flex; gap: 1rem; flex-wrap: wrap; }
+      a { color: #3157a4; }
+      main { max-width: 1200px; margin: 1.5rem auto; padding: 0 1rem; }
+      .dashboard { overflow: hidden; border: 1px solid #dce2ec; border-radius: 10px; background: white; box-shadow: 0 4px 16px #16213e12; }
+      iframe { display: block; width: 100%; height: min(78vh, 950px); min-height: 600px; border: 0; }
+      .note { color: #526078; font-size: .9rem; }
+      @media (prefers-color-scheme: dark) { body { background: #151922; color: #edf1fa; } header, .dashboard { background: #202633; border-color: #364052; } a { color: #a9c0ff; } .note { color: #b6c0d2; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>BTC TimesFM Forecast</h1>
+      <nav aria-label="Main navigation">
+        <a href="forecasts/">Open forecast dashboard</a>
+        <a href="getting-started/">Documentation</a>
+        <a href="swagger/">API Swagger</a>
+        <a href="https://github.com/jpfelgueiras/btc-timesfm">GitHub</a>
+      </nav>
+    </header>
+    <main>
+      <section class="dashboard" aria-label="Published BTC forecast dashboard">
+        <iframe src="forecasts/" title="Published BTC forecast dashboard" loading="eager"></iframe>
+      </section>
+      <p class="note">Forecasts are experimental estimates, not financial advice. The dashboard is a static snapshot of recorded forecasts and may not reflect live market prices.</p>
+    </main>
+  </body>
+</html>
