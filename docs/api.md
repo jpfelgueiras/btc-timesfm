@@ -1,22 +1,43 @@
 # API
 
-This page describes the HTTP behavior implemented by the repository's read-only
-forecast WSGI application. The repository supplies the application and its
-contract; it does **not** deploy a production WSGI server or publish a live API
-endpoint. There is no API hostname to call from these examples. The Pages
-forecast dashboard is a static site, not an API endpoint.
+GitHub Pages publishes a public, read-only static API from the same durable
+history snapshot as the forecast dashboard. It is available at the routes below
+and can be called directly from the [Swagger UI](https://jpfelgueiras.github.io/btc-timesfm/swagger/). The separate WSGI
+application provides authenticated query-time reads for operators who deploy
+their own server; GitHub Pages does not run that dynamic service.
 
 For implementation-level details, see the [versioned contract](FORECAST_API_CONTRACT.md)
 and [service guide](FORECAST_API_SERVICE.md). The corresponding contract and
 service behavior are exercised in `tests/api/test_forecast_contract.py` and
 `tests/api/test_forecast_service.py`.
 
-The [Swagger UI](https://jpfelgueiras.github.io/btc-timesfm/swagger/) supports
-trying GET requests against a selected API host. No public API server is deployed by this project; use a server you
-control and configure its CORS origin for the Swagger page. See the [service
-guide](FORECAST_API_SERVICE.md#trying-requests-from-swagger-ui) for local setup.
+## Public Pages API
 
-## Base behavior
+The Pages API consists of static JSON files rebuilt with the site, currently
+hourly and after forecast history updates:
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /btc-timesfm/api/v1/forecasts/latest.json` | Latest published forecast resource, or `null` when history is empty. |
+| `GET /btc-timesfm/api/v1/forecasts.json` | All forecast resources, newest origin first, then horizon and model. |
+
+Both responses contain `api_version`, `snapshot_at`, `data`, and `freshness`.
+These public files require no API key. They remain static snapshots until the
+next Pages build; they do not support query-time filters, pagination, writes,
+or a live health check. The full history response grows with retained history.
+Swagger **Try it out** calls these deployed Pages endpoints directly.
+
+The optional WSGI API documented below remains a separate authenticated service
+with query filters and cursor pagination. Its `/v1` routes are not the static
+Pages routes. See the [service guide](FORECAST_API_SERVICE.md) for that runtime.
+
+## Optional authenticated WSGI API
+
+The following `/v1` behavior applies only when you deploy the WSGI application
+yourself. These endpoints are distinct from the Pages-hosted `.json` routes
+above.
+
+### Base behavior
 
 All application API routes accept `GET` only. API calls use a bearer API key
 and the versioned media type:

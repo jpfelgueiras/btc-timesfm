@@ -17,6 +17,8 @@ model setup.
 - [Forecast dashboard](https://jpfelgueiras.github.io/btc-timesfm/forecasts/)
 - [Documentation portal](https://jpfelgueiras.github.io/btc-timesfm/getting-started/)
 - [API Swagger UI](https://jpfelgueiras.github.io/btc-timesfm/swagger/)
+- [Latest forecast API JSON](https://jpfelgueiras.github.io/btc-timesfm/api/v1/forecasts/latest.json)
+- [Forecast history API JSON](https://jpfelgueiras.github.io/btc-timesfm/api/v1/forecasts.json)
 - [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Code of conduct](CODE_OF_CONDUCT.md)
 - [Repository guidance](AGENTS.md)
 - [License](LICENSE)

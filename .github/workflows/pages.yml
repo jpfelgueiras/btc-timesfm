@@ -59,6 +59,12 @@ jobs:
             --db .state/forecast_history.sqlite \
             --output-dir build/forecasts
 
+      - name: Generate Pages forecast API snapshots
+        run: |
+          PYTHONPATH=src python -m btc_timesfm.web.static_api \
+            --db .state/forecast_history.sqlite \
+            --output-dir build
+
       - name: Set forecast as the Pages landing page
         run: cp scripts/pages-home.html build/index.html
 
@@ -68,6 +74,8 @@ jobs:
           test -f build/index.html
           test -f build/openapi.yaml
           test -f build/swagger/index.html
+          test -s build/api/v1/forecasts/latest.json
+          test -s build/api/v1/forecasts.json
           touch build/.nojekyll
 
       - name: Configure Pages
