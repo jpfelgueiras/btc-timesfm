@@ -23,11 +23,30 @@ paths:
                 $ref: '#/components/schemas/LatestSnapshot'
   /api/v1/forecasts.json:
     get:
-      summary: Get all published forecasts
-      operationId: listForecastSnapshots
+      summary: Get the first page of published forecast history
+      operationId: getFirstForecastSnapshotPage
       responses:
         '200':
-          description: Full immutable forecast history as of the site build
+          description: First immutable history page and its static continuation URL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistorySnapshot'
+  /api/v1/forecasts/page-{page}.json:
+    get:
+      summary: Get a continuation page of published forecast history
+      operationId: getForecastSnapshotPage
+      parameters:
+        - in: path
+          name: page
+          required: true
+          description: Four-digit page number from the preceding page's pagination.next_url.
+          schema:
+            type: string
+            pattern: '^\d{4}$'
+      responses:
+        '200':
+          description: Immutable history page and its static continuation URL
           content:
             application/json:
               schema:
@@ -86,7 +105,7 @@ components:
         freshness: { $ref: '#/components/schemas/Freshness' }
     HistorySnapshot:
       type: object
-      required: [api_version, snapshot_at, data, freshness]
+      required: [api_version, snapshot_at, data, freshness, pagination]
       properties:
         api_version: { type: string, const: v1 }
         snapshot_at: { type: string, format: date-time }
@@ -94,3 +113,9 @@ components:
           type: array
           items: { $ref: '#/components/schemas/Forecast' }
         freshness: { $ref: '#/components/schemas/Freshness' }
+        pagination:
+          type: object
+          required: [page_size, next_url]
+          properties:
+            page_size: { type: integer, const: 100 }
+            next_url: { type: [string, 'null'], format: uri }

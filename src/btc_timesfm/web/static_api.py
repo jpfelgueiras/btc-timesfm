@@ -13,6 +13,9 @@ from btc_timesfm.api.forecast_contract import API_VERSION, validate_forecast
 from btc_timesfm.api.forecast_service import ForecastService, ServiceConfig
 from btc_timesfm.history.history_store import DEFAULT_DB_PATH
 
+STATIC_API_PAGE_SIZE = 100
+PAGES_API_BASE_URL = "https://jpfelgueiras.github.io/btc-timesfm"
+
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -26,8 +29,11 @@ def generate_api(
     output_dir: Path,
     *,
     now: datetime | None = None,
+    page_size: int = STATIC_API_PAGE_SIZE,
 ) -> dict[str, Any]:
-    """Export latest and full-history API snapshots from the canonical SQLite history."""
+    """Export latest and paginated history snapshots from canonical SQLite history."""
+    if not 1 <= page_size <= STATIC_API_PAGE_SIZE:
+        raise ValueError(f"page_size must be between 1 and {STATIC_API_PAGE_SIZE}")
     generated_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     service = ForecastService(
         ServiceConfig(history_path=database, api_keys=frozenset({"static-export"})),
@@ -48,12 +54,6 @@ def generate_api(
     snapshot_at = generated_at.isoformat().replace("+00:00", "Z")
     latest = forecasts[0] if forecasts else None
     latest_freshness = service._freshness(latest["origin_at"] if latest else None)
-    all_payload = {
-        "api_version": API_VERSION,
-        "snapshot_at": snapshot_at,
-        "data": forecasts,
-        "freshness": latest_freshness,
-    }
     latest_payload = {
         "api_version": API_VERSION,
         "snapshot_at": snapshot_at,
@@ -61,12 +61,33 @@ def generate_api(
         "freshness": latest_freshness,
     }
 
-    _write_json(output_dir / "api/v1/forecasts.json", all_payload)
+    pages = [forecasts[index : index + page_size] for index in range(0, len(forecasts), page_size)]
+    if not pages:
+        pages = [[]]
+    for page_number, records in enumerate(pages, start=1):
+        if page_number == 1:
+            relative_path = "api/v1/forecasts.json"
+        else:
+            relative_path = f"api/v1/forecasts/page-{page_number:04d}.json"
+        next_url = None
+        if page_number < len(pages):
+            next_url = f"{PAGES_API_BASE_URL}/api/v1/forecasts/page-{page_number + 1:04d}.json"
+        _write_json(
+            output_dir / relative_path,
+            {
+                "api_version": API_VERSION,
+                "snapshot_at": snapshot_at,
+                "data": records,
+                "freshness": latest_freshness,
+                "pagination": {"page_size": page_size, "next_url": next_url},
+            },
+        )
     _write_json(output_dir / "api/v1/forecasts/latest.json", latest_payload)
     return {
         "api_version": API_VERSION,
         "snapshot_at": snapshot_at,
         "forecast_count": len(forecasts),
+        "page_count": len(pages),
         "latest_origin_at": latest["origin_at"] if latest else None,
     }
 
