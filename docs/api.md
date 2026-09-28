@@ -19,13 +19,15 @@ hourly and after forecast history updates:
 | Method and path | Purpose |
 | --- | --- |
 | `GET /btc-timesfm/api/v1/forecasts/latest.json` | Latest published forecast resource, or `null` when history is empty. |
-| `GET /btc-timesfm/api/v1/forecasts.json` | All forecast resources, newest origin first, then horizon and model. |
+| `GET /btc-timesfm/api/v1/forecasts.json` | First page of history, newest origin first, then horizon and model. |
+| `GET /btc-timesfm/api/v1/forecasts/page-NNNN.json` | A continuation page referenced by the preceding response. |
 
 Both responses contain `api_version`, `snapshot_at`, `data`, and `freshness`.
-These public files require no API key. They remain static snapshots until the
-next Pages build; they do not support query-time filters, pagination, writes,
-or a live health check. The full history response grows with retained history.
-Swagger **Try it out** calls these deployed Pages endpoints directly.
+History pages also contain `pagination.page_size` and `pagination.next_url`; use
+that URL to retrieve the next static page until it is `null`. These public files
+require no API key. They remain static snapshots until the next Pages build and
+do not support query-time filters, writes, or a live health check. Swagger
+**Try it out** calls these deployed Pages endpoints directly.
 
 The optional WSGI API documented below remains a separate authenticated service
 with query filters and cursor pagination. Its `/v1` routes are not the static
