@@ -11,9 +11,9 @@ servers:
     description: Your forecast API deployment
     variables:
       scheme:
-        default: https
+        default: http
         enum: [https, http]
-        description: Use https for deployed services; http is intended for localhost testing.
+        description: Use http for localhost testing; use https for deployed services.
       host:
         default: localhost:8000
         description: API hostname and optional port, without a path.
