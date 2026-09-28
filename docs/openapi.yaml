@@ -1,121 +1,96 @@
 openapi: 3.1.0
 info:
-  title: BTC TimesFM Forecast API
+  title: BTC TimesFM Pages API
   version: 1.0.0
   description: >-
-    Read-only API contract for an optional self-hosted service. Select the
-    scheme and API host for your deployment before sending a request. GitHub
-    Pages hosts this documentation, not the API.
+    Public, read-only forecast snapshots generated from durable history during
+    each GitHub Pages build. This is a static API: responses change only when
+    the site is rebuilt. No authentication or query-time filtering is provided.
 servers:
-  - url: '{scheme}://{host}'
-    description: Your forecast API deployment
-    variables:
-      scheme:
-        default: http
-        enum: [https, http]
-        description: Use http for localhost testing; use https for deployed services.
-      host:
-        default: localhost:8000
-        description: API hostname and optional port, without a path.
-security:
-  - bearerAuth: []
+  - url: https://jpfelgueiras.github.io/btc-timesfm
+    description: Public GitHub Pages API
 paths:
-  /v1/forecasts/latest:
+  /api/v1/forecasts/latest.json:
     get:
-      summary: Get the latest forecast
-      operationId: getLatestForecast
+      summary: Get the latest published forecast
+      operationId: getLatestForecastSnapshot
       responses:
         '200':
-          description: Latest forecast resource
+          description: Latest forecast and snapshot freshness
           content:
-            application/vnd.btc-timesfm.forecast.v1+json:
+            application/json:
               schema:
-                $ref: '#/components/schemas/Envelope'
-        '401':
-          $ref: '#/components/responses/ApiError'
-        '404':
-          $ref: '#/components/responses/ApiError'
-        '503':
-          $ref: '#/components/responses/ApiError'
-  /v1/forecasts:
+                $ref: '#/components/schemas/LatestSnapshot'
+  /api/v1/forecasts.json:
     get:
-      summary: List historical forecasts
-      operationId: listForecasts
-      parameters:
-        - in: query
-          name: origin_from
-          schema: { type: string, format: date-time }
-        - in: query
-          name: origin_to
-          schema: { type: string, format: date-time }
-        - in: query
-          name: horizon_hours
-          schema: { type: integer, minimum: 1 }
-        - in: query
-          name: model
-          schema: { type: string }
-        - in: query
-          name: run_id
-          schema: { type: string }
-        - in: query
-          name: limit
-          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
-        - in: query
-          name: cursor
-          schema: { type: string }
+      summary: Get all published forecasts
+      operationId: listForecastSnapshots
       responses:
         '200':
-          description: Forecast page
+          description: Full immutable forecast history as of the site build
           content:
-            application/vnd.btc-timesfm.forecast.v1+json:
+            application/json:
               schema:
-                $ref: '#/components/schemas/Envelope'
-        '400':
-          $ref: '#/components/responses/ApiError'
-        '401':
-          $ref: '#/components/responses/ApiError'
-        '503':
-          $ref: '#/components/responses/ApiError'
-  /v1/health:
-    get:
-      summary: Read forecast service health
-      operationId: getHealth
-      responses:
-        '200':
-          description: Health state, including degraded states
-          content:
-            application/vnd.btc-timesfm.forecast.v1+json:
-              schema:
-                $ref: '#/components/schemas/Envelope'
-        '401':
-          $ref: '#/components/responses/ApiError'
+                $ref: '#/components/schemas/HistorySnapshot'
 components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-  responses:
-    ApiError:
-      description: API error
-      content:
-        application/vnd.btc-timesfm.forecast.v1+json:
-          schema:
-            $ref: '#/components/schemas/Envelope'
   schemas:
-    Envelope:
+    Freshness:
       type: object
+      required: [observed_at, age_seconds, status]
       properties:
-        api_version:
+        observed_at:
+          type: [string, 'null']
+          format: date-time
+        age_seconds:
+          type: number
+          minimum: 0
+        status:
           type: string
-          const: v1
+          enum: [fresh, stale, unknown]
+    Forecast:
+      type: object
+      required:
+        - forecast_id
+        - origin_at
+        - target_at
+        - horizon_hours
+        - model
+        - estimate
+        - interval
+        - confidence
+        - run
+        - lineage
+        - freshness
+      properties:
+        forecast_id: { type: string }
+        origin_at: { type: string, format: date-time }
+        target_at: { type: string, format: date-time }
+        horizon_hours: { type: integer, minimum: 1 }
+        model: { type: object, additionalProperties: true }
+        estimate: { type: object, additionalProperties: true }
+        interval: { type: object, additionalProperties: true }
+        confidence: { type: object, additionalProperties: true }
+        run: { type: object, additionalProperties: true }
+        lineage: { type: object, additionalProperties: true }
+        freshness: { $ref: '#/components/schemas/Freshness' }
+    LatestSnapshot:
+      type: object
+      required: [api_version, snapshot_at, data, freshness]
+      properties:
+        api_version: { type: string, const: v1 }
+        snapshot_at: { type: string, format: date-time }
         data:
-          description: Response data; resource shape is documented in the API contract.
-        pagination:
-          type: object
-          additionalProperties: true
-        freshness:
-          type: object
-          additionalProperties: true
-        error:
-          type: object
-          additionalProperties: true
+          oneOf:
+            - $ref: '#/components/schemas/Forecast'
+            - type: 'null'
+        freshness: { $ref: '#/components/schemas/Freshness' }
+    HistorySnapshot:
+      type: object
+      required: [api_version, snapshot_at, data, freshness]
+      properties:
+        api_version: { type: string, const: v1 }
+        snapshot_at: { type: string, format: date-time }
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Forecast' }
+        freshness: { $ref: '#/components/schemas/Freshness' }
