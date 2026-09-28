@@ -10,18 +10,18 @@ estimates, not guarantees.
 
 ```mermaid
 flowchart LR
-  Scheduler[Hourly dispatcher / forecast workflow] -->|forecast invocation| Runner[Validated entrypoint]
-  Kraken[Kraken BTC/USD OHLC] --> Validate[Provider selection and validation]
+  Scheduler[Dispatcher and workflow] -->|invoke| Runner[Validated entrypoint]
+  Kraken[Kraken BTC USD candles] --> Validate[Provider validation]
   Runner --> Validate
   Validate --> Engine[Forecast engine]
-  Release[(GitHub Release durable state)] -->|restore SQLite, X registry, health| Runner
-  Runner -->|forecast.json, cache, diagnostics| Artifacts[Workflow artifacts]
-  Runner -->|SQLite, CSV, state| Release
-  Runner -. optional, gated .-> X[X publication]
-  Release -->|SQLite history| PagesBuild[Pages build workflow]
-  PagesBuild --> Static[Static forecast site / JSON]
+  Release[(GitHub Release state)] -->|restore history| Runner
+  Runner -->|results and diagnostics| Artifacts[Workflow artifacts]
+  Runner -->|history and state| Release
+  Runner -. optional .-> X[X publication]
+  Release -->|forecast history| PagesBuild[Pages build]
+  PagesBuild --> Static[Static forecast site]
   Static --> Browser[GitHub Pages display]
-  SQLite[(Canonical SQLite history)] --> WSGI[Optional read-only WSGI API]
+  SQLite[(SQLite history)] --> WSGI[Optional read-only API]
   APIClient[API client] --> WSGI
 ```
 
@@ -34,28 +34,28 @@ See the [API contract](FORECAST_API_CONTRACT.md) and [API service](FORECAST_API_
 
 ```mermaid
 sequenceDiagram
-  participant S as Scheduler / GitHub Actions
-  participant V as validated_entrypoints.run_forecast
-  participant D as Provider selection and validation
-  participant H as Durable SQLite history
-  participant M as TimesFM and baselines
-  participant P as Postprocess and persistence
+  participant S as Scheduler
+  participant V as Forecast runner
+  participant D as Data validation
+  participant H as SQLite history
+  participant M as Models
+  participant P as Postprocess
   participant R as GitHub Release
-  participant X as Optional X publisher
-  S->>R: Restore history and publication state
-  S->>V: Invoke forecast after schedule guard
-  V->>D: Fetch redundant hourly BTC/USD candles
-  D-->>V: Validated provider result (fallback if needed)
-  V->>H: Restore/migrate cache if applicable; read mature history
-  V->>M: Load pinned CPU model and run inference
-  M-->>V: Return forecasts, quantiles, baselines
-  V->>P: Weight, calibrate, diagnose, reconcile horizons
-  P->>H: Save rolling cache; persist forecast and mature outcomes
-  P->>R: Verify/export and release durable database/state
-  opt Scheduled or explicitly requested and health-gated
-    P->>X: Prepare/reserve, publish idempotently, persist registry
+  participant X as X publisher
+  S->>R: Restore history
+  S->>V: Invoke forecast
+  V->>D: Fetch BTC USD candles
+  D-->>V: Validated market data
+  V->>H: Read mature history
+  V->>M: Run inference
+  M-->>V: Forecasts and intervals
+  V->>P: Calibrate and reconcile horizons
+  P->>H: Persist forecast and outcomes
+  P->>R: Publish durable history
+  opt Optional health-gated publication
+    P->>X: Publish forecast
   end
-  R-->>S: Durable forecast history for future runs
+  R-->>S: Forecast history for future runs
 ```
 
 The hourly dispatcher wakes at minute 7 and dispatches the forecast workflow

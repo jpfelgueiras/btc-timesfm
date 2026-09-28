@@ -1,0 +1,110 @@
+openapi: 3.1.0
+info:
+  title: BTC TimesFM Forecast API
+  version: 1.0.0
+  description: >-
+    Read-only API contract for an optional self-hosted service. This project
+    does not provide a deployed public API endpoint.
+servers: []
+security:
+  - bearerAuth: []
+paths:
+  /v1/forecasts/latest:
+    get:
+      summary: Get the latest forecast
+      operationId: getLatestForecast
+      responses:
+        '200':
+          description: Latest forecast resource
+          content:
+            application/vnd.btc-timesfm.forecast.v1+json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '503':
+          $ref: '#/components/responses/ApiError'
+  /v1/forecasts:
+    get:
+      summary: List historical forecasts
+      operationId: listForecasts
+      parameters:
+        - in: query
+          name: origin_from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: origin_to
+          schema: { type: string, format: date-time }
+        - in: query
+          name: horizon_hours
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: model
+          schema: { type: string }
+        - in: query
+          name: run_id
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+      responses:
+        '200':
+          description: Forecast page
+          content:
+            application/vnd.btc-timesfm.forecast.v1+json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '503':
+          $ref: '#/components/responses/ApiError'
+  /v1/health:
+    get:
+      summary: Read forecast service health
+      operationId: getHealth
+      responses:
+        '200':
+          description: Health state, including degraded states
+          content:
+            application/vnd.btc-timesfm.forecast.v1+json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '401':
+          $ref: '#/components/responses/ApiError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  responses:
+    ApiError:
+      description: API error
+      content:
+        application/vnd.btc-timesfm.forecast.v1+json:
+          schema:
+            $ref: '#/components/schemas/Envelope'
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        api_version:
+          type: string
+          const: v1
+        data:
+          description: Response data; resource shape is documented in the API contract.
+        pagination:
+          type: object
+          additionalProperties: true
+        freshness:
+          type: object
+          additionalProperties: true
+        error:
+          type: object
+          additionalProperties: true

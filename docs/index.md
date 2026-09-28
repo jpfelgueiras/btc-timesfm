@@ -9,6 +9,7 @@ evaluation, API, and operations.
 - [Getting started](getting-started.md) — install dependencies and run the project.
 - [Forecasting](forecasting.md) — understand the forecast lifecycle, confidence, and limitations.
 - [Forecast dashboard](https://jpfelgueiras.github.io/btc-timesfm/forecasts/) — browse published forecasts and matured outcomes.
+- [API Swagger UI](https://jpfelgueiras.github.io/btc-timesfm/swagger/) — explore the authenticated read-only API contract (no public API server is deployed).
 
 ## Project
 
