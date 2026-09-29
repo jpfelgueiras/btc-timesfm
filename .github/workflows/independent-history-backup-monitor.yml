@@ -53,15 +53,19 @@ jobs:
       - name: Add verification report to summary
         if: always() && (hashFiles('independent_backup_monitor.json') != '' || hashFiles('independent_shadow_backup_monitor.json') != '')
         run: |
-          echo '## Independent forecast-history backup' >> "$GITHUB_STEP_SUMMARY"
-          echo '```json' >> "$GITHUB_STEP_SUMMARY"
-          cat independent_backup_monitor.json >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo '' >> "$GITHUB_STEP_SUMMARY"
-          echo '## Independent shadow-evidence backup' >> "$GITHUB_STEP_SUMMARY"
-          echo '```json' >> "$GITHUB_STEP_SUMMARY"
-          cat independent_shadow_backup_monitor.json >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          if [ -f independent_backup_monitor.json ]; then
+            echo '## Independent forecast-history backup' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat independent_backup_monitor.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo '' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f independent_shadow_backup_monitor.json ]; then
+            echo '## Independent shadow-evidence backup' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat independent_shadow_backup_monitor.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload verification report
         if: always() && (hashFiles('independent_backup_monitor.json') != '' || hashFiles('independent_shadow_backup_monitor.json') != '')
