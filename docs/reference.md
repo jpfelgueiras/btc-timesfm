@@ -180,7 +180,8 @@ Schema migrations do not change the release tag.
 The independent S3-compatible backup is separate from Release retention and
 cannot be inferred from the Release copy. It stores immutable SHA-256-named
 archive generations and a manifest pointer, verifies downloaded data before
-switching the pointer, and is monitored every 30 minutes with a 2-hour age gate;
+switching the pointer, refreshed from canonical Release assets every 30 minutes,
+and monitored every 30 minutes with a 2-hour age gate;
 weekly recovery drills target RPO 3 hours/RTO 1 hour. These are workflow design
 targets, not evidence of configured service. URI, AWS region, and both AWS
 secrets remain outstanding repository setup in this environment.

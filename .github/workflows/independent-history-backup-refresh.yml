@@ -1,0 +1,85 @@
+name: Refresh independent forecast-history backup
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-timesfm-forecast
+  cancel-in-progress: false
+
+env:
+  HISTORY_RELEASE_TAG: forecast-history-v1
+  HISTORY_INDEPENDENT_BACKUP_URI: ${{ vars.HISTORY_INDEPENDENT_BACKUP_URI }}
+  HISTORY_BACKUP_AWS_ENDPOINT_URL: ${{ vars.HISTORY_BACKUP_AWS_ENDPOINT_URL }}
+
+jobs:
+  refresh-independent-backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: ./.github/actions/python-setup
+        with:
+          dependency-set: maintenance
+
+      - name: Refresh verified independent backup copies
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.HISTORY_BACKUP_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.HISTORY_BACKUP_AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ vars.HISTORY_BACKUP_AWS_REGION }}
+        run: |
+          set -euo pipefail
+          if [ -z "$HISTORY_INDEPENDENT_BACKUP_URI" ]; then
+            echo "Independent backup is not configured; set HISTORY_INDEPENDENT_BACKUP_URI." >&2
+            exit 1
+          fi
+          mkdir -p .state
+          gh release download "$HISTORY_RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'forecast_history.sqlite.gz' \
+            --pattern 'shadow_deployment.sqlite.gz' \
+            --dir .state
+          PYTHONPATH=src python -m btc_timesfm.history.independent_backup upload \
+            --archive .state/forecast_history.sqlite.gz \
+            --uri "$HISTORY_INDEPENDENT_BACKUP_URI" \
+            --report independent_backup_refresh.json
+          PYTHONPATH=src python -m btc_timesfm.history.independent_backup upload \
+            --archive .state/shadow_deployment.sqlite.gz \
+            --uri "${HISTORY_INDEPENDENT_BACKUP_URI}.shadow_deployment" \
+            --database-type shadow_deployment \
+            --report independent_shadow_backup_refresh.json
+
+      - name: Add refresh reports to summary
+        if: always() && (hashFiles('independent_backup_refresh.json') != '' || hashFiles('independent_shadow_backup_refresh.json') != '')
+        run: |
+          if [ -f independent_backup_refresh.json ]; then
+            echo '## Independent forecast-history backup refresh' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat independent_backup_refresh.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo '' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f independent_shadow_backup_refresh.json ]; then
+            echo '## Independent shadow-evidence backup refresh' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat independent_shadow_backup_refresh.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload refresh reports
+        if: always() && (hashFiles('independent_backup_refresh.json') != '' || hashFiles('independent_shadow_backup_refresh.json') != '')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: independent-history-backup-refresh-${{ github.run_id }}
+          path: |
+            independent_backup_refresh.json
+            independent_shadow_backup_refresh.json
+          retention-days: 90

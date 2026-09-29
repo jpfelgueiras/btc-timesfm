@@ -49,9 +49,12 @@ encryption at rest, object versioning, and a lifecycle policy retaining at least
 does not print command diagnostics or credentials.
 
 The scheduled production cadence is every two hours. A separate 30-minute
-monitor downloads and verifies the full pair, reports age/bytes/checksum/schema
-and last successful restore, and fails/opens a deduplicated incident when the
-copy is older than two hours. The recovery objective is **RPO 3 hours** and
+refresh workflow republishes the current canonical Release archives to the
+independent destination and verifies both databases before switching each
+manifest pointer. A separate 30-minute monitor downloads and verifies the full
+pair, reports age/bytes/checksum/schema and last successful restore, and
+fails/opens a deduplicated incident when the copy is older than two hours. The
+recovery objective is **RPO 3 hours** and
 **RTO 1 hour**. A copy/verification failure opens a GitHub
 incident issue and stops canonical Release replacement and pruning. Missing
 destination configuration is also an explicit failure, not an implied backup.

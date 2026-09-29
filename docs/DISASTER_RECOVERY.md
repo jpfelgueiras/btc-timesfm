@@ -2,7 +2,7 @@
 
 The weekly **Forecast history disaster-recovery drill** downloads the independent S3-compatible archive and manifest into Actions scratch storage. It verifies the archive SHA-256 and size, SQLite integrity/schema, and the manifest's row counts/latest origin before running the history audit and 30-day recency check. Only a successful full drill records the last successful restore receipt in S3. The drill never uploads, modifies, or deletes a production history asset.
 
-The 30-minute **Independent forecast-history backup monitor** also downloads and verifies the archive/manifest pair. It reports backup age, bytes, checksum, schema, row counts, and last successful restore; a copy older than two hours fails visibly and opens a deduplicated incident, providing margin before the three-hour RPO. The weekly drill and monitor share the `btc-timesfm-forecast` concurrency group with production publication. Reports are retained as 90-day Actions artifacts.
+The 30-minute **Refresh independent forecast-history backup** workflow republishes the latest canonical forecast and shadow archives from the Release, verifying them before switching the independent manifest pointers. The separate 30-minute **Independent forecast-history backup monitor** downloads and verifies the archive/manifest pair. It reports backup age, bytes, checksum, schema, row counts, and last successful restore; a copy older than two hours fails visibly and opens a deduplicated incident, providing margin before the three-hour RPO. The refresh, weekly drill, and monitor share the `btc-timesfm-forecast` concurrency group with production publication. Reports are retained as 90-day Actions artifacts.
 
 ## Failure response
 
