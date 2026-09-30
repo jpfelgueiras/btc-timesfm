@@ -11,6 +11,9 @@ permissions:
   actions: write
   contents: read
 
+env:
+  HISTORY_RELEASE_TAG: forecast-history-v1
+
 concurrency:
   group: hourly-btc-forecast-dispatch
   cancel-in-progress: true
@@ -24,6 +27,20 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - uses: ./.github/actions/python-setup
+
+      - name: Dispatch independent history backup refresh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$HISTORY_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if ! gh workflow run independent-history-backup-refresh.yml \
+              --repo "$GITHUB_REPOSITORY" \
+              --ref main; then
+              echo "::warning::Could not dispatch the independent history backup refresh."
+            fi
+          else
+            echo "No durable history Release exists yet; skipping backup refresh."
+          fi
 
       - name: Dispatch production forecast without X posting
         env:

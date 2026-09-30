@@ -18,10 +18,6 @@ on:
         required: false
         default: "48"
         type: string
-  schedule:
-    # Weekly research run, away from production minute 37 and optimizer Sunday run.
-    - cron: "47 5 * * 3"
-
 permissions:
   contents: read
 
