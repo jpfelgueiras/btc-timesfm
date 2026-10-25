@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-  schedule:
+  #schedule:
     # Rebuild hourly as a fallback even if the forecast workflow is delayed.
-    - cron: "17 * * * *"
+  #  - cron: "17 * * * *"
   workflow_run:
     workflows: ["BTC TimesFM 3 Forecast"]
     types: [completed]
